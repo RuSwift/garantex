@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web3 Authentication - Metamask</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .status.error {
+            background: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border: 1px solid #90caf9;
+        }
+
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border: 1px solid #81c784;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        button.secondary:hover:not(:disabled) {
+            background: #e0e0e0;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .user-info {
+            background: #f9f9f9;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            text-align: left;
+        }
+
+        .user-info h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .user-info p {
+            color: #666;
+            margin-bottom: 10px;
+            font-size: 14px;
+            word-break: break-all;
+        }
+
+        .user-info strong {
+            color: #333;
+        }
+
+        .sign-section {
+            background: #f9f9f9;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            text-align: left;
+        }
+
+        .sign-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .sign-section label {
+            display: block;
+            color: #666;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .sign-section textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 100px;
+            margin-bottom: 15px;
+        }
+
+        .sign-section textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .signature-result {
+            background: #fff;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+            word-break: break-all;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #333;
+        }
+
+        .signature-result strong {
+            display: block;
+            margin-bottom: 8px;
+            color: #667eea;
+            font-size: 14px;
+        }
+
+        .network-section {
+            background: #f9f9f9;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            text-align: left;
+        }
+
+        .network-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .network-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .network-name {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .network-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            background: #667eea;
+            color: white;
+        }
+
+        .network-badge.unsupported {
+            background: #f44336;
+        }
+
+        .network-selector {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .network-btn {
+            padding: 12px 20px;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: left;
+            font-size: 14px;
+        }
+
+        .network-btn:hover {
+            border-color: #667eea;
+            background: #f5f5ff;
+        }
+
+        .network-btn.active {
+            border-color: #667eea;
+            background: #e8e5ff;
+            font-weight: 600;
+        }
+
+        .network-btn .network-name {
+            display: block;
+            color: #333;
+            margin-bottom: 4px;
+        }
+
+        .network-btn .network-chain-id {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Web3 Authentication</h1>
+        <p class="subtitle">Connect with Metamask to authenticate</p>
+
+        <div id="status" class="status hidden"></div>
+
+        <div id="not-connected">
+            <button id="connect-btn">
+                Connect Metamask
+            </button>
+            <p style="color: #999; font-size: 12px; margin-top: 20px;">
+                Make sure you have Metamask installed and unlocked
+            </p>
+        </div>
+
+        <div id="connected" class="hidden">
+            <button id="disconnect-btn" class="secondary">
+                Disconnect
+            </button>
+            <div class="user-info">
+                <h3>Authenticated</h3>
+                <p><strong>Wallet Address:</strong> <span id="wallet-address"></span></p>
+                <p><strong>Status:</strong> <span id="auth-status">Authenticated</span></p>
+            </div>
+
+            <div class="network-section">
+                <h3>🌐 Network</h3>
+                <div class="network-info">
+                    <span class="network-name">Current: <span id="current-network-name">-</span></span>
+                    <span class="network-badge" id="network-badge">Chain ID: <span id="current-chain-id">-</span></span>
+                </div>
+                <div class="network-selector" id="network-selector">
+                    <!-- Network buttons will be generated here -->
+                </div>
+            </div>
+
+            <div class="sign-section">
+                <h3>✍️ Sign Message</h3>
+                <label for="message-input">Enter text to sign:</label>
+                <textarea id="message-input" placeholder="Type any message you want to sign with your wallet..."></textarea>
+                <button id="sign-btn">
+                    Sign with MetaMask
+                </button>
+                <div id="signature-result" class="signature-result hidden">
+                    <strong>Signature:</strong>
+                    <div id="signature-value"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/metamask-auth.js"></script>
+</body>
+</html>
+

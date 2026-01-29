@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        
+        .ai-chat-root {
+            display: flex;
+            height: 100vh;
+            width: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f0f2f5;
+            color: #212121;
+        }
+        
+        /* Sidebar - Light Telegram style */
+        .ai-sidebar {
+            width: 320px;
+            background: #ffffff;
+            border-right: 1px solid #e4e4e4;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .ai-sidebar input {
+            margin: 12px;
+            padding: 10px 16px;
+            border-radius: 20px;
+            border: none;
+            outline: none;
+            background: #f0f2f5;
+            color: #212121;
+            font-size: 14px;
+        }
+        
+        .ai-sidebar input::placeholder {
+            color: #8e8e93;
+        }
+        
+        .ai-contact {
+            padding: 12px 16px;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f2f5;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: background 0.15s;
+        }
+        
+        .ai-contact:hover {
+            background: #f5f6f6;
+        }
+        
+        .ai-contact.active {
+            background: #e8f4f8;
+        }
+        
+        .ai-contact-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: #3390ec;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: white;
+            flex-shrink: 0;
+        }
+        
+        .ai-contact-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .ai-contact .name {
+            font-weight: 500;
+            font-size: 15px;
+            color: #212121;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .ai-contact .last {
+            font-size: 13px;
+            color: #8e8e93;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .ai-contact.active .name {
+            color: #212121;
+        }
+        
+        .ai-contact.active .last {
+            color: #707579;
+        }
+        
+        /* Chat - Light Telegram style */
+        .ai-chat {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #e5ddd5;
+            background-image: 
+                url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3Cpattern id='grid' width='100' height='100' patternUnits='userSpaceOnUse'%3E%3Cpath d='M 100 0 L 0 0 0 100' fill='none' stroke='%23d4d4d4' stroke-width='0.5' opacity='0.3'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23grid)' /%3E%3C/svg%3E");
+        }
+        
+        .ai-chat-header {
+            padding: 12px 20px;
+            background: #ffffff;
+            border-bottom: 1px solid #e4e4e4;
+            font-weight: 500;
+            font-size: 16px;
+            color: #212121;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .ai-chat-body {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: transparent;
+        }
+        
+        .ai-chat-body::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .ai-chat-body::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .ai-chat-body::-webkit-scrollbar-thumb {
+            background: #c4c4c4;
+            border-radius: 3px;
+        }
+        
+        .ai-chat-body::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+        
+        .ai-msg {
+            max-width: 65%;
+            padding: 8px 12px;
+            border-radius: 12px;
+            margin-bottom: 4px;
+            font-size: 15px;
+            line-height: 1.4;
+            word-wrap: break-word;
+            position: relative;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+        
+        .ai-msg.user {
+            background: #dcf8c6;
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+            color: #212121;
+        }
+        
+        .ai-msg.bot {
+            background: #ffffff;
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+            color: #212121;
+            border: 1px solid #e4e4e4;
+        }
+        
+        .ai-msg-wrapper {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 8px;
+        }
+        
+        .ai-msg-wrapper.user {
+            align-items: flex-end;
+        }
+        
+        .ai-msg-wrapper.bot {
+            align-items: flex-start;
+        }
+        
+        .ai-time {
+            font-size: 11px;
+            opacity: 0.6;
+            margin-top: 4px;
+            text-align: right;
+            color: inherit;
+        }
+        
+        .ai-msg.user .ai-time {
+            color: rgba(33, 33, 33, 0.6);
+        }
+        
+        .ai-msg.bot .ai-time {
+            color: #8e8e93;
+        }
+        
+        /* Input - Light Telegram style */
+        .ai-chat-footer {
+            padding: 12px 16px;
+            background: #ffffff;
+            border-top: 1px solid #e4e4e4;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .ai-chat-footer input {
+            flex: 1;
+            padding: 10px 16px;
+            border-radius: 22px;
+            border: none;
+            background: #f0f2f5;
+            color: #212121;
+            font-size: 15px;
+            outline: none;
+        }
+        
+        .ai-chat-footer input::placeholder {
+            color: #8e8e93;
+        }
+        
+        .ai-chat-footer button {
+            padding: 10px 24px;
+            border-radius: 22px;
+            border: none;
+            background: #3390ec;
+            color: white;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        
+        .ai-chat-footer button:hover {
+            background: #2d7fd1;
+        }
+        
+        .ai-chat-footer button:active {
+            background: #256bb8;
+        }
+        
+        .ai-chat-footer .sign-btn {
+            padding: 10px 16px;
+            border-radius: 22px;
+            border: none;
+            background: #f0f2f5;
+            color: #3390ec;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .ai-chat-footer .sign-btn:hover {
+            background: #e0e2e5;
+        }
+        
+        .ai-chat-footer .sign-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .ai-msg-signature {
+            font-size: 11px;
+            color: #8e8e93;
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px solid rgba(0, 0, 0, 0.05);
+            word-break: break-all;
+            font-family: monospace;
+        }
+        
+        .ai-msg.user .ai-msg-signature {
+            border-top-color: rgba(255, 255, 255, 0.2);
+            color: rgba(33, 33, 33, 0.7);
+        }
+        
+        .ai-msg-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        
+        .ai-msg:hover .ai-msg-actions {
+            opacity: 1;
+        }
+        
+        .ai-msg-action-btn {
+            background: rgba(0, 0, 0, 0.05);
+            border: none;
+            border-radius: 8px;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 11px;
+            color: #8e8e93;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .ai-msg-action-btn:hover {
+            background: rgba(0, 0, 0, 0.1);
+            color: #212121;
+        }
+        
+        .ai-msg-action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .ai-msg.user .ai-msg-action-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: rgba(33, 33, 33, 0.8);
+        }
+        
+        .ai-msg.user .ai-msg-action-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            color: #212121;
+        }
+        
+        /* Status Panel Card */
+        .ai-status-panel {
+            background: #ffffff;
+            border: 1px solid #e4e4e4;
+            border-radius: 12px;
+            margin: 12px 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        
+        .ai-status-panel.hidden {
+            display: none;
+        }
+        
+        .ai-status-header {
+            padding: 14px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e4e4e4;
+            transition: background 0.2s;
+        }
+        
+        .ai-status-header:hover {
+            background: #f0f2f5;
+        }
+        
+        .ai-status-header-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #212121;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .ai-status-header-title::before {
+            content: '💼';
+            font-size: 16px;
+        }
+        
+        .ai-status-toggle {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px 8px;
+            color: #8e8e93;
+            font-size: 18px;
+            transition: transform 0.3s ease, color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .ai-status-toggle:hover {
+            color: #212121;
+        }
+        
+        .ai-status-toggle.collapsed {
+            transform: rotate(-90deg);
+        }
+        
+        .ai-status-content {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 500px;
+            transition: max-height 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+            opacity: 1;
+        }
+        
+        .ai-status-content.collapsed {
+            max-height: 0;
+            padding: 0 16px;
+            opacity: 0;
+            overflow: hidden;
+        }
+        
+        .ai-status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+        }
+        
+        .ai-status-label {
+            font-size: 13px;
+            color: #8e8e93;
+            font-weight: 500;
+        }
+        
+        .ai-status-value {
+            font-size: 14px;
+            color: #212121;
+            font-weight: 500;
+            word-break: break-all;
+            text-align: right;
+            max-width: 60%;
+        }
+        
+        .ai-status-value.wallet {
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        .ai-status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .ai-status-badge.pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .ai-status-badge.rejected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .ai-status-badge.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        /* Empty state */
+        .ai-chat-body[style*="display:flex"] {
+            color: #8e8e93;
+            font-size: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <ai-chat-app></ai-chat-app>
+    </div>
+
+    <script>
+        Vue.component('ai-chat-app', {
+            delimiters: ['[[', ']]'],
+            data() {
+                return {
+                    mobileView: 'sidebar',
+                    searchQuery: '',
+                    inputText: '',
+                    selectedContactId: null,
+                    isAuthenticated: false,
+                    walletAddress: null,
+                    isSigning: false,
+                    pendingSignature: null, // Full signature for message being typed
+                    API_BASE: '',
+                    escrowData: {
+                        wallet: null,
+                        balance: '0',
+                        amount: '0',
+                        status: 'pending', // pending, rejected, success
+                        guarantor: null // Address of the guarantor who approves/rejects the deal
+                    },
+                    isStatusPanelCollapsed: false,
+                    contacts: [
+                        {
+                            id: 'gemini',
+                            name: 'Gemini AI Assistant',
+                            avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Gemini',
+                            status: 'online',
+                            lastSeen: 'online',
+                            lastMessage: 'Hello! I am your AI companion.',
+                            personality: 'You are Gemini, a helpful and sophisticated AI assistant.',
+                            isTyping: false
+                        },
+                        {
+                            id: 'neo',
+                            name: 'Neo the Tech Specialist',
+                            avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Neo',
+                            status: 'offline',
+                            lastSeen: 'last seen 10m ago',
+                            lastMessage: 'Let me know if you need code help.',
+                            personality: 'You are Neo, a technical expert.',
+                            isTyping: false
+                        }
+                    ],
+                    messages: {},
+                    chatSessions: {}
+                }
+            },
+            computed: {
+                filteredContacts() {
+                    const q = this.searchQuery.toLowerCase()
+                    return this.contacts.filter(c =>
+                        c.name.toLowerCase().includes(q)
+                    )
+                },
+                selectedContact() {
+                    return this.contacts.find(c => c.id === this.selectedContactId)
+                },
+                currentMessages() {
+                    return this.messages[this.selectedContactId] || []
+                }
+            },
+            methods: {
+                async checkAuth() {
+                    const cookies = document.cookie.split(';');
+                    const tokenCookie = cookies.find(c => c.trim().startsWith('auth_token='));
+                    
+                    if (tokenCookie) {
+                        const token = tokenCookie.split('=')[1];
+                        try {
+                            const response = await fetch(`${this.API_BASE}/auth/me`, {
+                                headers: {
+                                    'Authorization': `Bearer ${token}`
+                                }
+                            });
+                            
+                            if (response.ok) {
+                                const userInfo = await response.json();
+                                this.walletAddress = userInfo.wallet_address;
+                                this.isAuthenticated = true;
+                                
+                                // Load escrow data
+                                await this.loadEscrowData();
+                                
+                                return true;
+                            }
+                        } catch (error) {
+                            console.error('Error checking auth:', error);
+                        }
+                    }
+                    
+                    this.isAuthenticated = false;
+                    this.walletAddress = null;
+                    return false;
+                },
+                
+                async loadEscrowData() {
+                    if (!this.isAuthenticated || !this.walletAddress) {
+                        return;
+                    }
+                    
+                    try {
+                        // TODO: Replace with actual API endpoint
+                        // const response = await fetch(`${this.API_BASE}/escrow/info`, {
+                        //     headers: {
+                        //         'Authorization': `Bearer ${this.getAuthToken()}`
+                        //     }
+                        // });
+                        // if (response.ok) {
+                        //     const data = await response.json();
+                        //     this.escrowData = data;
+                        // }
+                        
+                        // Mock data for now
+                        this.escrowData = {
+                            wallet: this.walletAddress,
+                            balance: '1.5',
+                            amount: '0.5',
+                            status: 'pending',
+                            guarantor: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'
+                        };
+                    } catch (error) {
+                        console.error('Error loading escrow data:', error);
+                    }
+                },
+                
+                getAuthToken() {
+                    const cookies = document.cookie.split(';');
+                    const tokenCookie = cookies.find(c => c.trim().startsWith('auth_token='));
+                    if (tokenCookie) {
+                        return tokenCookie.split('=')[1];
+                    }
+                    return null;
+                },
+                
+                formatWallet(address) {
+                    if (!address) return '-';
+                    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+                },
+                
+                async signMessage() {
+                    if (!this.inputText.trim()) {
+                        alert('Please enter a message to sign');
+                        return;
+                    }
+                    
+                    if (!this.isAuthenticated) {
+                        alert('Please authenticate first. Go to home page to connect MetaMask.');
+                        return;
+                    }
+                    
+                    if (typeof window.ethereum === 'undefined') {
+                        alert('MetaMask is not installed');
+                        return;
+                    }
+                    
+                    try {
+                        this.isSigning = true;
+                        
+                        // Get current account
+                        const accounts = await window.ethereum.request({
+                            method: 'eth_accounts'
+                        });
+                        
+                        if (!accounts || accounts.length === 0) {
+                            alert('Please connect MetaMask');
+                            return;
+                        }
+                        
+                        const currentAddress = accounts[0];
+                        // Remove existing signature if present
+                        const cleanMessage = this.inputText.replace(/\n\n\[Signed: .+?\]/, '').trim();
+                        const message = cleanMessage;
+                        
+                        // Sign message with MetaMask
+                        const signature = await window.ethereum.request({
+                            method: 'personal_sign',
+                            params: [message, currentAddress]
+                        });
+                        
+                        // Save full signature for later use
+                        this.pendingSignature = signature;
+                        
+                        // Add signature indicator to message
+                        const signedMessage = `${message}\n\n[Signed: ${signature.substring(0, 10)}...${signature.substring(signature.length - 8)}]`;
+                        this.inputText = signedMessage;
+                        
+                    } catch (error) {
+                        if (error.code === 4001) {
+                            alert('Message signature was rejected');
+                        } else {
+                            alert(`Error signing message: ${error.message}`);
+                        }
+                    } finally {
+                        this.isSigning = false;
+                    }
+                },
+                
+                async signExistingMessage(message) {
+                    if (!this.isAuthenticated) {
+                        alert('Please authenticate first. Go to home page to connect MetaMask.');
+                        return;
+                    }
+                    
+                    if (typeof window.ethereum === 'undefined') {
+                        alert('MetaMask is not installed');
+                        return;
+                    }
+                    
+                    if (message.signature && message.signature.startsWith('0x')) {
+                        alert('Message is already signed');
+                        return;
+                    }
+                    
+                    try {
+                        // Get current account
+                        const accounts = await window.ethereum.request({
+                            method: 'eth_accounts'
+                        });
+                        
+                        if (!accounts || accounts.length === 0) {
+                            alert('Please connect MetaMask');
+                            return;
+                        }
+                        
+                        const currentAddress = accounts[0];
+                        const messageText = message.text;
+                        
+                        // Sign message with MetaMask
+                        const signature = await window.ethereum.request({
+                            method: 'personal_sign',
+                            params: [messageText, currentAddress]
+                        });
+                        
+                        // Update message with signature
+                        this.$set(message, 'signature', signature);
+                        
+                    } catch (error) {
+                        if (error.code === 4001) {
+                            alert('Message signature was rejected');
+                        } else {
+                            alert(`Error signing message: ${error.message}`);
+                        }
+                    }
+                },
+                
+                selectContact(contact) {
+                    this.selectedContactId = contact.id
+                    this.mobileView = 'chat'
+                    if (!this.messages[contact.id]) {
+                        this.$set(this.messages, contact.id, [])
+                    }
+                    this.$nextTick(this.scrollToBottom)
+                },
+                formatTime(ts) {
+                    return new Date(ts).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    })
+                },
+                scrollToBottom() {
+                    const el = this.$refs.messageList
+                    if (el) el.scrollTop = el.scrollHeight
+                },
+                clearPendingSignatureIfTextChanged() {
+                    // If user edits text after signing, clear the signature
+                    // because signature is no longer valid for the new text
+                    if (this.pendingSignature && !this.inputText.includes('[Signed:')) {
+                        this.pendingSignature = null;
+                    }
+                },
+                async handleSend() {
+                    const text = this.inputText.trim()
+                    if (!text || !this.selectedContactId) return
+                    
+                    // Extract signature if present
+                    let messageText = text;
+                    let signature = null;
+                    
+                    // Check if we have a pending signature (from signMessage method)
+                    if (this.pendingSignature) {
+                        // Remove signature indicator from text
+                        messageText = text.replace(/\n\n\[Signed: .+?\]/, '').trim();
+                        // Use the full signature we saved
+                        signature = this.pendingSignature;
+                        // Clear pending signature
+                        this.pendingSignature = null;
+                    } else {
+                        // Check if signature was added manually in text (fallback)
+                        const signatureMatch = text.match(/\[Signed: (.+?)\]/);
+                        if (signatureMatch) {
+                            messageText = text.replace(/\n\n\[Signed: .+?\]/, '').trim();
+                            // Can't recover full signature from preview, so leave as null
+                            // User can sign the message after sending
+                        }
+                    }
+                    
+                    const contact = this.selectedContact
+                    const cid = contact.id
+                    const ts = Date.now()
+                    const userMsg = {
+                        id: 'u-' + ts,
+                        text: messageText,
+                        sender: 'user',
+                        timestamp: ts,
+                        status: 'sent',
+                        signature: signature
+                    }
+                    this.messages[cid].push(userMsg)
+                    this.inputText = ''
+                    contact.lastMessage = messageText
+                    this.$nextTick(this.scrollToBottom)
+                    // ⬇️ здесь заглушка вместо Gemini API
+                    try {
+                        contact.isTyping = true
+                        const botMsg = {
+                            id: 'b-' + Date.now(),
+                            text: '',
+                            sender: 'bot',
+                            timestamp: Date.now()
+                        }
+                        this.messages[cid].push(botMsg)
+                        // MVP fake streaming
+                        const reply = 'This is a stubbed AI response.'
+                        for (let i = 0; i < reply.length; i++) {
+                            botMsg.text += reply[i]
+                            await new Promise(r => setTimeout(r, 15))
+                            this.$nextTick(this.scrollToBottom)
+                        }
+                        userMsg.status = 'read'
+                    }
+                    finally {
+                        contact.isTyping = false
+                    }
+                }
+            },
+            async mounted() {
+                // preload welcome message
+                this.$set(this.messages, 'gemini', [
+                    {
+                        id: 'init',
+                        text: 'Hi! How can I help you?',
+                        sender: 'bot',
+                        timestamp: Date.now() - 60000
+                    }
+                ])
+                
+                // Check authentication
+                await this.checkAuth();
+            },
+            template: `
+                <div class="ai-chat-root">
+                    <!-- SIDEBAR -->
+                    <div class="ai-sidebar">
+                        <input v-model="searchQuery" placeholder="Search">
+                        <div v-for="c in filteredContacts"
+                            :key="c.id"
+                            @click="selectContact(c)"
+                            :class="['ai-contact', selectedContactId === c.id ? 'active' : '']">
+                            <div class="ai-contact-avatar">
+                                <img v-if="c.avatar" :src="c.avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />
+                                <span v-else>[[ c.name.charAt(0).toUpperCase() ]]</span>
+                            </div>
+                            <div class="ai-contact-info">
+                                <div class="name">[[ c.name ]]</div>
+                                <div class="last">
+                                    [[ c.isTyping ? 'typing…' : c.lastMessage ]]
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- CHAT -->
+                    <div class="ai-chat">
+                        <div v-if="!selectedContact"
+                            class="ai-chat-body"
+                            style="display:flex;align-items:center;justify-content:center;opacity:.5">
+                            Select a chat
+                        </div>
+                        <template v-else>
+                            <div class="ai-chat-header">
+                                [[ selectedContact.name ]]
+                            </div>
+                            <div v-if="isAuthenticated && escrowData.wallet" class="ai-status-panel">
+                                <div class="ai-status-header" @click="isStatusPanelCollapsed = !isStatusPanelCollapsed">
+                                    <div class="ai-status-header-title">Escrow Status</div>
+                                    <button 
+                                        type="button"
+                                        class="ai-status-toggle"
+                                        :class="{ collapsed: isStatusPanelCollapsed }"
+                                        @click.stop="isStatusPanelCollapsed = !isStatusPanelCollapsed">
+                                        ▼
+                                    </button>
+                                </div>
+                                <div class="ai-status-content" :class="{ collapsed: isStatusPanelCollapsed }">
+                                    <div class="ai-status-row">
+                                        <span class="ai-status-label">Escrow Wallet:</span>
+                                        <span class="ai-status-value wallet">[[ formatWallet(escrowData.wallet) ]]</span>
+                                    </div>
+                                    <div class="ai-status-row">
+                                        <span class="ai-status-label">Escrow Balance:</span>
+                                        <span class="ai-status-value">[[ escrowData.balance ]] ETH</span>
+                                    </div>
+                                    <div class="ai-status-row">
+                                        <span class="ai-status-label">Amount:</span>
+                                        <span class="ai-status-value">[[ escrowData.amount ]] ETH</span>
+                                    </div>
+                                    <div class="ai-status-row" v-if="escrowData.guarantor">
+                                        <span class="ai-status-label">Guarantor:</span>
+                                        <span class="ai-status-value wallet" :title="escrowData.guarantor">[[ formatWallet(escrowData.guarantor) ]]</span>
+                                    </div>
+                                    <div class="ai-status-row">
+                                        <span class="ai-status-label">Status:</span>
+                                        <span :class="['ai-status-badge', escrowData.status]">
+                                            [[ escrowData.status ]]
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ai-chat-body" ref="messageList">
+                                <div v-for="m in currentMessages"
+                                    :key="m.id"
+                                    :class="['ai-msg-wrapper', m.sender]">
+                                    <div :class="['ai-msg', m.sender]">
+                                        [[ m.text ]]
+                                        <div v-if="m.signature && m.signature.startsWith('0x')" class="ai-msg-signature">
+                                            ✓ Signed with MetaMask<br>
+                                            <span style="font-size: 10px; opacity: 0.7;">[[ m.signature.substring(0, 20) ]]...[[ m.signature.substring(m.signature.length - 10) ]]</span>
+                                        </div>
+                                        <div class="ai-msg-actions" v-if="m.sender === 'user' && isAuthenticated">
+                                            <button 
+                                                v-if="!m.signature || !m.signature.startsWith('0x')"
+                                                class="ai-msg-action-btn"
+                                                @click="signExistingMessage(m)"
+                                                title="Sign this message with MetaMask">
+                                                🔐 Sign
+                                            </button>
+                                        </div>
+                                        <div class="ai-time">
+                                            [[ formatTime(m.timestamp) ]]
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <form class="ai-chat-footer" @submit.prevent="handleSend">
+                                <input 
+                                    v-model="inputText" 
+                                    @input="clearPendingSignatureIfTextChanged"
+                                    placeholder="Message">
+                                <button 
+                                    v-if="isAuthenticated"
+                                    type="button"
+                                    class="sign-btn"
+                                    @click="signMessage"
+                                    :disabled="isSigning || !inputText.trim()"
+                                    title="Sign message with MetaMask">
+                                    <span v-if="!isSigning">🔐</span>
+                                    <span v-else>...</span>
+                                </button>
+                                <button type="submit">Send</button>
+                            </form>
+                        </template>
+                    </div>
+                </div>
+            `
+        })
+
+        new Vue({
+            el: '#app'
+        })
+    </script>
+</body>
+</html>
+
