@@ -72,6 +72,19 @@ async def chat(request: Request):
             "request": request
         }
     )
+    
+    
+@app.get("/seed", response_class=HTMLResponse)
+async def seed(request: Request):
+    """
+    Создание криптографического ключа
+    """
+    return templates.TemplateResponse(
+        "seed.html",
+        {
+            "request": request
+        }
+    )
 
 
 @app.get("/health")

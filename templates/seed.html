@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Создание ETH ключа - Garantex</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+            text-align: center;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .method-selector {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .method-btn {
+            flex: 1;
+            padding: 20px;
+            background: #f5f5f5;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .method-btn:hover {
+            border-color: #667eea;
+            background: #f5f5ff;
+            transform: translateY(-2px);
+        }
+
+        .method-btn.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .method-content {
+            display: none;
+        }
+
+        .method-content.active {
+            display: block;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .status.error {
+            background: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border: 1px solid #90caf9;
+        }
+
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border: 1px solid #81c784;
+        }
+
+        .mnemonic-section {
+            margin-bottom: 20px;
+        }
+
+        .mnemonic-section label {
+            display: block;
+            color: #666;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .mnemonic-section textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .mnemonic-section textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .mouse-entropy-section {
+            margin-bottom: 20px;
+        }
+
+        .entropy-canvas {
+            width: 100%;
+            height: 300px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            cursor: crosshair;
+            background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .entropy-canvas.collecting {
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+        }
+
+        .entropy-progress {
+            margin-top: 15px;
+            margin-bottom: 15px;
+        }
+
+        .entropy-progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .entropy-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s;
+            border-radius: 10px;
+        }
+
+        .entropy-progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 12px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .entropy-instructions {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        button.secondary:hover:not(:disabled) {
+            background: #e0e0e0;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .result-section {
+            background: #f9f9f9;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .result-section.active {
+            display: block;
+        }
+
+        .result-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .result-item {
+            margin-bottom: 15px;
+        }
+
+        .result-item label {
+            display: block;
+            color: #666;
+            margin-bottom: 5px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .result-item .value {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 12px;
+            word-break: break-all;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #333;
+        }
+
+        .copy-btn {
+            margin-top: 5px;
+            padding: 8px 15px;
+            font-size: 12px;
+            width: auto;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 13px;
+        }
+
+        .warning strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔑 Создание ETH ключа</h1>
+        <p class="subtitle">Выберите метод генерации ключа по энтропии</p>
+
+        <div id="status" class="status hidden"></div>
+
+        <div class="method-selector">
+            <button class="method-btn active" data-method="mnemonic">
+                📝 Мнемоническая фраза
+            </button>
+            <button class="method-btn" data-method="mouse">
+                🖱️ Движение мышкой
+            </button>
+        </div>
+
+        <!-- Метод: Мнемоническая фраза -->
+        <div id="mnemonic-method" class="method-content active">
+            <div class="warning">
+                <strong>⚠️ Внимание!</strong>
+                Никогда не делитесь своей мнемонической фразой с третьими лицами. 
+                Храните её в безопасном месте.
+            </div>
+            <div class="mnemonic-section">
+                <label for="mnemonic-input">Введите мнемоническую фразу (12 или 24 слова):</label>
+                <textarea 
+                    id="mnemonic-input" 
+                    placeholder="word1 word2 word3 ... word12"
+                ></textarea>
+            </div>
+            <button id="generate-from-mnemonic-btn">
+                Создать ключ из мнемоники
+            </button>
+        </div>
+
+        <!-- Метод: Движение мышкой -->
+        <div id="mouse-method" class="method-content">
+            <div class="warning">
+                <strong>ℹ️ Информация</strong>
+                Двигайте мышкой по экрану для генерации энтропии. 
+                Чем больше движений, тем выше безопасность ключа.
+            </div>
+            <div class="mouse-entropy-section">
+                <div class="entropy-instructions" id="entropy-instructions">
+                    Двигайте мышкой по области ниже для сбора энтропии
+                </div>
+                <div class="entropy-progress">
+                    <div class="entropy-progress-bar">
+                        <div class="entropy-progress-fill" id="entropy-progress-fill" style="width: 0%"></div>
+                        <div class="entropy-progress-text" id="entropy-progress-text">0%</div>
+                    </div>
+                </div>
+                <canvas id="entropy-canvas" class="entropy-canvas"></canvas>
+            </div>
+            <button id="generate-from-mouse-btn" disabled>
+                Создать ключ из энтропии
+            </button>
+        </div>
+
+        <!-- Результат -->
+        <div id="result-section" class="result-section">
+            <h3>✅ Ключ успешно создан</h3>
+            
+            <div class="result-item">
+                <label>Адрес кошелька:</label>
+                <div class="value" id="wallet-address">-</div>
+                <button class="copy-btn secondary" onclick="copyToClipboard('wallet-address')">
+                    Копировать адрес
+                </button>
+            </div>
+
+            <div class="result-item">
+                <label>Приватный ключ:</label>
+                <div class="value" id="private-key">-</div>
+                <button class="copy-btn secondary" onclick="copyToClipboard('private-key')">
+                    Копировать ключ
+                </button>
+            </div>
+
+            <div class="result-item" id="mnemonic-result-item" style="display: none;">
+                <label>Мнемоническая фраза:</label>
+                <div class="value" id="generated-mnemonic">-</div>
+                <button class="copy-btn secondary" onclick="copyToClipboard('generated-mnemonic')">
+                    Копировать фразу
+                </button>
+            </div>
+
+            <div class="warning" style="margin-top: 20px;">
+                <strong>🔒 Безопасность</strong>
+                Сохраните эту информацию в безопасном месте. 
+                Приватный ключ и мнемоническая фраза дают полный доступ к кошельку.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Глобальные переменные
+        let currentMethod = 'mnemonic';
+        let mouseEntropy = [];
+        let entropyProgress = 0;
+        const REQUIRED_ENTROPY = 256; // бит энтропии (32 байта)
+        let canvas, ctx;
+        let isCollecting = false;
+        let lastX = 0, lastY = 0;
+
+        // Инициализация
+        document.addEventListener('DOMContentLoaded', function() {
+            initMethodSelector();
+            initMnemonicMethod();
+            initMouseMethod();
+        });
+
+        // Выбор метода
+        function initMethodSelector() {
+            const methodBtns = document.querySelectorAll('.method-btn');
+            methodBtns.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const method = this.dataset.method;
+                    switchMethod(method);
+                });
+            });
+        }
+
+        function switchMethod(method) {
+            currentMethod = method;
+            
+            // Обновляем кнопки
+            document.querySelectorAll('.method-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-method="${method}"]`).classList.add('active');
+            
+            // Обновляем контент
+            document.querySelectorAll('.method-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`${method}-method`).classList.add('active');
+            
+            // Скрываем результат
+            document.getElementById('result-section').classList.remove('active');
+            hideStatus();
+        }
+
+        // Метод: Мнемоническая фраза
+        function initMnemonicMethod() {
+            const btn = document.getElementById('generate-from-mnemonic-btn');
+            btn.addEventListener('click', generateFromMnemonic);
+        }
+
+        async function generateFromMnemonic() {
+            const mnemonicInput = document.getElementById('mnemonic-input').value.trim();
+            
+            if (!mnemonicInput) {
+                showStatus('Введите мнемоническую фразу', 'error');
+                return;
+            }
+
+            try {
+                showStatus('Создание ключа...', 'info');
+                const btn = document.getElementById('generate-from-mnemonic-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="loading"></span>Создание...';
+
+                // Проверяем и нормализуем мнемонику
+                const words = mnemonicInput.split(/\s+/).filter(w => w.length > 0);
+                
+                if (words.length !== 12 && words.length !== 24) {
+                    throw new Error('Мнемоническая фраза должна содержать 12 или 24 слова');
+                }
+
+                // Создаем кошелек из мнемоники
+                const wallet = ethers.Wallet.fromMnemonic(words.join(' '));
+                
+                displayResult(wallet, mnemonicInput);
+                showStatus('Ключ успешно создан!', 'success');
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus('Ошибка: ' + error.message, 'error');
+            } finally {
+                const btn = document.getElementById('generate-from-mnemonic-btn');
+                btn.disabled = false;
+                btn.innerHTML = 'Создать ключ из мнемоники';
+            }
+        }
+
+        // Метод: Движение мышкой
+        function initMouseMethod() {
+            canvas = document.getElementById('entropy-canvas');
+            ctx = canvas.getContext('2d');
+            
+            // Устанавливаем размер canvas
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+
+            // Обработчики событий мыши
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mousedown', handleMouseDown);
+            canvas.addEventListener('mouseup', handleMouseUp);
+            canvas.addEventListener('mouseleave', handleMouseUp);
+
+            // Кнопка генерации
+            const btn = document.getElementById('generate-from-mouse-btn');
+            btn.addEventListener('click', generateFromMouseEntropy);
+        }
+
+        function handleMouseDown(e) {
+            isCollecting = true;
+            const rect = canvas.getBoundingClientRect();
+            lastX = e.clientX - rect.left;
+            lastY = e.clientY - rect.top;
+            canvas.classList.add('collecting');
+        }
+
+        function handleMouseUp() {
+            isCollecting = false;
+            canvas.classList.remove('collecting');
+        }
+
+        function handleMouseMove(e) {
+            if (!isCollecting) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const time = Date.now();
+
+            // Собираем энтропию: координаты, время, случайные значения
+            const entropyData = {
+                x: x,
+                y: y,
+                dx: x - lastX,
+                dy: y - lastY,
+                time: time,
+                random: Math.random()
+            };
+
+            mouseEntropy.push(entropyData);
+
+            // Рисуем след
+            ctx.strokeStyle = `hsl(${(time % 360)}, 70%, 50%)`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+
+            lastX = x;
+            lastY = y;
+
+            // Обновляем прогресс
+            updateEntropyProgress();
+        }
+
+        function updateEntropyProgress() {
+            // Примерная оценка: каждое движение добавляет ~0.5-1 байт энтропии
+            const estimatedBytes = mouseEntropy.length * 0.7;
+            entropyProgress = Math.min(100, (estimatedBytes / REQUIRED_ENTROPY) * 100);
+
+            document.getElementById('entropy-progress-fill').style.width = entropyProgress + '%';
+            document.getElementById('entropy-progress-text').textContent = 
+                Math.round(entropyProgress) + '%';
+
+            const btn = document.getElementById('generate-from-mouse-btn');
+            if (entropyProgress >= 100) {
+                btn.disabled = false;
+                document.getElementById('entropy-instructions').textContent = 
+                    'Энтропии достаточно! Нажмите кнопку для создания ключа.';
+            } else {
+                btn.disabled = true;
+                document.getElementById('entropy-instructions').textContent = 
+                    `Двигайте мышкой по области (${Math.round(entropyProgress)}%)`;
+            }
+        }
+
+        async function generateFromMouseEntropy() {
+            if (mouseEntropy.length < 50) {
+                showStatus('Недостаточно энтропии. Продолжайте двигать мышкой.', 'error');
+                return;
+            }
+
+            try {
+                showStatus('Создание ключа из энтропии...', 'info');
+                const btn = document.getElementById('generate-from-mouse-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="loading"></span>Создание...';
+
+                // Генерируем seed из энтропии мыши (16 байт для 12 слов)
+                const seedBytes = await generateSeedFromMouseEntropy(16); // 16 байт = 128 бит для 12 слов
+                
+                // Генерируем мнемонику из seed используя BIP39
+                const mnemonic = await generateMnemonicFromSeed(seedBytes);
+                
+                // Создаем кошелек из мнемоники (это гарантирует соответствие ключа и мнемоники)
+                const wallet = ethers.Wallet.fromMnemonic(mnemonic);
+                
+                displayResult(wallet, mnemonic, true);
+                showStatus('Ключ успешно создан!', 'success');
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus('Ошибка: ' + error.message, 'error');
+            } finally {
+                const btn = document.getElementById('generate-from-mouse-btn');
+                btn.disabled = false;
+                btn.innerHTML = 'Создать ключ из энтропии';
+            }
+        }
+
+        async function generateSeedFromMouseEntropy(byteLength = 16) {
+            // Собираем все данные энтропии
+            let entropyData = '';
+            
+            mouseEntropy.forEach(entropy => {
+                entropyData += entropy.x + ',' + entropy.y + ',' + entropy.dx + ',' + 
+                              entropy.dy + ',' + entropy.time + ',' + entropy.random + '|';
+            });
+
+            // Добавляем дополнительную случайность
+            entropyData += Math.random() + ',' + Date.now() + ',' + 
+                          performance.now() + ',' + Math.random() + ',' +
+                          crypto.getRandomValues(new Uint8Array(16)).join(',');
+
+            // Используем PBKDF2 для генерации криптографически стойкого seed
+            const encoder = new TextEncoder();
+            const data = encoder.encode(entropyData);
+            const salt = encoder.encode('garantex-seed-salt-' + Date.now());
+            
+            // Импортируем ключ для PBKDF2
+            const keyMaterial = await crypto.subtle.importKey(
+                'raw',
+                data,
+                { name: 'PBKDF2' },
+                false,
+                ['deriveBits']
+            );
+
+            // Генерируем seed используя PBKDF2
+            const derivedBits = await crypto.subtle.deriveBits(
+                {
+                    name: 'PBKDF2',
+                    salt: salt,
+                    iterations: 100000,
+                    hash: 'SHA-256'
+                },
+                keyMaterial,
+                byteLength * 8 // биты
+            );
+
+            return new Uint8Array(derivedBits);
+        }
+
+        async function generateMnemonicFromSeed(seedBytes) {
+            // Используем BIP39 для генерации мнемоники из seed
+            // seedBytes должен быть 16 байт (128 бит) для 12 слов или 32 байта (256 бит) для 24 слов
+            
+            try {
+                // Конвертируем seed в hex строку
+                const seedHex = Array.from(seedBytes)
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join('');
+                
+                // Используем ethers для создания мнемоники из entropy
+                // Ethers ожидает entropy в виде hex строки без 0x
+                const entropy = '0x' + seedHex;
+                
+                // Генерируем мнемонику из entropy
+                const mnemonic = ethers.utils.entropyToMnemonic(entropy);
+                
+                return mnemonic;
+            } catch (error) {
+                console.error('Error generating mnemonic:', error);
+                // Fallback: создаем случайную мнемонику
+                const wallet = ethers.Wallet.createRandom();
+                return wallet.mnemonic.phrase;
+            }
+        }
+
+        function displayResult(wallet, mnemonic, showMnemonic = false) {
+            document.getElementById('wallet-address').textContent = wallet.address;
+            document.getElementById('private-key').textContent = wallet.privateKey;
+            
+            if (showMnemonic && mnemonic) {
+                document.getElementById('generated-mnemonic').textContent = mnemonic;
+                document.getElementById('mnemonic-result-item').style.display = 'block';
+            } else {
+                document.getElementById('mnemonic-result-item').style.display = 'none';
+            }
+            
+            document.getElementById('result-section').classList.add('active');
+            
+            // Прокручиваем к результату
+            document.getElementById('result-section').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function copyToClipboard(elementId) {
+            const element = document.getElementById(elementId);
+            const text = element.textContent;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                showStatus('Скопировано в буфер обмена!', 'success');
+                setTimeout(hideStatus, 2000);
+            }).catch(err => {
+                showStatus('Ошибка копирования', 'error');
+            });
+        }
+
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+            statusEl.classList.remove('hidden');
+        }
+
+        function hideStatus() {
+            document.getElementById('status').classList.add('hidden');
+        }
+
+        // Обработка изменения размера окна
+        window.addEventListener('resize', function() {
+            if (canvas) {
+                canvas.width = canvas.offsetWidth;
+                canvas.height = canvas.offsetHeight;
+            }
+        });
+    </script>
+</body>
+</html>
+
