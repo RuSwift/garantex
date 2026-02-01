@@ -1,0 +1,4 @@
+[submodule "didcomm"]
+	path = didcomm
+	url = ../didcomm.git
+	branch = main

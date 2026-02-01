@@ -7,8 +7,8 @@ from routers import auth
 from web3_auth import web3_auth
 
 app = FastAPI(
-    title="Garantex API",
-    description="FastAPI приложение с Web3 авторизацией",
+    title="RuSwift DApp Node API",
+    description="Decentralized financial marketplace",
     version="1.0.0"
 )
 
@@ -34,7 +34,7 @@ app.include_router(auth.router)
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """
-    Главная страница с интерфейсом авторизации Web3
+    Главная страница с админ-панелью
     """
     # Проверяем наличие токена в cookies
     token = request.cookies.get("auth_token")
@@ -51,38 +51,46 @@ async def root(request: Request):
             # Если токен невалиден, игнорируем ошибку
             user_info = None
     
+    # Боковое меню
+    side_menu = [
+        {
+            "header": "Инструменты",
+            "items": [
+                {
+                    "id": "dashboard",
+                    "href": "/",
+                    "icon_class": "fas fa-tachometer-alt",
+                    "label": "Дашборд",
+                    "sub": [],
+                    "page": "Dashboard"
+                }
+            ]
+        },
+        {
+            "header": "Аккаунт",
+            "items": [
+                {
+                    "id": "profile",
+                    "href": "/profile",
+                    "icon_class": "fa-regular fa-address-card",
+                    "label": "Профиль",
+                    "sub": [],
+                    "page": "Profile"
+                }
+            ]
+        }
+    ]
+    
     return templates.TemplateResponse(
-        "index.html",
+        "panel.html",
         {
             "request": request,
+            "app_name": "RuSwift DApp Node",
             "user": user_info,
-            "is_authenticated": user_info is not None
-        }
-    )
-
-
-@app.get("/chat", response_class=HTMLResponse)
-async def chat(request: Request):
-    """
-    Страница AI чата
-    """
-    return templates.TemplateResponse(
-        "chat.html",
-        {
-            "request": request
-        }
-    )
-    
-    
-@app.get("/seed", response_class=HTMLResponse)
-async def seed(request: Request):
-    """
-    Создание криптографического ключа
-    """
-    return templates.TemplateResponse(
-        "seed.html",
-        {
-            "request": request
+            "side_menu": side_menu,
+            "selected_menu": "dashboard",
+            "current_page": "Dashboard",
+            "labels": {}
         }
     )
 
