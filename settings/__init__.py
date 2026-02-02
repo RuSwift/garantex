@@ -5,6 +5,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, SecretStr
 from typing import Optional
+from pathlib import Path
 
 
 class DatabaseSettings(BaseSettings):
@@ -99,11 +100,6 @@ class MnemonicSettings(BaseSettings):
         description="Зашифрованная мнемоническая фраза (опционально)"
     )
     
-    storage_path: Optional[str] = Field(
-        default=None,
-        description="Путь к файлу для хранения мнемонической фразы (опционально)"
-    )
-
 
 class Settings(BaseSettings):
     """Основные настройки приложения"""
@@ -117,7 +113,7 @@ class Settings(BaseSettings):
     
     # Настройки приложения
     app_name: str = Field(
-        default="Garantex API",
+        default="API",
         description="Название приложения"
     )
     
@@ -136,16 +132,21 @@ class Settings(BaseSettings):
     
     # Настройки мнемонической фразы
     mnemonic: MnemonicSettings = Field(default_factory=MnemonicSettings)
-
-
-# Создаем глобальный экземпляр настроек
-settings = Settings()
+    
+    # Настройки PEM ключа
+    pem: Optional[str] = Field(
+        default=None,
+        description="PEM данные для ключа ноды (опционально)"
+    )
+    
+    @property
+    def is_node_initialized(self) -> bool:
+        return bool(self.mnemonic.phrase or self.mnemonic.encrypted_phrase or self.pem)
+    
 
 # Экспортируем для удобства
 __all__ = [
     "Settings",
     "DatabaseSettings",
     "MnemonicSettings",
-    "settings"
 ]
-

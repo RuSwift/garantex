@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from routers import auth
-from web3_auth import web3_auth
+from dependencies import UserDepends
 
 app = FastAPI(
     title="Garantex API",
@@ -32,24 +32,13 @@ app.include_router(auth.router)
 
 
 @app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
+async def root(
+    request: Request,
+    user_info: UserDepends
+):
     """
     Главная страница с интерфейсом авторизации Web3
     """
-    # Проверяем наличие токена в cookies
-    token = request.cookies.get("auth_token")
-    user_info = None
-    
-    if token:
-        try:
-            # Проверяем токен и получаем информацию о пользователе
-            payload = web3_auth.verify_jwt_token(token)
-            wallet_address = payload.get("wallet_address")
-            if wallet_address:
-                user_info = {"wallet_address": wallet_address}
-        except Exception:
-            # Если токен невалиден, игнорируем ошибку
-            user_info = None
     
     return templates.TemplateResponse(
         "index.html",

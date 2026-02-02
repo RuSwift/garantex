@@ -68,39 +68,47 @@
                     <div class="nav">
                         {% block sidebar_menu %}
                         <!-- Sidebar menu will be rendered by Vue.js -->
-                        <div class="row" v-for="menu in side_menu" style="margin: initial;">
-                            <div class="sb-sidenav-menu-heading">[[ menu.header ]]</div>
-                            <div v-for="item in menu.items">
-                                <a class="nav-link collapsed"
-                                   v-bind:class="{'active': selected_menu === item.id}"
-                                   @click.prevent="selectMenu(item.id)"
-                                   v-bind:href="item.href"
-                                   data-bs-toggle="collapse"
-                                   v-bind:data-bs-target="'#' + item.id"
-                                   aria-expanded="false"
-                                   aria-controls="collapseLayouts">
-                                    <div class="sb-nav-link-icon">
-                                        <i v-bind:class="item.icon_class"></i>
+                        <template v-if="side_menu && side_menu.length > 0">
+                            <template v-for="menu in side_menu">
+                                <div class="sb-sidenav-menu-heading" :key="'header-' + menu.header">[[ menu.header ]]</div>
+                                <template v-for="item in menu.items">
+                                    <a :key="'item-' + item.id"
+                                       class="nav-link collapsed"
+                                       :class="{'active': selected_menu === item.id}"
+                                       @click.prevent="selectMenu(item.id)"
+                                       :href="item.href"
+                                       data-bs-toggle="collapse"
+                                       :data-bs-target="'#' + item.id"
+                                       aria-expanded="false"
+                                       aria-controls="collapseLayouts">
+                                        <div class="sb-nav-link-icon">
+                                            <i :class="item.icon_class"></i>
+                                        </div>
+                                        [[ item.label ]]
+                                        <div v-if="item.sub && item.sub.length > 0" class="sb-sidenav-collapse-arrow">
+                                            <i class="fas fa-angle-down"></i>
+                                        </div>
+                                    </a>
+                                    <div v-if="item.sub && item.sub.length > 0"
+                                         :key="'sub-' + item.id"
+                                         class="collapse"
+                                         :id="item.id" 
+                                         aria-labelledby="headingOne"
+                                         data-bs-parent="#sidenavAccordion">
+                                        <nav class="sb-sidenav-menu-nested nav">
+                                            <a v-for="sub in item.sub"
+                                               :key="'subitem-' + sub.id"
+                                               @click.prevent="selectMenu(sub.id)"
+                                               class="nav-link"
+                                               :class="{'active': selected_menu === sub.id}"
+                                               :href="sub.href">
+                                                [[ sub.label ]]
+                                            </a>
+                                        </nav>
                                     </div>
-                                    [[ item.label ]]
-                                    <div v-if="item.sub && item.sub.length > 0" class="sb-sidenav-collapse-arrow">
-                                        <i class="fas fa-angle-down"></i>
-                                    </div>
-                                </a>
-                                <div class="collapse" v-bind:id="item.id" 
-                                     aria-labelledby="headingOne" data-bs-parent="#sidenavAccordion">
-                                    <nav class="sb-sidenav-menu-nested nav">
-                                        <a v-for="sub in item.sub"
-                                           @click.prevent="selectMenu(sub.id)"
-                                           class="nav-link"
-                                           v-bind:class="{'active': selected_menu === sub.id}"
-                                           v-bind:href="sub.href">
-                                            [[ sub.label ]]
-                                        </a>
-                                    </nav>
-                                </div>
-                            </div>
-                        </div>
+                                </template>
+                            </template>
+                        </template>
                         {% endblock %}
                     </div>
                 </div>
@@ -117,10 +125,11 @@
                 <div class="container-fluid px-4">
                     <!-- Breadcrumb -->
                     {% block breadcrumb %}
-                    <ol class="breadcrumb m-4">
-                        <h5 class="breadcrumb-item text-primary" v-for="b in breadcrumb">
-                            [[ b ]]
-                        </h5>
+                    <ol class="breadcrumb m-4" v-if="breadcrumb && breadcrumb.length > 0">
+                        <li class="breadcrumb-item" v-for="(b, index) in breadcrumb" :key="'breadcrumb-' + index">
+                            <span v-if="index === breadcrumb.length - 1" class="text-primary">[[ b ]]</span>
+                            <span v-else>[[ b ]]</span>
+                        </li>
                     </ol>
                     {% endblock %}
                     
@@ -150,137 +159,145 @@
         </div>
     </div>
     
+    <!-- Node Initialization Modal Container -->
+    <div id="node-init-modal-container">
+        <node-init-modal></node-init-modal>
+    </div>
+    
     <!-- User Data Script (if needed) -->
     {% if user %}
     <script id="user-data" type="application/json">{{ user | tojson }}</script>
     {% endif %}
     
+    <!-- Node Initialization Flag -->
+    <script id="is-node-initialized" type="application/json">{{ is_node_initialized|default(false)|tojson }}</script>
+    
     {% block scripts %}
-    <!-- Vue.js (must be loaded first) -->
-    <script>
-        (function() {
-            var vueScript = document.createElement('script');
-            vueScript.src = '/static/js/vue.min.js';
-            vueScript.onerror = function() {
-                this.onerror = null;
-                this.src = 'https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.min.js';
-            };
-            vueScript.onload = function() {
-                // Load components.js after Vue is loaded
-                var componentsScript = document.createElement('script');
-                componentsScript.src = '/static/js/components.js';
-                componentsScript.onload = function() {
-                    if (typeof initVueApp === 'function') {
-                        initVueApp();
-                    }
-                };
-                document.head.appendChild(componentsScript);
-            };
-            document.head.appendChild(vueScript);
-        })();
-    </script>
+    <!-- Ethers.js (for mnemonic generation) -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    
+    <!-- Vue.js -->
+    <script src="/static/js/vue.min.js" onerror="this.onerror=null; this.src='https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.min.js'"></script>
+    
+    <!-- Components -->
+    <script src="/static/js/components.js"></script>
+    
     <!-- Bootstrap JS -->
     <script src="/static/js/bootstrap.bundle.min.js" onerror="this.onerror=null; this.src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js'"></script>
     <!-- Custom JS -->
     <script src="/static/js/sb-admin.js"></script>
     
     <script>
-        // Wait for Vue to load before initializing
-        function initVueApp() {
-            if (typeof Vue === 'undefined') {
-                setTimeout(initVueApp, 100);
-                return;
-            }
-            // Vue.js app initialization
-        {% block vue_app %}
-        const app = new Vue({
-            el: '#layoutSidenav',
-            delimiters: ['[[', ']]'],
-            data: {
-                selected_menu: '{{ selected_menu|default("dashboard") }}',
-                current_page: '{{ current_page|default("Dashboard") }}',
-                side_menu: {{ side_menu|default([])|tojson }},
-                labels: {{ labels|default({})|tojson }}
-            },
-            mounted() {
-                // Set initial page component if not set
-                if (!this.current_page) {
-                    const menu = this.getMenu(this.selected_menu);
-                    if (menu && menu.page) {
-                        this.current_page = menu.page;
-                    } else {
-                        this.current_page = 'Dashboard';
-                    }
+        // Vue.js app initialization
+        document.addEventListener('DOMContentLoaded', function() {
+            // Wait for Vue and components to be loaded
+            function initApp() {
+                if (typeof Vue === 'undefined') {
+                    setTimeout(initApp, 50);
+                    return;
                 }
-            },
-            computed: {
-                breadcrumb() {
-                    let stack = [];
-                    for (let i = 0; i < this.side_menu.length; i++) {
-                        let group = this.side_menu[i];
-                        for (let j = 0; j < group.items.length; j++) {
-                            let item = group.items[j];
-                            stack.push(item.label);
-                            if (this.selected_menu === item.id) {
-                                return stack;
+                
+                // Check if already initialized
+                if (window.vueApp) {
+                    return;
+                }
+                
+                // Initialize main Vue app
+                window.vueApp = new Vue({
+                    el: '#layoutSidenav',
+                    delimiters: ['[[', ']]'],
+                    data: {
+                        selected_menu: '{{ selected_menu|default("dashboard") }}',
+                        current_page: '{{ current_page|default("Dashboard") }}',
+                        side_menu: {{ side_menu|default([])|tojson }},
+                        labels: {{ labels|default({})|tojson }}
+                    },
+                    mounted() {
+                        // Set initial page component if not set
+                        if (!this.current_page) {
+                            const menu = this.getMenu(this.selected_menu);
+                            if (menu && menu.page) {
+                                this.current_page = menu.page;
+                            } else {
+                                this.current_page = 'Dashboard';
                             }
-                            if (item.sub && item.sub.length > 0) {
-                                for (let n = 0; n < item.sub.length; n++) {
-                                    let sub = item.sub[n];
-                                    stack.push(sub.label);
-                                    if (this.selected_menu === sub.id) {
+                        }
+                    },
+                    computed: {
+                        breadcrumb() {
+                            let stack = [];
+                            for (let i = 0; i < this.side_menu.length; i++) {
+                                let group = this.side_menu[i];
+                                for (let j = 0; j < group.items.length; j++) {
+                                    let item = group.items[j];
+                                    stack.push(item.label);
+                                    if (this.selected_menu === item.id) {
                                         return stack;
+                                    }
+                                    if (item.sub && item.sub.length > 0) {
+                                        for (let n = 0; n < item.sub.length; n++) {
+                                            let sub = item.sub[n];
+                                            stack.push(sub.label);
+                                            if (this.selected_menu === sub.id) {
+                                                return stack;
+                                            }
+                                            stack.pop();
+                                        }
                                     }
                                     stack.pop();
                                 }
                             }
-                            stack.pop();
+                            return stack;
                         }
-                    }
-                    return stack;
-                }
-            },
-            methods: {
-                selectMenu(id) {
-                    const menu = this.getMenu(id);
-                    if (menu) {
-                        if (menu.page) {
-                            this.selected_menu = id;
-                            this.current_page = menu.page;
-                        } else if (menu.href) {
-                            // If no page component, navigate to href
-                            window.location.href = menu.href;
-                        }
-                    }
-                },
-                getMenu(id) {
-                    for (let i = 0; i < this.side_menu.length; i++) {
-                        let group = this.side_menu[i];
-                        for (let j = 0; j < group.items.length; j++) {
-                            let item = group.items[j];
-                            if (id === item.id) {
-                                return item;
+                    },
+                    methods: {
+                        selectMenu(id) {
+                            const menu = this.getMenu(id);
+                            if (menu) {
+                                if (menu.page) {
+                                    this.selected_menu = id;
+                                    this.current_page = menu.page;
+                                } else if (menu.href) {
+                                    // If no page component, navigate to href
+                                    window.location.href = menu.href;
+                                }
                             }
-                            if (item.sub && item.sub.length > 0) {
-                                for (let n = 0; n < item.sub.length; n++) {
-                                    let sub = item.sub[n];
-                                    if (id === sub.id) {
-                                        return sub;
+                        },
+                        getMenu(id) {
+                            for (let i = 0; i < this.side_menu.length; i++) {
+                                let group = this.side_menu[i];
+                                for (let j = 0; j < group.items.length; j++) {
+                                    let item = group.items[j];
+                                    if (id === item.id) {
+                                        return item;
+                                    }
+                                    if (item.sub && item.sub.length > 0) {
+                                        for (let n = 0; n < item.sub.length; n++) {
+                                            let sub = item.sub[n];
+                                            if (id === sub.id) {
+                                                return sub;
+                                            }
+                                        }
                                     }
                                 }
                             }
+                            return null;
                         }
                     }
-                    return null;
+                });
+                
+                // Initialize modal app
+                if (document.getElementById('node-init-modal-container') && !window.modalApp) {
+                    window.modalApp = new Vue({
+                        el: '#node-init-modal-container',
+                        delimiters: ['[[', ']]']
+                    });
                 }
             }
+            
+            // Start initialization
+            initApp();
         });
-        {% endblock %}
-        }
-        // Start initialization (will be called by Vue script onload or after timeout)
-        if (typeof Vue !== 'undefined') {
-            initVueApp();
-        }
         
         // Logout function
         function logout() {
@@ -295,4 +312,3 @@
     {% block scripts_extra %}{% endblock %}
 </body>
 </html>
-
