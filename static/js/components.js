@@ -809,3 +809,622 @@ Vue.component('Sample', {
             </div>
         `
 });
+
+// Web3 Authentication Component
+Vue.component('Web3Auth', {
+    delimiters: ['[[', ']]'],
+    data() {
+        return {
+            // API base URL
+            apiBase: '',
+            
+            // Supported networks configuration
+            supportedNetworks: {
+                1: {
+                    chainId: '0x1',
+                    chainName: 'Ethereum Mainnet',
+                    nativeCurrency: {
+                        name: 'Ether',
+                        symbol: 'ETH',
+                        decimals: 18
+                    },
+                    rpcUrls: ['https://mainnet.infura.io/v3/'],
+                    blockExplorerUrls: ['https://etherscan.io']
+                }
+            },
+            
+            // State
+            walletAddress: null,
+            isAuthenticated: false,
+            currentChainId: null,
+            isConnecting: false,
+            isSigning: false,
+            
+            // UI state
+            statusMessage: '',
+            statusType: 'info',
+            statusVisible: false,
+            messageToSign: '',
+            signature: '',
+            
+            // MetaMask availability
+            isMetaMaskAvailable: false
+        };
+    },
+    
+    computed: {
+        currentNetworkName() {
+            if (this.currentChainId === null) return '-';
+            const network = this.supportedNetworks[this.currentChainId];
+            return network ? network.chainName : `Unknown Network (${this.currentChainId})`;
+        },
+        
+        isNetworkSupported() {
+            return this.currentChainId !== null && this.currentChainId in this.supportedNetworks;
+        },
+        
+        supportedNetworksList() {
+            return Object.keys(this.supportedNetworks).map(chainId => ({
+                chainId: parseInt(chainId),
+                network: this.supportedNetworks[chainId]
+            }));
+        }
+    },
+    
+    mounted() {
+        this.checkMetaMask();
+        this.initNetwork();
+        this.checkExistingAuth();
+        this.setupEventListeners();
+    },
+    
+    beforeDestroy() {
+        this.removeEventListeners();
+    },
+    
+    methods: {
+        /**
+         * Show status message
+         */
+        showStatus(message, type = 'info') {
+            this.statusMessage = message;
+            this.statusType = type;
+            this.statusVisible = true;
+            
+            // Auto-hide success messages after 3 seconds
+            if (type === 'success') {
+                setTimeout(() => {
+                    this.statusVisible = false;
+                }, 3000);
+            }
+        },
+        
+        /**
+         * Hide status message
+         */
+        hideStatus() {
+            this.statusVisible = false;
+        },
+        
+        /**
+         * Check if Metamask is installed
+         */
+        checkMetaMask() {
+            if (typeof window.ethereum === 'undefined') {
+                this.showStatus('Metamask is not installed. Please install Metamask to continue.', 'error');
+                this.isMetaMaskAvailable = false;
+                return false;
+            }
+            this.isMetaMaskAvailable = true;
+            return true;
+        },
+        
+        /**
+         * Get current chain ID from MetaMask
+         */
+        async getCurrentChainId() {
+            try {
+                const chainId = await window.ethereum.request({
+                    method: 'eth_chainId'
+                });
+                return parseInt(chainId, 16);
+            } catch (error) {
+                console.error('Error getting chain ID:', error);
+                return null;
+            }
+        },
+        
+        /**
+         * Switch to a specific network
+         */
+        async switchNetwork(chainId) {
+            if (!window.ethereum) {
+                this.showStatus('MetaMask is not installed', 'error');
+                return;
+            }
+
+            const network = this.supportedNetworks[chainId];
+            if (!network) {
+                this.showStatus('Network not supported', 'error');
+                return;
+            }
+
+            try {
+                this.showStatus(`Switching to ${network.chainName}...`, 'info');
+                
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: network.chainId }]
+                });
+                
+                // Update current chain ID
+                this.currentChainId = chainId;
+                this.showStatus(`Switched to ${network.chainName}`, 'success');
+                
+            } catch (error) {
+                // If the chain hasn't been added to MetaMask, add it
+                if (error.code === 4902) {
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [network]
+                        });
+                        this.currentChainId = chainId;
+                        this.showStatus(`Added and switched to ${network.chainName}`, 'success');
+                    } catch (addError) {
+                        console.error('Error adding chain:', addError);
+                        this.showStatus(`Error adding network: ${addError.message}`, 'error');
+                    }
+                } else if (error.code === 4001) {
+                    this.showStatus('Network switch was rejected', 'error');
+                } else {
+                    console.error('Error switching network:', error);
+                    this.showStatus(`Error switching network: ${error.message}`, 'error');
+                }
+            }
+        },
+        
+        /**
+         * Initialize network information
+         */
+        async initNetwork() {
+            if (!window.ethereum) {
+                return;
+            }
+
+            try {
+                this.currentChainId = await this.getCurrentChainId();
+            } catch (error) {
+                console.error('Error initializing network:', error);
+            }
+        },
+        
+        /**
+         * Request account access from Metamask
+         */
+        async requestAccountAccess() {
+            try {
+                const accounts = await window.ethereum.request({
+                    method: 'eth_requestAccounts'
+                });
+                return accounts[0];
+            } catch (error) {
+                if (error.code === 4001) {
+                    this.showStatus('Please connect to Metamask to continue.', 'error');
+                } else {
+                    this.showStatus(`Error connecting to Metamask: ${error.message}`, 'error');
+                }
+                throw error;
+            }
+        },
+        
+        /**
+         * Get nonce from backend
+         */
+        async getNonce(address) {
+            try {
+                const response = await fetch(`${this.apiBase}/auth/nonce`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ wallet_address: address })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to get nonce');
+                }
+
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                this.showStatus(`Error getting nonce: ${error.message}`, 'error');
+                throw error;
+            }
+        },
+        
+        /**
+         * Sign message with Metamask
+         */
+        async signMessage(message, address) {
+            try {
+                const signature = await window.ethereum.request({
+                    method: 'personal_sign',
+                    params: [message, address]
+                });
+                return signature;
+            } catch (error) {
+                if (error.code === 4001) {
+                    this.showStatus('Message signature was rejected.', 'error');
+                } else {
+                    this.showStatus(`Error signing message: ${error.message}`, 'error');
+                }
+                throw error;
+            }
+        },
+        
+        /**
+         * Verify signature and get JWT token
+         */
+        async verifySignature(address, signature, message) {
+            try {
+                const response = await fetch(`${this.apiBase}/auth/verify`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        wallet_address: address,
+                        signature: signature,
+                        message: message
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to verify signature');
+                }
+
+                const data = await response.json();
+                return data.token;
+            } catch (error) {
+                this.showStatus(`Error verifying signature: ${error.message}`, 'error');
+                throw error;
+            }
+        },
+        
+        /**
+         * Store token in cookie
+         */
+        storeToken(token) {
+            // Set cookie with token (expires in 24 hours)
+            const expires = new Date();
+            expires.setTime(expires.getTime() + 24 * 60 * 60 * 1000);
+            document.cookie = `auth_token=${token}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
+        },
+        
+        /**
+         * Remove token from cookie
+         */
+        removeToken() {
+            document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+        },
+        
+        /**
+         * Connect to Metamask and authenticate
+         */
+        async connect() {
+            if (!this.checkMetaMask()) {
+                return;
+            }
+
+            try {
+                this.isConnecting = true;
+                this.hideStatus();
+
+                // Request account access
+                const address = await this.requestAccountAccess();
+                this.walletAddress = address;
+
+                // Get current chain ID
+                this.currentChainId = await this.getCurrentChainId();
+
+                this.showStatus('Getting authentication challenge...', 'info');
+
+                // Get nonce from backend
+                const { nonce, message } = await this.getNonce(address);
+
+                this.showStatus('Please sign the message in Metamask...', 'info');
+
+                // Sign message with Metamask
+                const signature = await this.signMessage(message, address);
+
+                this.showStatus('Verifying signature...', 'info');
+
+                // Verify signature and get token
+                const token = await this.verifySignature(address, signature, message);
+
+                // Store token
+                this.storeToken(token);
+                this.isAuthenticated = true;
+
+                // Update UI
+                this.showStatus('Successfully authenticated!', 'success');
+
+            } catch (error) {
+                console.error('Authentication error:', error);
+                this.walletAddress = null;
+                this.isAuthenticated = false;
+            } finally {
+                this.isConnecting = false;
+            }
+        },
+        
+        /**
+         * Disconnect wallet
+         */
+        disconnect() {
+            this.walletAddress = null;
+            this.isAuthenticated = false;
+            this.removeToken();
+            this.showStatus('Disconnected successfully', 'info');
+            // Clear signature result
+            this.signature = '';
+            this.messageToSign = '';
+            // Reset network info
+            this.currentChainId = null;
+        },
+        
+        /**
+         * Sign arbitrary text with Metamask
+         */
+        async signText() {
+            if (!this.isAuthenticated) {
+                this.showStatus('Please connect and authenticate first', 'error');
+                return;
+            }
+
+            const text = this.messageToSign.trim();
+            
+            if (!text) {
+                this.showStatus('Please enter some text to sign', 'error');
+                return;
+            }
+
+            try {
+                this.isSigning = true;
+                this.hideStatus();
+
+                // Get current account from MetaMask
+                const accounts = await window.ethereum.request({
+                    method: 'eth_accounts'
+                });
+
+                if (!accounts || accounts.length === 0) {
+                    this.showStatus('No account connected. Please connect MetaMask.', 'error');
+                    return;
+                }
+
+                const currentAddress = accounts[0];
+
+                this.showStatus('Please sign the message in Metamask...', 'info');
+
+                // Sign message with Metamask
+                const signature = await window.ethereum.request({
+                    method: 'personal_sign',
+                    params: [text, currentAddress]
+                });
+
+                // Display signature
+                this.signature = signature;
+                
+                this.showStatus('Message signed successfully!', 'success');
+
+            } catch (error) {
+                console.error('Signing error:', error);
+                if (error.code === 4001) {
+                    this.showStatus('Message signature was rejected.', 'error');
+                } else {
+                    this.showStatus(`Error signing message: ${error.message}`, 'error');
+                }
+                this.signature = '';
+            } finally {
+                this.isSigning = false;
+            }
+        },
+        
+        /**
+         * Handle keydown event for message input
+         */
+        handleKeyDown(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                this.signText();
+            }
+        },
+        
+        /**
+         * Handle account changes in Metamask
+         */
+        handleAccountsChanged(accounts) {
+            if (accounts.length === 0) {
+                // User disconnected from Metamask
+                this.disconnect();
+            } else if (accounts[0].toLowerCase() !== (this.walletAddress || '').toLowerCase()) {
+                // User switched accounts
+                this.walletAddress = accounts[0];
+                if (this.isAuthenticated) {
+                    // Re-authenticate with new account
+                    this.connect();
+                }
+            }
+        },
+        
+        /**
+         * Handle chain changes in Metamask
+         */
+        async handleChainChanged(chainIdHex) {
+            // Update chain ID when user switches networks
+            this.currentChainId = parseInt(chainIdHex, 16);
+            
+            // Show notification about network change
+            const networkName = this.currentNetworkName;
+            if (this.isNetworkSupported) {
+                this.showStatus(`Network changed to ${networkName}`, 'info');
+            } else {
+                this.showStatus(`Unsupported network: ${networkName}. Please switch to a supported network.`, 'error');
+            }
+        },
+        
+        /**
+         * Setup Metamask event listeners
+         */
+        setupEventListeners() {
+            if (window.ethereum) {
+                window.ethereum.on('accountsChanged', this.handleAccountsChanged);
+                window.ethereum.on('chainChanged', this.handleChainChanged);
+            }
+        },
+        
+        /**
+         * Remove Metamask event listeners
+         */
+        removeEventListeners() {
+            if (window.ethereum) {
+                window.ethereum.removeListener('accountsChanged', this.handleAccountsChanged);
+                window.ethereum.removeListener('chainChanged', this.handleChainChanged);
+            }
+        },
+        
+        /**
+         * Check if user is already authenticated
+         */
+        async checkExistingAuth() {
+            // Check if we have a token in cookies
+            const cookies = document.cookie.split(';');
+            const tokenCookie = cookies.find(c => c.trim().startsWith('auth_token='));
+            
+            if (tokenCookie) {
+                const token = tokenCookie.split('=')[1];
+                // Try to verify token with backend
+                try {
+                    const response = await fetch(`${this.apiBase}/auth/me`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (response.ok) {
+                        const userInfo = await response.json();
+                        this.walletAddress = userInfo.wallet_address;
+                        this.isAuthenticated = true;
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Error checking auth:', error);
+                }
+            }
+
+            // If no valid token, check if Metamask is already connected
+            if (window.ethereum) {
+                try {
+                    const accounts = await window.ethereum.request({
+                        method: 'eth_accounts'
+                    });
+                    if (accounts.length > 0) {
+                        this.walletAddress = accounts[0];
+                        // Don't auto-authenticate, just show connect button
+                    }
+                } catch (error) {
+                    console.error('Error checking accounts:', error);
+                }
+            }
+        }
+    },
+    
+    template: `
+        <div class="web3-auth-container">
+            <div class="container">
+                <h1>🔐 Web3 Authentication</h1>
+                <p class="subtitle">Connect with Metamask to authenticate</p>
+
+                <div v-if="statusVisible" :class="['status', statusType]">
+                    [[ statusMessage ]]
+                </div>
+
+                <div v-if="!isAuthenticated" id="not-connected">
+                    <button 
+                        id="connect-btn" 
+                        @click="connect"
+                        :disabled="isConnecting || !isMetaMaskAvailable"
+                    >
+                        <span v-if="isConnecting" class="loading"></span>
+                        [[ isConnecting ? 'Connecting...' : 'Connect Metamask' ]]
+                    </button>
+                    <p style="color: #999; font-size: 12px; margin-top: 20px;">
+                        Make sure you have Metamask installed and unlocked
+                    </p>
+                </div>
+
+                <div v-else id="connected">
+                    <button id="disconnect-btn" class="secondary" @click="disconnect">
+                        Disconnect
+                    </button>
+                    
+                    <div class="user-info">
+                        <h3>Authenticated</h3>
+                        <p><strong>Wallet Address:</strong> [[ walletAddress ]]</p>
+                        <p><strong>Status:</strong> <span id="auth-status">Authenticated</span></p>
+                    </div>
+
+                    <div class="network-section">
+                        <h3>🌐 Network</h3>
+                        <div class="network-info">
+                            <span class="network-name">Current: [[ currentNetworkName ]]</span>
+                            <span 
+                                :class="['network-badge', { 'unsupported': !isNetworkSupported }]"
+                            >
+                                Chain ID: [[ currentChainId || '-' ]]
+                            </span>
+                        </div>
+                        <div class="network-selector">
+                            <button
+                                v-for="item in supportedNetworksList"
+                                :key="item.chainId"
+                                :class="['network-btn', { 'active': item.chainId === currentChainId }]"
+                                @click="switchNetwork(item.chainId)"
+                            >
+                                <span class="network-name">[[ item.network.chainName ]]</span>
+                                <span class="network-chain-id">Chain ID: [[ item.chainId ]]</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="sign-section">
+                        <h3>✍️ Sign Message</h3>
+                        <label for="message-input">Enter text to sign:</label>
+                        <textarea
+                            id="message-input"
+                            v-model="messageToSign"
+                            placeholder="Type any message you want to sign with your wallet..."
+                            @keydown="handleKeyDown"
+                        ></textarea>
+                        <button 
+                            id="sign-btn"
+                            @click="signText"
+                            :disabled="isSigning || !messageToSign.trim()"
+                        >
+                            <span v-if="isSigning" class="loading"></span>
+                            [[ isSigning ? 'Signing...' : 'Sign with MetaMask' ]]
+                        </button>
+                        <div v-if="signature" class="signature-result">
+                            <strong>Signature:</strong>
+                            <div>[[ signature ]]</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `
+});

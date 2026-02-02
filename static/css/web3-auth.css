@@ -1,0 +1,272 @@
+/* Web3Auth Component Styles */
+.web3-auth-container {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.web3-auth-container .container {
+    background: white;
+    border-radius: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    padding: 40px;
+    max-width: 500px;
+    width: 100%;
+    text-align: center;
+}
+
+.web3-auth-container h1 {
+    color: #333;
+    margin-bottom: 10px;
+    font-size: 28px;
+}
+
+.web3-auth-container .subtitle {
+    color: #666;
+    margin-bottom: 30px;
+    font-size: 14px;
+}
+
+.web3-auth-container .status {
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+.web3-auth-container .status.error {
+    background: #fee;
+    color: #c33;
+    border: 1px solid #fcc;
+}
+
+.web3-auth-container .status.info {
+    background: #e3f2fd;
+    color: #1976d2;
+    border: 1px solid #90caf9;
+}
+
+.web3-auth-container .status.success {
+    background: #e8f5e9;
+    color: #388e3c;
+    border: 1px solid #81c784;
+}
+
+.web3-auth-container button {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 15px 30px;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    width: 100%;
+    margin-bottom: 15px;
+}
+
+.web3-auth-container button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.web3-auth-container button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.web3-auth-container button.secondary {
+    background: #f5f5f5;
+    color: #333;
+}
+
+.web3-auth-container button.secondary:hover:not(:disabled) {
+    background: #e0e0e0;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.web3-auth-container .user-info {
+    background: #f9f9f9;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 20px;
+    text-align: left;
+}
+
+.web3-auth-container .user-info h3 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 18px;
+}
+
+.web3-auth-container .user-info p {
+    color: #666;
+    margin-bottom: 10px;
+    font-size: 14px;
+    word-break: break-all;
+}
+
+.web3-auth-container .user-info strong {
+    color: #333;
+}
+
+.web3-auth-container .sign-section {
+    background: #f9f9f9;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 20px;
+    text-align: left;
+}
+
+.web3-auth-container .sign-section h3 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 18px;
+}
+
+.web3-auth-container .sign-section label {
+    display: block;
+    color: #666;
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.web3-auth-container .sign-section textarea {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 100px;
+    margin-bottom: 15px;
+    box-sizing: border-box;
+}
+
+.web3-auth-container .sign-section textarea:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.web3-auth-container .signature-result {
+    background: #fff;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 15px;
+    word-break: break-all;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: #333;
+}
+
+.web3-auth-container .signature-result strong {
+    display: block;
+    margin-bottom: 8px;
+    color: #667eea;
+    font-size: 14px;
+}
+
+.web3-auth-container .network-section {
+    background: #f9f9f9;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 20px;
+    text-align: left;
+}
+
+.web3-auth-container .network-section h3 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 18px;
+}
+
+.web3-auth-container .network-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.web3-auth-container .network-name {
+    font-weight: 600;
+    color: #333;
+}
+
+.web3-auth-container .network-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #667eea;
+    color: white;
+}
+
+.web3-auth-container .network-badge.unsupported {
+    background: #f44336;
+}
+
+.web3-auth-container .network-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.web3-auth-container .network-btn {
+    padding: 12px 20px;
+    background: white;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+    font-size: 14px;
+    margin-bottom: 0;
+}
+
+.web3-auth-container .network-btn:hover {
+    border-color: #667eea;
+    background: #f5f5ff;
+}
+
+.web3-auth-container .network-btn.active {
+    border-color: #667eea;
+    background: #e8e5ff;
+    font-weight: 600;
+}
+
+.web3-auth-container .network-btn .network-name {
+    display: block;
+    color: #333;
+    margin-bottom: 4px;
+}
+
+.web3-auth-container .network-btn .network-chain-id {
+    font-size: 12px;
+    color: #666;
+}
+
+.web3-auth-container .loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: spin 1s ease-in-out infinite;
+    margin-right: 10px;
+    vertical-align: middle;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+

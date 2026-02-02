@@ -76,6 +76,19 @@ async def seed(request: Request):
     )
 
 
+@app.get("/web3-auth-test", response_class=HTMLResponse)
+async def web3_auth_test(request: Request):
+    """
+    Тестовая страница для компонента Web3Auth
+    """
+    return templates.TemplateResponse(
+        "web3-auth-test.html",
+        {
+            "request": request
+        }
+    )
+
+
 @app.get("/health")
 async def health_check():
     """Проверка здоровья приложения"""
