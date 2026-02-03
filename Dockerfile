@@ -14,14 +14,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt -r didcomm/requirements.txt
-
 # Copy application code
 COPY . .
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt -r didcomm/requirements.txt
 
 # Expose port 8000
 EXPOSE 8000
