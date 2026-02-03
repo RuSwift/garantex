@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Web3Auth Mobile Test</title>
+    
+    <!-- Web3Auth Mobile Component CSS -->
+    <link href="/static/css/web3-auth-mobile.css" rel="stylesheet" />
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        .test-info-banner {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 12px 16px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            border-bottom: 1px solid #e0e0e0;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .test-info-banner a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-info-banner">
+        <strong>Тест мобильного компонента</strong> | 
+        <a href="/web3-auth-test">Десктоп версия</a> | 
+        <a href="/">Главная</a>
+    </div>
+    
+    <!-- Vue компонент Web3AuthMobile -->
+    <div id="web3-auth-mobile-app">
+        <web3-auth-mobile></web3-auth-mobile>
+    </div>
+
+    <!-- Vue.js -->
+    <script src="/static/js/vue.min.js" onerror="this.onerror=null; this.src='https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.min.js'"></script>
+    
+    <!-- Components -->
+    <script src="/static/js/components.js"></script>
+    
+    <script>
+        // Инициализация Vue приложения для мобильного компонента
+        document.addEventListener('DOMContentLoaded', function() {
+            function initApp() {
+                if (typeof Vue === 'undefined') {
+                    setTimeout(initApp, 50);
+                    return;
+                }
+                
+                if (window.web3AuthMobileApp) {
+                    return;
+                }
+                
+                window.web3AuthMobileApp = new Vue({
+                    el: '#web3-auth-mobile-app',
+                    delimiters: ['[[', ']]'],
+                    data: {},
+                    mounted() {
+                        console.log('Web3Auth Mobile test app initialized');
+                    }
+                });
+            }
+            
+            initApp();
+        });
+    </script>
+</body>
+</html>
+

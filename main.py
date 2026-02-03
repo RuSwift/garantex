@@ -89,6 +89,19 @@ async def web3_auth_test(request: Request):
     )
 
 
+@app.get("/web3-auth-mobile-test", response_class=HTMLResponse)
+async def web3_auth_mobile_test(request: Request):
+    """
+    Тестовая страница для мобильного компонента Web3AuthMobile
+    """
+    return templates.TemplateResponse(
+        "web3-auth-mobile-test.html",
+        {
+            "request": request
+        }
+    )
+
+
 @app.get("/health")
 async def health_check():
     """Проверка здоровья приложения"""

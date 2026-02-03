@@ -1428,3 +1428,767 @@ Vue.component('Web3Auth', {
         </div>
     `
 });
+
+// Web3 Authentication Component for Mobile Devices
+Vue.component('Web3AuthMobile', {
+    delimiters: ['[[', ']]'],
+    data() {
+        return {
+            // API base URL
+            apiBase: '',
+            
+            // Supported networks configuration
+            supportedNetworks: {
+                1: {
+                    chainId: '0x1',
+                    chainName: 'Ethereum Mainnet',
+                    nativeCurrency: {
+                        name: 'Ether',
+                        symbol: 'ETH',
+                        decimals: 18
+                    },
+                    rpcUrls: ['https://mainnet.infura.io/v3/'],
+                    blockExplorerUrls: ['https://etherscan.io']
+                }
+            },
+            
+            // State
+            walletAddress: null,
+            isAuthenticated: false,
+            currentChainId: null,
+            isConnecting: false,
+            isSigning: false,
+            
+            // UI state
+            statusMessage: '',
+            statusType: 'info',
+            statusVisible: false,
+            messageToSign: '',
+            signature: '',
+            showNetworkSelector: false,
+            showSignSection: false,
+            
+            // MetaMask availability
+            isMetaMaskAvailable: false,
+            
+            // Mobile device detection
+            isMobileDevice: false,
+            useDeepLink: false,
+            waitingForCallback: false
+        };
+    },
+    
+    computed: {
+        currentNetworkName() {
+            if (this.currentChainId === null) return '-';
+            const network = this.supportedNetworks[this.currentChainId];
+            return network ? network.chainName : `Network ${this.currentChainId}`;
+        },
+        
+        isNetworkSupported() {
+            return this.currentChainId !== null && this.currentChainId in this.supportedNetworks;
+        },
+        
+        supportedNetworksList() {
+            return Object.keys(this.supportedNetworks).map(chainId => ({
+                chainId: parseInt(chainId),
+                network: this.supportedNetworks[chainId]
+            }));
+        },
+        
+        shortAddress() {
+            if (!this.walletAddress) return '';
+            return `${this.walletAddress.slice(0, 6)}...${this.walletAddress.slice(-4)}`;
+        }
+    },
+    
+    mounted() {
+        this.detectMobileDevice();
+        this.checkMetaMask();
+        this.initNetwork();
+        this.checkExistingAuth();
+        this.setupEventListeners();
+        this.checkUrlCallback();
+    },
+    
+    beforeDestroy() {
+        this.removeEventListeners();
+    },
+    
+    methods: {
+        showStatus(message, type = 'info') {
+            this.statusMessage = message;
+            this.statusType = type;
+            this.statusVisible = true;
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    this.statusVisible = false;
+                }, 3000);
+            }
+        },
+        
+        hideStatus() {
+            this.statusVisible = false;
+        },
+        
+        /**
+         * Определить мобильное устройство
+         */
+        detectMobileDevice() {
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+            const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+            
+            this.isMobileDevice = isMobile;
+            
+            // На мобильных устройствах без window.ethereum используем deep linking
+            if (isMobile && !window.ethereum) {
+                this.useDeepLink = true;
+            }
+        },
+        
+        /**
+         * Проверка MetaMask с поддержкой мобильных устройств
+         */
+        checkMetaMask() {
+            // Если это мобильное устройство и нет window.ethereum, разрешаем deep linking
+            if (this.isMobileDevice && !window.ethereum) {
+                this.isMetaMaskAvailable = true; // Разрешаем подключение через deep link
+                return true;
+            }
+            
+            if (typeof window.ethereum === 'undefined') {
+                this.showStatus('MetaMask не установлен. Установите MetaMask для продолжения.', 'error');
+                this.isMetaMaskAvailable = false;
+                return false;
+            }
+            this.isMetaMaskAvailable = true;
+            return true;
+        },
+        
+        async getCurrentChainId() {
+            try {
+                const chainId = await window.ethereum.request({
+                    method: 'eth_chainId'
+                });
+                return parseInt(chainId, 16);
+            } catch (error) {
+                console.error('Error getting chain ID:', error);
+                return null;
+            }
+        },
+        
+        async switchNetwork(chainId) {
+            if (!window.ethereum) {
+                this.showStatus('MetaMask не установлен', 'error');
+                return;
+            }
+
+            const network = this.supportedNetworks[chainId];
+            if (!network) {
+                this.showStatus('Сеть не поддерживается', 'error');
+                return;
+            }
+
+            try {
+                this.showStatus(`Переключение на ${network.chainName}...`, 'info');
+                
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: network.chainId }]
+                });
+                
+                this.currentChainId = chainId;
+                this.showNetworkSelector = false;
+                this.showStatus(`Переключено на ${network.chainName}`, 'success');
+                
+            } catch (error) {
+                if (error.code === 4902) {
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [network]
+                        });
+                        this.currentChainId = chainId;
+                        this.showNetworkSelector = false;
+                        this.showStatus(`Добавлена и переключена ${network.chainName}`, 'success');
+                    } catch (addError) {
+                        console.error('Error adding chain:', addError);
+                        this.showStatus(`Ошибка добавления сети: ${addError.message}`, 'error');
+                    }
+                } else if (error.code === 4001) {
+                    this.showStatus('Переключение сети отклонено', 'error');
+                } else {
+                    console.error('Error switching network:', error);
+                    this.showStatus(`Ошибка переключения сети: ${error.message}`, 'error');
+                }
+            }
+        },
+        
+        async initNetwork() {
+            if (!window.ethereum) {
+                return;
+            }
+
+            try {
+                this.currentChainId = await this.getCurrentChainId();
+            } catch (error) {
+                console.error('Error initializing network:', error);
+            }
+        },
+        
+        /**
+         * Подключение через deep link для мобильных устройств
+         */
+        async connectViaDeepLink() {
+            // Формируем callback URL с параметрами
+            const callbackUrl = new URL(window.location.href);
+            callbackUrl.searchParams.set('action', 'connect');
+            const callbackUrlString = encodeURIComponent(callbackUrl.toString());
+            
+            // Используем универсальную ссылку MetaMask
+            const metamaskUniversalLink = `https://metamask.app.link/dapp?url=${callbackUrlString}`;
+            
+            // Пытаемся открыть MetaMask через универсальную ссылку
+            // Это работает как на iOS, так и на Android
+            window.location.href = metamaskUniversalLink;
+            
+            // Альтернативно для прямого deep link (может не работать на всех устройствах)
+            // const metamaskDeepLink = `metamask://wc?uri=${callbackUrlString}`;
+            // window.location.href = metamaskDeepLink;
+            
+            this.waitingForCallback = true;
+            this.showStatus('Откройте MetaMask в приложении и подтвердите подключение', 'info');
+            
+            // Сохраняем состояние для обработки callback
+            sessionStorage.setItem('metamask_connecting', 'true');
+            sessionStorage.setItem('metamask_callback_url', callbackUrl.toString());
+        },
+        
+        /**
+         * Проверка URL параметров после возврата из MetaMask
+         */
+        checkUrlCallback() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const address = urlParams.get('address');
+            const signature = urlParams.get('signature');
+            const message = urlParams.get('message');
+            const action = urlParams.get('action'); // 'connect' или 'sign'
+            
+            if (address && signature && message) {
+                if (action === 'sign') {
+                    // Обработка подписи сообщения
+                    this.handleSignCallback(signature);
+                } else {
+                    // Обработка подключения
+                    this.handleMetaMaskCallback(address, signature, message);
+                }
+                
+                // Очищаем URL параметры
+                const cleanUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, cleanUrl);
+            }
+        },
+        
+        /**
+         * Обработка callback для подписи сообщения
+         */
+        handleSignCallback(signature) {
+            this.signature = signature;
+            this.isSigning = false;
+            this.showStatus('Сообщение подписано!', 'success');
+        },
+        
+        /**
+         * Обработка callback от MetaMask Mobile
+         */
+        async handleMetaMaskCallback(address, signature, message) {
+            try {
+                this.waitingForCallback = false;
+                this.walletAddress = address;
+                
+                this.showStatus('Проверка подписи...', 'info');
+                
+                // Проверяем подпись и получаем токен
+                const token = await this.verifySignature(address, signature, message);
+                
+                // Сохраняем токен
+                this.storeToken(token);
+                this.isAuthenticated = true;
+                
+                // Получаем chain ID (если доступен)
+                if (window.ethereum) {
+                    this.currentChainId = await this.getCurrentChainId();
+                }
+                
+                this.showStatus('Успешно авторизован!', 'success');
+                
+            } catch (error) {
+                console.error('Callback error:', error);
+                this.showStatus(`Ошибка авторизации: ${error.message}`, 'error');
+                this.walletAddress = null;
+                this.isAuthenticated = false;
+            } finally {
+                this.isConnecting = false;
+                sessionStorage.removeItem('metamask_connecting');
+            }
+        },
+        
+        async requestAccountAccess() {
+            // На мобильных устройствах без window.ethereum используем deep linking
+            if (this.isMobileDevice && !window.ethereum) {
+                await this.connectViaDeepLink();
+                // Бросаем специальную ошибку, чтобы прервать стандартный flow
+                throw new Error('MOBILE_DEEP_LINK');
+            }
+            
+            try {
+                const accounts = await window.ethereum.request({
+                    method: 'eth_requestAccounts'
+                });
+                return accounts[0];
+            } catch (error) {
+                if (error.code === 4001) {
+                    this.showStatus('Подключитесь к MetaMask для продолжения.', 'error');
+                } else {
+                    this.showStatus(`Ошибка подключения к MetaMask: ${error.message}`, 'error');
+                }
+                throw error;
+            }
+        },
+        
+        async getNonce(address) {
+            try {
+                const response = await fetch(`${this.apiBase}/auth/nonce`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ wallet_address: address })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to get nonce');
+                }
+
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                this.showStatus(`Ошибка получения nonce: ${error.message}`, 'error');
+                throw error;
+            }
+        },
+        
+        async signMessage(message, address) {
+            // На мобильных устройствах без window.ethereum подпись происходит в приложении
+            if (this.isMobileDevice && !window.ethereum) {
+                // Формируем URL для подписи в MetaMask Mobile
+                const signUrl = encodeURIComponent(window.location.href);
+                const messageEncoded = encodeURIComponent(message);
+                const addressEncoded = encodeURIComponent(address);
+                
+                const metamaskSignLink = `https://metamask.app.link/sign?url=${signUrl}&message=${messageEncoded}&address=${addressEncoded}`;
+                window.location.href = metamaskSignLink;
+                
+                // Ждем callback через URL параметры
+                this.waitingForCallback = true;
+                throw new Error('MOBILE_SIGN_PENDING');
+            }
+            
+            try {
+                const signature = await window.ethereum.request({
+                    method: 'personal_sign',
+                    params: [message, address]
+                });
+                return signature;
+            } catch (error) {
+                if (error.code === 4001) {
+                    this.showStatus('Подпись сообщения отклонена.', 'error');
+                } else {
+                    this.showStatus(`Ошибка подписи: ${error.message}`, 'error');
+                }
+                throw error;
+            }
+        },
+        
+        async verifySignature(address, signature, message) {
+            try {
+                const response = await fetch(`${this.apiBase}/auth/verify`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        wallet_address: address,
+                        signature: signature,
+                        message: message
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to verify signature');
+                }
+
+                const data = await response.json();
+                return data.token;
+            } catch (error) {
+                this.showStatus(`Ошибка проверки подписи: ${error.message}`, 'error');
+                throw error;
+            }
+        },
+        
+        storeToken(token) {
+            const expires = new Date();
+            expires.setTime(expires.getTime() + 24 * 60 * 60 * 1000);
+            document.cookie = `auth_token=${token}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
+        },
+        
+        removeToken() {
+            document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+        },
+        
+        async connect() {
+            if (!this.checkMetaMask()) {
+                return;
+            }
+
+            try {
+                this.isConnecting = true;
+                this.hideStatus();
+
+                // На мобильных устройствах без window.ethereum используем deep linking
+                if (this.isMobileDevice && !window.ethereum) {
+                    await this.connectViaDeepLink();
+                    // После deep link ждем callback через checkUrlCallback
+                    return;
+                }
+
+                const address = await this.requestAccountAccess();
+                this.walletAddress = address;
+
+                this.currentChainId = await this.getCurrentChainId();
+
+                this.showStatus('Получение запроса на авторизацию...', 'info');
+
+                const { nonce, message } = await this.getNonce(address);
+
+                this.showStatus('Подпишите сообщение в MetaMask...', 'info');
+
+                const signature = await this.signMessage(message, address);
+
+                this.showStatus('Проверка подписи...', 'info');
+
+                const token = await this.verifySignature(address, signature, message);
+
+                this.storeToken(token);
+                this.isAuthenticated = true;
+
+                this.showStatus('Успешно авторизован!', 'success');
+
+            } catch (error) {
+                // Игнорируем ошибку MOBILE_DEEP_LINK, так как это ожидаемое поведение
+                if (error.message !== 'MOBILE_DEEP_LINK') {
+                    console.error('Authentication error:', error);
+                    this.walletAddress = null;
+                    this.isAuthenticated = false;
+                    this.isConnecting = false;
+                }
+            } finally {
+                // Не сбрасываем isConnecting для мобильных устройств, так как ждем callback
+                if (!this.waitingForCallback) {
+                    this.isConnecting = false;
+                }
+            }
+        },
+        
+        disconnect() {
+            this.walletAddress = null;
+            this.isAuthenticated = false;
+            this.removeToken();
+            this.showStatus('Отключено', 'info');
+            this.signature = '';
+            this.messageToSign = '';
+            this.currentChainId = null;
+            this.showNetworkSelector = false;
+            this.showSignSection = false;
+            this.waitingForCallback = false;
+            this.isConnecting = false;
+            sessionStorage.removeItem('metamask_connecting');
+        },
+        
+        async signText() {
+            if (!this.isAuthenticated) {
+                this.showStatus('Сначала подключитесь и авторизуйтесь', 'error');
+                return;
+            }
+
+            const text = this.messageToSign.trim();
+            
+            if (!text) {
+                this.showStatus('Введите текст для подписи', 'error');
+                return;
+            }
+
+            try {
+                this.isSigning = true;
+                this.hideStatus();
+
+                // На мобильных устройствах без window.ethereum используем deep linking
+                if (this.isMobileDevice && !window.ethereum) {
+                    if (!this.walletAddress) {
+                        this.showStatus('Сначала подключите кошелек', 'error');
+                        this.isSigning = false;
+                        return;
+                    }
+                    
+                    // Формируем callback URL с параметрами для подписи
+                    const callbackUrl = new URL(window.location.href);
+                    callbackUrl.searchParams.set('action', 'sign');
+                    const callbackUrlString = encodeURIComponent(callbackUrl.toString());
+                    
+                    // Формируем URL для подписи в MetaMask Mobile
+                    const messageEncoded = encodeURIComponent(text);
+                    const addressEncoded = encodeURIComponent(this.walletAddress);
+                    
+                    const metamaskSignLink = `https://metamask.app.link/sign?url=${callbackUrlString}&message=${messageEncoded}&address=${addressEncoded}`;
+                    window.location.href = metamaskSignLink;
+                    
+                    this.showStatus('Откройте MetaMask для подписи сообщения', 'info');
+                    // Ждем callback через URL параметры
+                    return;
+                }
+
+                const accounts = await window.ethereum.request({
+                    method: 'eth_accounts'
+                });
+
+                if (!accounts || accounts.length === 0) {
+                    this.showStatus('Аккаунт не подключен. Подключите MetaMask.', 'error');
+                    return;
+                }
+
+                const currentAddress = accounts[0];
+
+                this.showStatus('Подпишите сообщение в MetaMask...', 'info');
+
+                const signature = await window.ethereum.request({
+                    method: 'personal_sign',
+                    params: [text, currentAddress]
+                });
+
+                this.signature = signature;
+                this.showStatus('Сообщение подписано!', 'success');
+
+            } catch (error) {
+                console.error('Signing error:', error);
+                if (error.code === 4001) {
+                    this.showStatus('Подпись отклонена.', 'error');
+                } else {
+                    this.showStatus(`Ошибка подписи: ${error.message}`, 'error');
+                }
+                this.signature = '';
+            } finally {
+                this.isSigning = false;
+            }
+        },
+        
+        handleKeyDown(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                this.signText();
+            }
+        },
+        
+        handleAccountsChanged(accounts) {
+            if (accounts.length === 0) {
+                this.disconnect();
+            } else if (accounts[0].toLowerCase() !== (this.walletAddress || '').toLowerCase()) {
+                this.walletAddress = accounts[0];
+                if (this.isAuthenticated) {
+                    this.connect();
+                }
+            }
+        },
+        
+        async handleChainChanged(chainIdHex) {
+            this.currentChainId = parseInt(chainIdHex, 16);
+            const networkName = this.currentNetworkName;
+            if (this.isNetworkSupported) {
+                this.showStatus(`Сеть изменена на ${networkName}`, 'info');
+            } else {
+                this.showStatus(`Неподдерживаемая сеть: ${networkName}`, 'error');
+            }
+        },
+        
+        setupEventListeners() {
+            if (window.ethereum) {
+                window.ethereum.on('accountsChanged', this.handleAccountsChanged);
+                window.ethereum.on('chainChanged', this.handleChainChanged);
+            }
+        },
+        
+        removeEventListeners() {
+            if (window.ethereum) {
+                window.ethereum.removeListener('accountsChanged', this.handleAccountsChanged);
+                window.ethereum.removeListener('chainChanged', this.handleChainChanged);
+            }
+        },
+        
+        async checkExistingAuth() {
+            const cookies = document.cookie.split(';');
+            const tokenCookie = cookies.find(c => c.trim().startsWith('auth_token='));
+            
+            if (tokenCookie) {
+                const token = tokenCookie.split('=')[1];
+                try {
+                    const response = await fetch(`${this.apiBase}/auth/me`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (response.ok) {
+                        const userInfo = await response.json();
+                        this.walletAddress = userInfo.wallet_address;
+                        this.isAuthenticated = true;
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Error checking auth:', error);
+                }
+            }
+
+            if (window.ethereum) {
+                try {
+                    const accounts = await window.ethereum.request({
+                        method: 'eth_accounts'
+                    });
+                    if (accounts.length > 0) {
+                        this.walletAddress = accounts[0];
+                    }
+                } catch (error) {
+                    console.error('Error checking accounts:', error);
+                }
+            }
+        },
+        
+        toggleNetworkSelector() {
+            this.showNetworkSelector = !this.showNetworkSelector;
+        },
+        
+        toggleSignSection() {
+            this.showSignSection = !this.showSignSection;
+        }
+    },
+    
+    template: `
+        <div class="web3-auth-mobile">
+            <div class="mobile-container">
+                <div class="mobile-header">
+                    <h1>🔐 Web3</h1>
+                    <p class="mobile-subtitle">Авторизация через MetaMask</p>
+                </div>
+
+                <div v-if="statusVisible" :class="['mobile-status', statusType]">
+                    [[ statusMessage ]]
+                </div>
+
+                <div v-if="!isAuthenticated" class="mobile-not-connected">
+                    <button 
+                        class="mobile-btn mobile-btn-primary"
+                        @click="connect"
+                        :disabled="isConnecting || !isMetaMaskAvailable"
+                    >
+                        <span v-if="isConnecting" class="mobile-loading"></span>
+                        [[ isConnecting ? 'Подключение...' : 'Подключить MetaMask' ]]
+                    </button>
+                    <p class="mobile-hint" v-if="!useDeepLink">
+                        Убедитесь, что MetaMask установлен и разблокирован
+                    </p>
+                    <div v-if="useDeepLink" class="mobile-instruction">
+                        <p class="mobile-hint" style="margin-bottom: 12px;">
+                            <strong>📱 Мобильное устройство</strong>
+                        </p>
+                        <p class="mobile-hint" style="font-size: 12px; line-height: 1.5;">
+                            После нажатия кнопки откроется приложение MetaMask.<br>
+                            Подтвердите подключение в приложении, затем вернитесь сюда.
+                        </p>
+                    </div>
+                    <div v-if="waitingForCallback" class="mobile-waiting">
+                        <p class="mobile-hint" style="color: #667eea; font-weight: 600;">
+                            ⏳ Ожидание подтверждения в MetaMask...
+                        </p>
+                    </div>
+                </div>
+
+                <div v-else class="mobile-connected">
+                    <div class="mobile-user-card">
+                        <div class="mobile-user-header">
+                            <div class="mobile-user-icon">✓</div>
+                            <div class="mobile-user-info">
+                                <div class="mobile-user-label">Подключено</div>
+                                <div class="mobile-user-address">[[ shortAddress ]]</div>
+                            </div>
+                        </div>
+                        <button class="mobile-btn mobile-btn-secondary" @click="disconnect">
+                            Отключить
+                        </button>
+                    </div>
+
+                    <div class="mobile-section">
+                        <button 
+                            class="mobile-section-header"
+                            @click="toggleNetworkSelector"
+                        >
+                            <span>🌐 Сеть: [[ currentNetworkName ]]</span>
+                            <span :class="['mobile-arrow', { 'open': showNetworkSelector }]">▼</span>
+                        </button>
+                        <div v-if="showNetworkSelector" class="mobile-section-content">
+                            <div 
+                                v-for="item in supportedNetworksList"
+                                :key="item.chainId"
+                                :class="['mobile-network-item', { 'active': item.chainId === currentChainId }]"
+                                @click="switchNetwork(item.chainId)"
+                            >
+                                <div class="mobile-network-name">[[ item.network.chainName ]]</div>
+                                <div class="mobile-network-id">Chain ID: [[ item.chainId ]]</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mobile-section">
+                        <button 
+                            class="mobile-section-header"
+                            @click="toggleSignSection"
+                        >
+                            <span>✍️ Подписать сообщение</span>
+                            <span :class="['mobile-arrow', { 'open': showSignSection }]">▼</span>
+                        </button>
+                        <div v-if="showSignSection" class="mobile-section-content">
+                            <textarea
+                                v-model="messageToSign"
+                                class="mobile-textarea"
+                                placeholder="Введите текст для подписи..."
+                                @keydown="handleKeyDown"
+                            ></textarea>
+                            <button 
+                                class="mobile-btn mobile-btn-primary"
+                                @click="signText"
+                                :disabled="isSigning || !messageToSign.trim()"
+                            >
+                                <span v-if="isSigning" class="mobile-loading"></span>
+                                [[ isSigning ? 'Подписание...' : 'Подписать' ]]
+                            </button>
+                            <div v-if="signature" class="mobile-signature">
+                                <div class="mobile-signature-label">Подпись:</div>
+                                <div class="mobile-signature-value">[[ signature ]]</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `
+});

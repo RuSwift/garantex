@@ -1,0 +1,356 @@
+/* Web3Auth Mobile Component Styles */
+.web3-auth-mobile {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 0;
+    margin: 0;
+}
+
+.web3-auth-mobile .mobile-container {
+    max-width: 100%;
+    width: 100%;
+    padding: 20px 16px;
+    box-sizing: border-box;
+}
+
+.web3-auth-mobile .mobile-header {
+    text-align: center;
+    margin-bottom: 24px;
+    padding-top: 20px;
+}
+
+.web3-auth-mobile .mobile-header h1 {
+    color: white;
+    font-size: 32px;
+    font-weight: 700;
+    margin: 0 0 8px 0;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.web3-auth-mobile .mobile-subtitle {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 14px;
+    margin: 0;
+}
+
+.web3-auth-mobile .mobile-status {
+    padding: 12px 16px;
+    border-radius: 12px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.web3-auth-mobile .mobile-status.error {
+    background: #fee;
+    color: #c33;
+    border: 1px solid #fcc;
+}
+
+.web3-auth-mobile .mobile-status.info {
+    background: #e3f2fd;
+    color: #1976d2;
+    border: 1px solid #90caf9;
+}
+
+.web3-auth-mobile .mobile-status.success {
+    background: #e8f5e9;
+    color: #388e3c;
+    border: 1px solid #81c784;
+}
+
+.web3-auth-mobile .mobile-not-connected {
+    background: white;
+    border-radius: 20px;
+    padding: 32px 24px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.web3-auth-mobile .mobile-hint {
+    color: #666;
+    font-size: 13px;
+    text-align: center;
+    margin-top: 16px;
+    margin-bottom: 0;
+}
+
+.web3-auth-mobile .mobile-instruction {
+    background: #f0f4ff;
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 16px;
+    border-left: 3px solid #667eea;
+}
+
+.web3-auth-mobile .mobile-waiting {
+    background: #fff3cd;
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-top: 12px;
+    text-align: center;
+    border: 1px solid #ffc107;
+}
+
+.web3-auth-mobile .mobile-btn {
+    width: 100%;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 16px 24px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.web3-auth-mobile .mobile-btn:active {
+    transform: scale(0.98);
+}
+
+.web3-auth-mobile .mobile-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.web3-auth-mobile .mobile-btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.web3-auth-mobile .mobile-btn-primary:not(:disabled):active {
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.web3-auth-mobile .mobile-btn-secondary {
+    background: #f5f5f5;
+    color: #333;
+    font-size: 14px;
+    padding: 12px 20px;
+}
+
+.web3-auth-mobile .mobile-btn-secondary:not(:disabled):active {
+    background: #e0e0e0;
+}
+
+.web3-auth-mobile .mobile-loading {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: mobile-spin 0.8s linear infinite;
+}
+
+@keyframes mobile-spin {
+    to { transform: rotate(360deg); }
+}
+
+.web3-auth-mobile .mobile-connected {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.web3-auth-mobile .mobile-user-card {
+    background: white;
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.web3-auth-mobile .mobile-user-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.web3-auth-mobile .mobile-user-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+.web3-auth-mobile .mobile-user-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.web3-auth-mobile .mobile-user-label {
+    color: #666;
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+.web3-auth-mobile .mobile-user-address {
+    color: #333;
+    font-size: 16px;
+    font-weight: 600;
+    font-family: 'Courier New', monospace;
+    word-break: break-all;
+}
+
+.web3-auth-mobile .mobile-section {
+    background: white;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.web3-auth-mobile .mobile-section-header {
+    width: 100%;
+    padding: 16px 20px;
+    background: transparent;
+    border: none;
+    text-align: left;
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background 0.2s;
+}
+
+.web3-auth-mobile .mobile-section-header:active {
+    background: #f5f5f5;
+}
+
+.web3-auth-mobile .mobile-arrow {
+    transition: transform 0.2s;
+    color: #999;
+    font-size: 12px;
+}
+
+.web3-auth-mobile .mobile-arrow.open {
+    transform: rotate(180deg);
+}
+
+.web3-auth-mobile .mobile-section-content {
+    padding: 0 20px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.web3-auth-mobile .mobile-network-item {
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: #f9f9f9;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 2px solid transparent;
+}
+
+.web3-auth-mobile .mobile-network-item:active {
+    background: #f0f0f0;
+}
+
+.web3-auth-mobile .mobile-network-item.active {
+    background: #e8e5ff;
+    border-color: #667eea;
+}
+
+.web3-auth-mobile .mobile-network-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 4px;
+}
+
+.web3-auth-mobile .mobile-network-id {
+    font-size: 12px;
+    color: #666;
+}
+
+.web3-auth-mobile .mobile-textarea {
+    width: 100%;
+    padding: 14px;
+    border: 2px solid #e0e0e0;
+    border-radius: 12px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 100px;
+    box-sizing: border-box;
+    background: #fafafa;
+}
+
+.web3-auth-mobile .mobile-textarea:focus {
+    outline: none;
+    border-color: #667eea;
+    background: white;
+}
+
+.web3-auth-mobile .mobile-signature {
+    background: #f9f9f9;
+    border-radius: 12px;
+    padding: 14px;
+    margin-top: 8px;
+}
+
+.web3-auth-mobile .mobile-signature-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #667eea;
+    margin-bottom: 8px;
+}
+
+.web3-auth-mobile .mobile-signature-value {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: #333;
+    word-break: break-all;
+    line-height: 1.5;
+}
+
+/* Responsive adjustments for very small screens */
+@media (max-width: 360px) {
+    .web3-auth-mobile .mobile-container {
+        padding: 16px 12px;
+    }
+    
+    .web3-auth-mobile .mobile-header h1 {
+        font-size: 28px;
+    }
+    
+    .web3-auth-mobile .mobile-btn {
+        font-size: 15px;
+        padding: 14px 20px;
+    }
+}
+
+/* Landscape orientation adjustments */
+@media (max-height: 500px) and (orientation: landscape) {
+    .web3-auth-mobile {
+        min-height: auto;
+        padding: 10px 0;
+    }
+    
+    .web3-auth-mobile .mobile-header {
+        margin-bottom: 16px;
+        padding-top: 10px;
+    }
+    
+    .web3-auth-mobile .mobile-header h1 {
+        font-size: 24px;
+    }
+}
+
