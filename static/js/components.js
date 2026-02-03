@@ -1551,12 +1551,20 @@ Vue.component('Web3AuthMobile', {
          * Проверка MetaMask с поддержкой мобильных устройств
          */
         checkMetaMask() {
+            // Сначала определяем мобильное устройство, если еще не определено
+            if (!this.isMobileDevice) {
+                this.detectMobileDevice();
+            }
+            
             // Если это мобильное устройство и нет window.ethereum, разрешаем deep linking
             if (this.isMobileDevice && !window.ethereum) {
                 this.isMetaMaskAvailable = true; // Разрешаем подключение через deep link
+                this.useDeepLink = true; // Убеждаемся, что useDeepLink установлен
+                // НЕ показываем ошибку на мобильных устройствах - показываем инструкцию
                 return true;
             }
             
+            // Только для десктопа показываем ошибку, если нет window.ethereum
             if (typeof window.ethereum === 'undefined') {
                 this.showStatus('MetaMask не установлен. Установите MetaMask для продолжения.', 'error');
                 this.isMetaMaskAvailable = false;
@@ -1638,29 +1646,34 @@ Vue.component('Web3AuthMobile', {
         },
         
         /**
-         * Подключение через deep link для мобильных устройств
+         * Получить deep link для MetaMask
          */
-        async connectViaDeepLink() {
+        getMetaMaskDeepLink() {
             // Формируем callback URL с параметрами
             const callbackUrl = new URL(window.location.href);
             callbackUrl.searchParams.set('action', 'connect');
             const callbackUrlString = encodeURIComponent(callbackUrl.toString());
             
             // Используем универсальную ссылку MetaMask
-            const metamaskUniversalLink = `https://metamask.app.link/dapp?url=${callbackUrlString}`;
+            return `https://metamask.app.link/dapp?url=${callbackUrlString}`;
+        },
+        
+        /**
+         * Подключение через deep link для мобильных устройств
+         */
+        async connectViaDeepLink() {
+            const metamaskUniversalLink = this.getMetaMaskDeepLink();
             
             // Пытаемся открыть MetaMask через универсальную ссылку
             // Это работает как на iOS, так и на Android
             window.location.href = metamaskUniversalLink;
             
-            // Альтернативно для прямого deep link (может не работать на всех устройствах)
-            // const metamaskDeepLink = `metamask://wc?uri=${callbackUrlString}`;
-            // window.location.href = metamaskDeepLink;
-            
             this.waitingForCallback = true;
             this.showStatus('Откройте MetaMask в приложении и подтвердите подключение', 'info');
             
             // Сохраняем состояние для обработки callback
+            const callbackUrl = new URL(window.location.href);
+            callbackUrl.searchParams.set('action', 'connect');
             sessionStorage.setItem('metamask_connecting', 'true');
             sessionStorage.setItem('metamask_callback_url', callbackUrl.toString());
         },
@@ -2099,21 +2112,31 @@ Vue.component('Web3AuthMobile', {
                     <button 
                         class="mobile-btn mobile-btn-primary"
                         @click="connect"
-                        :disabled="isConnecting || !isMetaMaskAvailable"
+                        :disabled="isConnecting || (!isMetaMaskAvailable && !useDeepLink)"
                     >
                         <span v-if="isConnecting" class="mobile-loading"></span>
                         [[ isConnecting ? 'Подключение...' : 'Подключить MetaMask' ]]
                     </button>
-                    <p class="mobile-hint" v-if="!useDeepLink">
+                    <p class="mobile-hint" v-if="!useDeepLink && isMetaMaskAvailable">
                         Убедитесь, что MetaMask установлен и разблокирован
                     </p>
                     <div v-if="useDeepLink" class="mobile-instruction">
                         <p class="mobile-hint" style="margin-bottom: 12px;">
                             <strong>📱 Мобильное устройство</strong>
                         </p>
-                        <p class="mobile-hint" style="font-size: 12px; line-height: 1.5;">
-                            После нажатия кнопки откроется приложение MetaMask.<br>
+                        <p class="mobile-hint" style="font-size: 12px; line-height: 1.5; margin-bottom: 12px;">
+                            Нажмите кнопку ниже, чтобы открыть приложение MetaMask.<br>
                             Подтвердите подключение в приложении, затем вернитесь сюда.
+                        </p>
+                        <a 
+                            :href="getMetaMaskDeepLink()"
+                            class="mobile-btn mobile-btn-secondary"
+                            style="text-decoration: none; display: block; margin-top: 12px;"
+                        >
+                            🔗 Открыть MetaMask App
+                        </a>
+                        <p class="mobile-hint" style="font-size: 11px; margin-top: 8px; color: #999;">
+                            Если приложение не установлено, вы будете перенаправлены в App Store / Google Play
                         </p>
                     </div>
                     <div v-if="waitingForCallback" class="mobile-waiting">
