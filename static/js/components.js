@@ -1503,7 +1503,19 @@ Vue.component('Web3AuthMobile', {
     },
     
     mounted() {
+        // Сначала определяем мобильное устройство
         this.detectMobileDevice();
+        
+        // Если это мобильное устройство без window.ethereum, настраиваем для deep linking
+        if (this.isMobileDevice && !window.ethereum) {
+            this.useDeepLink = true;
+            this.isMetaMaskAvailable = true;
+            // Очищаем статус, чтобы не показывать ошибку
+            this.statusVisible = false;
+            this.statusMessage = '';
+            this.statusType = 'info';
+        }
+        
         this.checkMetaMask();
         this.initNetwork();
         this.checkExistingAuth();
@@ -1517,6 +1529,13 @@ Vue.component('Web3AuthMobile', {
     
     methods: {
         showStatus(message, type = 'info') {
+            // На мобильных устройствах не показываем ошибки о отсутствии MetaMask
+            if (type === 'error' && this.isMobileDevice && !window.ethereum && 
+                (message.includes('MetaMask не установлен') || message.includes('MetaMask is not installed'))) {
+                // Вместо ошибки просто не показываем статус - инструкция будет в useDeepLink блоке
+                return;
+            }
+            
             this.statusMessage = message;
             this.statusType = type;
             this.statusVisible = true;
@@ -1539,11 +1558,15 @@ Vue.component('Web3AuthMobile', {
             const userAgent = navigator.userAgent || navigator.vendor || window.opera;
             const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
             
-            this.isMobileDevice = isMobile;
+            // Также проверяем размер экрана как дополнительный индикатор
+            const isSmallScreen = window.innerWidth < 768 || (window.innerHeight > window.innerWidth && window.innerWidth < 1024);
+            
+            this.isMobileDevice = isMobile || isSmallScreen;
             
             // На мобильных устройствах без window.ethereum используем deep linking
-            if (isMobile && !window.ethereum) {
+            if (this.isMobileDevice) {
                 this.useDeepLink = true;
+                this.isMetaMaskAvailable = true; // Разрешаем подключение
             }
         },
         
@@ -1560,15 +1583,27 @@ Vue.component('Web3AuthMobile', {
             if (this.isMobileDevice && !window.ethereum) {
                 this.isMetaMaskAvailable = true; // Разрешаем подключение через deep link
                 this.useDeepLink = true; // Убеждаемся, что useDeepLink установлен
+                // Очищаем любые предыдущие ошибки на мобильных устройствах
+                this.hideStatus();
                 // НЕ показываем ошибку на мобильных устройствах - показываем инструкцию
                 return true;
             }
             
             // Только для десктопа показываем ошибку, если нет window.ethereum
             if (typeof window.ethereum === 'undefined') {
-                this.showStatus('MetaMask не установлен. Установите MetaMask для продолжения.', 'error');
-                this.isMetaMaskAvailable = false;
-                return false;
+                // Проверяем еще раз, не мобильное ли это устройство
+                if (this.isMobileDevice) {
+                    this.isMetaMaskAvailable = true;
+                    this.useDeepLink = true;
+                    this.hideStatus();
+                    return true;
+                }
+                // Только для десктопа показываем ошибку
+                if (!this.isMobileDevice) {
+                    this.showStatus('MetaMask не установлен. Установите MetaMask для продолжения.', 'error');
+                    this.isMetaMaskAvailable = false;
+                    return false;
+                }
             }
             this.isMetaMaskAvailable = true;
             return true;
@@ -1588,7 +1623,10 @@ Vue.component('Web3AuthMobile', {
         
         async switchNetwork(chainId) {
             if (!window.ethereum) {
-                this.showStatus('MetaMask не установлен', 'error');
+                // На мобильных устройствах не показываем ошибку
+                if (!this.isMobileDevice) {
+                    this.showStatus('MetaMask не установлен', 'error');
+                }
                 return;
             }
 
@@ -2104,7 +2142,7 @@ Vue.component('Web3AuthMobile', {
                     <p class="mobile-subtitle">Авторизация через MetaMask</p>
                 </div>
 
-                <div v-if="statusVisible" :class="['mobile-status', statusType]">
+                <div v-if="statusVisible && !(useDeepLink && statusType === 'error' && statusMessage.includes('MetaMask не установлен'))" :class="['mobile-status', statusType]">
                     [[ statusMessage ]]
                 </div>
 
