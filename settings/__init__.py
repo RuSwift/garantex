@@ -79,6 +79,46 @@ class DatabaseSettings(BaseSettings):
         return f"postgresql+asyncpg://{self.user}:{password_value}@{self.host}:{self.port}/{self.database}"
 
 
+class RedisSettings(BaseSettings):
+    """Настройки подключения к Redis"""
+    
+    model_config = SettingsConfigDict(
+        env_prefix="REDIS_",
+        case_sensitive=False,
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+    
+    host: str = Field(
+        default="localhost",
+        description="Хост Redis"
+    )
+    
+    port: int = Field(
+        default=6379,
+        description="Порт Redis"
+    )
+    
+    password: Optional[SecretStr] = Field(
+        default=None,
+        description="Пароль Redis (опционально)"
+    )
+    
+    db: int = Field(
+        default=0,
+        description="Номер базы данных Redis"
+    )
+    
+    @property
+    def url(self) -> str:
+        """Возвращает URL подключения к Redis"""
+        password_value = self.password.get_secret_value() if self.password else ""
+        if password_value:
+            return f"redis://:{password_value}@{self.host}:{self.port}/{self.db}"
+        return f"redis://{self.host}:{self.port}/{self.db}"
+
+
 class MnemonicSettings(BaseSettings):
     """Настройки для хранения mnemonic phrase"""
     
@@ -114,7 +154,7 @@ class Settings(BaseSettings):
     # Настройки приложения
     app_name: str = Field(
         default="API",
-        description="Название приложения"
+        description="Node"
     )
     
     app_version: str = Field(
@@ -129,6 +169,9 @@ class Settings(BaseSettings):
     
     # Настройки базы данных
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    
+    # Настройки Redis
+    redis: RedisSettings = Field(default_factory=RedisSettings)
     
     # Настройки мнемонической фразы
     mnemonic: MnemonicSettings = Field(default_factory=MnemonicSettings)
@@ -149,4 +192,5 @@ __all__ = [
     "Settings",
     "DatabaseSettings",
     "MnemonicSettings",
+    "RedisSettings",
 ]
