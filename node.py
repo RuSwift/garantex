@@ -92,7 +92,11 @@ async def root(
 @app.get("/health")
 async def health_check():
     """Проверка здоровья приложения"""
-    return {"status": "ok"}
+    from datetime import datetime, timezone
+    return {
+        "status": "ok",
+        "utc": datetime.now(timezone.utc).isoformat()
+    }
 
 
 # API для инициализации ноды
