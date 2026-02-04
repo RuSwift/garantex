@@ -1,7 +1,7 @@
 """
 Database models for storing encrypted node settings
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Index
+from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Boolean, Index
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
@@ -42,7 +42,9 @@ class Storage(Base):
     
     __tablename__ = "storage"
     
-    uuid = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1, nullable=False, comment="UUID v1 primary key")
+    id = Column(BigInteger, primary_key=True, autoincrement=True, index=True, comment="Autoincrement primary key")
+    
+    uuid = Column(UUID(as_uuid=True), unique=True, index=True, default=uuid.uuid1, nullable=False, comment="UUID v1 identifier")
     
     # Space identifier for organizing data
     space = Column(String(255), nullable=False, index=True, comment="Space identifier for organizing data")
@@ -63,5 +65,5 @@ class Storage(Base):
     )
     
     def __repr__(self):
-        return f"<Storage(uuid={self.uuid}, space={self.space})>"
+        return f"<Storage(id={self.id}, uuid={self.uuid}, space={self.space})>"
 
