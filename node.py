@@ -1,12 +1,13 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from routers import auth
-from dependencies import UserDepends, SettingsDepends
+from dependencies import UserDepends, SettingsDepends, PrivKeyDepends
 from schemas.node import NodeInitRequest, NodeInitPemRequest
+from didcomm.did import create_peer_did_from_keypair
 
 
 app = FastAPI(
@@ -111,8 +112,54 @@ async def init_node_from_pem(request: NodeInitPemRequest):
 
 
 @app.get("/api/node/key-info")
-async def get_key_info():
-    ...
+async def get_key_info(
+    settings: SettingsDepends,
+    priv_key: PrivKeyDepends
+):
+    """
+    Получить информацию о ключе ноды, включая DID и DIDDoc
+    """
+    if not settings.is_node_initialized:
+        raise HTTPException(status_code=404, detail="Нода не инициализирована")
+    
+    if priv_key is None:
+        raise HTTPException(status_code=404, detail="Ключ не найден")
+    
+    # Получаем публичный ключ в разных форматах
+    public_key_hex = priv_key.public_key.hex()
+    
+    # Получаем PEM публичного ключа
+    if hasattr(priv_key, 'to_public_pem'):
+        public_key_pem = priv_key.to_public_pem().decode('utf-8')
+    else:
+        # Для EthKeyPair используем базовый метод через _public_key_obj
+        from cryptography.hazmat.primitives import serialization
+        public_key_pem = priv_key._public_key_obj.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode('utf-8')
+    
+    # Определяем тип ключа
+    key_type = priv_key.key_type if hasattr(priv_key, 'key_type') else 'Unknown'
+    
+    # Получаем адрес (если это Ethereum ключ)
+    address = None
+    if hasattr(priv_key, 'address'):
+        address = priv_key.address
+    
+    # Создаем DID из ключа
+    did_obj = create_peer_did_from_keypair(priv_key)
+    did = did_obj.did
+    did_document = did_obj.to_dict()
+    
+    return {
+        "address": address,
+        "key_type": key_type,
+        "public_key": public_key_hex,
+        "public_key_pem": public_key_pem,
+        "did": did,
+        "did_document": did_document
+    }
 
 
 if __name__ == "__main__":

@@ -7,10 +7,12 @@ try:
     from typing import Annotated
 except ImportError:
     from typing_extensions import Annotated
+from sqlalchemy.ext.asyncio import AsyncSession
 from web3_auth import web3_auth
 
 # Импортируем dependencies из модулей
 from dependencies.settings import SettingsDepends, PrivKeyDepends
+from db import get_db
 
 
 async def get_user_from_cookie(request: Request) -> Optional[dict]:
@@ -39,5 +41,9 @@ async def get_user_from_cookie(request: Request) -> Optional[dict]:
 UserDepends = Annotated[Optional[dict], Depends(get_user_from_cookie)]
 
 
+# Database dependency
+DbDepends = Annotated[AsyncSession, Depends(get_db)]
+
+
 # Экспортируем dependencies из модулей
-__all__ = ["UserDepends", "SettingsDepends", "PrivKeyDepends"]
+__all__ = ["UserDepends", "SettingsDepends", "PrivKeyDepends", "DbDepends"]

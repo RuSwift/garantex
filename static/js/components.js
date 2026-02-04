@@ -118,19 +118,45 @@ Vue.component('Profile', {
             this.error = null;
             try {
                 const response = await fetch('/api/node/key-info');
+                const contentType = response.headers.get('content-type');
+                
                 if (!response.ok) {
                     if (response.status === 404) {
                         this.error = 'Нода не инициализирована';
-                    } else {
-                        const errorData = await response.json();
-                        throw new Error(errorData.detail || 'Ошибка загрузки информации о ключе');
+                        return;
                     }
-                } else {
+                    
+                    // Пытаемся получить JSON ошибки
+                    if (contentType && contentType.includes('application/json')) {
+                        try {
+                            const errorData = await response.json();
+                            this.error = errorData.detail || 'Ошибка загрузки информации о ключе';
+                        } catch (e) {
+                            this.error = `Ошибка ${response.status}: ${response.statusText}`;
+                        }
+                    } else {
+                        // Если не JSON, показываем общую ошибку
+                        this.error = `Ошибка ${response.status}: ${response.statusText}`;
+                    }
+                    return;
+                }
+                
+                // Проверяем, что ответ - JSON
+                if (contentType && contentType.includes('application/json')) {
                     this.keyInfo = await response.json();
+                } else {
+                    // Если не JSON, пытаемся распарсить как текст
+                    const text = await response.text();
+                    console.error('Non-JSON response:', text);
+                    this.error = 'Сервер вернул неверный формат данных';
                 }
             } catch (error) {
                 console.error('Error loading key info:', error);
-                this.error = error.message || 'Ошибка загрузки информации о ключе';
+                if (error.message && error.message.includes('JSON')) {
+                    this.error = 'Ошибка парсинга ответа сервера. Возможно, сервер вернул HTML вместо JSON.';
+                } else {
+                    this.error = error.message || 'Ошибка загрузки информации о ключе';
+                }
             } finally {
                 this.loading = false;
             }
@@ -151,12 +177,12 @@ Vue.component('Profile', {
         }
     },
     template: `
-        <div class="card mb-4">
+        <div class="card mb-4 profile-card-scrollable">
             <div class="card-header">
                 <i class="fa-regular fa-address-card me-1"></i>
                 Профиль ноды
             </div>
-            <div class="card-body">
+            <div class="card-body profile-card-body-scrollable">
                 <div v-if="loading" class="text-center py-4">
                     <div class="spinner-border text-primary" role="status">
                         <span class="visually-hidden">Загрузка...</span>
@@ -175,65 +201,10 @@ Vue.component('Profile', {
                         Публичная информация о ключе
                     </h5>
                     
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label fw-bold">
-                                <i class="fas fa-wallet me-2"></i>
-                                Ethereum Адрес:
-                            </label>
-                            <div class="input-group">
-                                <input 
-                                    type="text" 
-                                    class="form-control font-monospace" 
-                                    :value="keyInfo.address" 
-                                    readonly
-                                    style="font-size: 0.9rem;"
-                                />
-                                <button 
-                                    class="btn btn-outline-secondary" 
-                                    type="button"
-                                    @click="copyToClipboard(keyInfo.address)"
-                                    title="Копировать адрес">
-                                    <i class="fas fa-copy"></i>
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label fw-bold">
-                                <i class="fas fa-info-circle me-2"></i>
-                                Тип ключа:
-                            </label>
-                            <input 
-                                type="text" 
-                                class="form-control" 
-                                :value="keyInfo.key_type" 
-                                readonly
-                            />
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">
-                            <i class="fas fa-key me-2"></i>
-                            Публичный ключ (hex):
-                        </label>
-                        <div class="input-group">
-                            <textarea 
-                                class="form-control font-monospace" 
-                                rows="2"
-                                :value="keyInfo.public_key" 
-                                readonly
-                                style="font-size: 0.85rem;"
-                            ></textarea>
-                            <button 
-                                class="btn btn-outline-secondary" 
-                                type="button"
-                                @click="copyToClipboard(keyInfo.public_key)"
-                                title="Копировать публичный ключ">
-                                <i class="fas fa-copy"></i>
-                            </button>
-                        </div>
+                    <div class="alert alert-info mb-4">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Информация:</strong> Публичный ключ, PEM, DID и DID Document можно безопасно делиться с другими. 
+                        Они используются для проверки подписей, шифрования сообщений и идентификации в P2P сети.
                     </div>
                     
                     <div class="mb-3">
@@ -262,10 +233,56 @@ Vue.component('Profile', {
                         </small>
                     </div>
                     
-                    <div class="alert alert-info mt-4">
-                        <i class="fas fa-info-circle me-2"></i>
-                        <strong>Информация:</strong> Публичный ключ и PEM можно безопасно делиться с другими. 
-                        Они используются для проверки подписей и шифрования сообщений для вас.
+                    <div class="mb-3" v-if="keyInfo.did">
+                        <label class="form-label fw-bold">
+                            <i class="fas fa-id-card me-2"></i>
+                            DID (Decentralized Identifier):
+                        </label>
+                        <div class="input-group">
+                            <input 
+                                type="text" 
+                                class="form-control font-monospace" 
+                                :value="keyInfo.did" 
+                                readonly
+                                style="font-size: 0.9rem;"
+                            />
+                            <button 
+                                class="btn btn-outline-secondary" 
+                                type="button"
+                                @click="copyToClipboard(keyInfo.did)"
+                                title="Копировать DID">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                        <small class="form-text text-muted">
+                            Децентрализованный идентификатор для P2P сети
+                        </small>
+                    </div>
+                    
+                    <div class="mb-3" v-if="keyInfo.did_document">
+                        <label class="form-label fw-bold">
+                            <i class="fas fa-file-alt me-2"></i>
+                            DID Document (JSON):
+                        </label>
+                        <div class="input-group">
+                            <textarea 
+                                class="form-control font-monospace" 
+                                rows="12"
+                                :value="JSON.stringify(keyInfo.did_document, null, 2)" 
+                                readonly
+                                style="font-size: 0.75rem;"
+                            ></textarea>
+                            <button 
+                                class="btn btn-outline-secondary" 
+                                type="button"
+                                @click="copyToClipboard(JSON.stringify(keyInfo.did_document, null, 2))"
+                                title="Копировать DID Document">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                        <small class="form-text text-muted">
+                            DID Document содержит публичные ключи и методы верификации для идентификации в P2P сети
+                        </small>
                     </div>
                 </div>
             </div>
@@ -295,8 +312,7 @@ Vue.component('NodeInitModal', {
     data() {
         return {
             show: false,
-            currentMethod: 'mnemonic',
-            mnemonicInput: '',
+            currentMethod: 'pem',
             mouseEntropy: [],
             entropyProgress: 0,
             requiredEntropy: 256,
@@ -406,7 +422,6 @@ Vue.component('NodeInitModal', {
             }
         },
         resetForm() {
-            this.mnemonicInput = '';
             this.mouseEntropy = [];
             this.entropyProgress = 0;
             this.result = null;
@@ -416,41 +431,6 @@ Vue.component('NodeInitModal', {
             this.hideStatus();
             if (this.canvas && this.ctx) {
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-            }
-        },
-        async generateFromMnemonic() {
-            if (!this.mnemonicInput.trim()) {
-                this.showStatus('Введите мнемоническую фразу', 'error');
-                return;
-            }
-
-            try {
-                this.showStatus('Создание ключа...', 'info');
-                const words = this.mnemonicInput.trim().split(/\s+/).filter(w => w.length > 0);
-                
-                if (words.length !== 12 && words.length !== 24) {
-                    throw new Error('Мнемоническая фраза должна содержать 12 или 24 слова');
-                }
-
-                // Check if ethers is available
-                if (typeof ethers === 'undefined') {
-                    throw new Error('Ethers.js не загружен. Пожалуйста, обновите страницу.');
-                }
-
-                const wallet = ethers.Wallet.fromMnemonic(words.join(' '));
-                this.result = {
-                    address: wallet.address,
-                    privateKey: wallet.privateKey,
-                    mnemonic: words.join(' ')
-                };
-                
-                // Save to server
-                await this.saveMnemonic(words.join(' '));
-                
-                this.showStatus('Ключ успешно создан!', 'success');
-            } catch (error) {
-                console.error('Error:', error);
-                this.showStatus('Ошибка: ' + error.message, 'error');
             }
         },
         handleMouseDown(e) {
@@ -496,7 +476,15 @@ Vue.component('NodeInitModal', {
         },
         updateEntropyProgress() {
             const estimatedBytes = this.mouseEntropy.length * 0.7;
+            const previousProgress = this.entropyProgress;
             this.entropyProgress = Math.min(100, (estimatedBytes / this.requiredEntropy) * 100);
+            
+            // Прокрутка к кнопке, когда энтропия собрана (достигнуто 100%)
+            if (previousProgress < 100 && this.entropyProgress >= 100) {
+                this.$nextTick(() => {
+                    this.scrollToGenerateButton();
+                });
+            }
         },
         async generateFromMouseEntropy() {
             if (this.mouseEntropy.length < 50) {
@@ -525,6 +513,11 @@ Vue.component('NodeInitModal', {
                 await this.saveMnemonic(mnemonic);
                 
                 this.showStatus('Ключ успешно создан!', 'success');
+                
+                // Плавная прокрутка к результатам
+                this.$nextTick(() => {
+                    this.scrollToResult();
+                });
             } catch (error) {
                 console.error('Error:', error);
                 this.showStatus('Ошибка: ' + error.message, 'error');
@@ -612,6 +605,24 @@ Vue.component('NodeInitModal', {
         hideStatus() {
             this.status.visible = false;
         },
+        scrollToGenerateButton() {
+            // Плавная прокрутка к кнопке генерации ключа
+            this.$nextTick(() => {
+                const generateButton = this.$refs.generateButton;
+                if (generateButton) {
+                    generateButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            });
+        },
+        scrollToResult() {
+            // Плавная прокрутка к блоку результатов
+            this.$nextTick(() => {
+                const resultElement = this.$refs.resultCard;
+                if (resultElement) {
+                    resultElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        },
         closeModal() {
             // If result exists, node is initialized, so reload page
             if (this.result) {
@@ -638,82 +649,25 @@ Vue.component('NodeInitModal', {
                     [[ status.message ]]
                 </div>
                 
-                <p class="seed-modal-intro">Для работы ноды необходимо создать мнемоническую фразу или загрузить ключ</p>
+                <p class="seed-modal-intro">Для работы ноды в одноранговой P2P сети необходим крипто-ключ</p>
                 
                 <div class="method-selector">
-                    <button type="button" 
-                            :class="'method-btn ' + (currentMethod === 'mnemonic' ? 'active' : '')"
-                            @click="switchMethod('mnemonic')">
-                        📝 Мнемоническая фраза
-                    </button>
-                    <button type="button" 
-                            :class="'method-btn ' + (currentMethod === 'mouse' ? 'active' : '')"
-                            @click="switchMethod('mouse')">
-                        🖱️ Движение мышкой
-                    </button>
                     <button type="button" 
                             :class="'method-btn ' + (currentMethod === 'pem' ? 'active' : '')"
                             @click="switchMethod('pem')">
                         📄 PEM файл
                     </button>
-                </div>
-                
-                <!-- Mnemonic Method -->
-                <div v-if="currentMethod === 'mnemonic'" class="method-content">
-                    <div class="alert alert-warning" style="border-radius: 10px; border-left: 4px solid #ffc107;">
-                        <strong>⚠️ Внимание!</strong> Никогда не делитесь своей мнемонической фразой с третьими лицами.
-                    </div>
-                    <div class="seed-form-group">
-                        <label for="mnemonic-input" class="seed-form-label">Введите мнемоническую фразу (12 или 24 слова):</label>
-                        <textarea 
-                            id="mnemonic-input"
-                            v-model="mnemonicInput"
-                            class="form-control seed-textarea"
-                            rows="4"
-                            placeholder="word1 word2 word3 ... word12"
-                        ></textarea>
-                    </div>
-                    <button class="seed-btn-primary" @click="generateFromMnemonic">
-                        Создать ключ из мнемоники
+                    <button type="button" 
+                            :class="'method-btn ' + (currentMethod === 'mouse' ? 'active' : '')"
+                            @click="switchMethod('mouse')">
+                        🖱️ Генерация ключа
                     </button>
                 </div>
                 
-                <!-- Mouse Method -->
-                <div v-if="currentMethod === 'mouse'" class="method-content">
-                    <div class="alert alert-info" style="border-radius: 10px; border-left: 4px solid #0dcaf0;">
-                        <strong>ℹ️ Информация</strong> Двигайте мышкой по области ниже для генерации энтропии.
-                    </div>
-                    <div class="seed-form-group">
-                        <div class="seed-progress-container">
-                            <div class="seed-progress-bar">
-                                <div class="seed-progress-fill" :style="{width: entropyProgress + '%'}">
-                                    [[ Math.round(entropyProgress) ]]%
-                                </div>
-                            </div>
-                        </div>
-                        <div class="seed-canvas-container">
-                            <canvas 
-                                ref="entropyCanvas"
-                                @mousedown="handleMouseDown"
-                                @mouseup="handleMouseUp"
-                                @mouseleave="handleMouseUp"
-                                @mousemove="handleMouseMove"
-                                style="height: 300px;"
-                            ></canvas>
-                        </div>
-                    </div>
-                    <button 
-                        class="seed-btn-primary" 
-                        :disabled="!canGenerateFromMouse"
-                        @click="generateFromMouseEntropy">
-                        Создать ключ из энтропии
-                    </button>
-                </div>
-                        
                 <!-- PEM Method -->
                 <div v-if="currentMethod === 'pem'" class="method-content">
                     <div class="alert alert-info" style="border-radius: 10px; border-left: 4px solid #0dcaf0;">
-                        <strong>ℹ️ Информация</strong> Загрузите PEM файл с приватным ключом (secp256k1 для Ethereum).
+                        <strong>ℹ️ Информация</strong> Загрузите PEM файл с приватным ключом (<a href="https://www.openssl.org/docs/man1.1.1/man1/ecparam.html" target="_blank" rel="noopener noreferrer">сгенерировать с помощью OpenSSL</a>).
                     </div>
                     <div class="seed-form-group">
                         <label for="pem-file-input" class="seed-form-label">Выберите PEM файл:</label>
@@ -749,8 +703,41 @@ Vue.component('NodeInitModal', {
                     </button>
                 </div>
                         
+                <!-- Mouse Method -->
+                <div v-if="currentMethod === 'mouse'" class="method-content">
+                    <div class="alert alert-info" style="border-radius: 10px; border-left: 4px solid #0dcaf0;">
+                        <strong>ℹ️ Информация</strong> Перемещайте курсор мыши по области ниже для сбора энтропии, необходимой для генерации криптографического ключа.
+                    </div>
+                    <div class="seed-form-group">
+                        <div class="seed-progress-container">
+                            <div class="seed-progress-bar">
+                                <div class="seed-progress-fill" :style="{width: entropyProgress + '%'}">
+                                    [[ Math.round(entropyProgress) ]]%
+                                </div>
+                            </div>
+                        </div>
+                        <div class="seed-canvas-container">
+                            <canvas 
+                                ref="entropyCanvas"
+                                @mousedown="handleMouseDown"
+                                @mouseup="handleMouseUp"
+                                @mouseleave="handleMouseUp"
+                                @mousemove="handleMouseMove"
+                                style="height: 300px;"
+                            ></canvas>
+                        </div>
+                    </div>
+                    <button 
+                        ref="generateButton"
+                        class="seed-btn-primary" 
+                        :disabled="!canGenerateFromMouse"
+                        @click="generateFromMouseEntropy">
+                        Создать ключ из энтропии
+                    </button>
+                </div>
+                        
                 <!-- Result -->
-                <div v-if="result" class="seed-result-card">
+                <div v-if="result" ref="resultCard" class="seed-result-card">
                     <div class="seed-result-title">
                         <span>✅</span>
                         <span>Ключ успешно создан</span>

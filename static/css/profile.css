@@ -1,0 +1,33 @@
+/* Profile Component Scrollable Styles */
+.profile-card-scrollable {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 200px);
+    height: calc(100vh - 200px);
+}
+
+.profile-card-body-scrollable {
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Улучшение скроллбара для лучшего UX */
+.profile-card-body-scrollable::-webkit-scrollbar {
+    width: 8px;
+}
+
+.profile-card-body-scrollable::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.profile-card-body-scrollable::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+.profile-card-body-scrollable::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
