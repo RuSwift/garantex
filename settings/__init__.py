@@ -167,6 +167,12 @@ class Settings(BaseSettings):
         description="Режим отладки"
     )
     
+    # Secret key for encryption/signing
+    secret: SecretStr = Field(
+        default=SecretStr(""),
+        description="Secret key for encryption and signing operations"
+    )
+    
     # Настройки базы данных
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     
