@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from routers import auth
+from routers import didcomm
 from dependencies import UserDepends, SettingsDepends, PrivKeyDepends
 from schemas.node import NodeInitRequest, NodeInitPemRequest
 from didcomm.did import create_peer_did_from_keypair
@@ -33,6 +34,7 @@ app.add_middleware(
 
 # Подключение роутеров
 app.include_router(auth.router)
+app.include_router(didcomm.router)
 
 
 @app.get("/", response_class=HTMLResponse)

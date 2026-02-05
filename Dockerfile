@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy application code
 COPY . .
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt -r didcomm/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-test.txt -r didcomm/requirements.txt
 
 # Expose port 8000
 EXPOSE 8000

@@ -1,0 +1,24 @@
+# Testing dependencies for garantex project
+
+# Core testing framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+
+# For async testing
+asyncio>=3.4.3
+
+# For HTTP testing (if needed for API tests)
+httpx>=0.24.0
+pytest-httpx>=0.22.0
+
+# For fixtures and test data
+faker>=19.0.0
+
+# Code quality
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.4.0
+isort>=5.12.0
+
