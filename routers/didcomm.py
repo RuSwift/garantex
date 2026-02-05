@@ -11,6 +11,7 @@ from dependencies import PrivKeyDepends, SettingsDepends
 from didcomm.message import DIDCommMessage, unpack_message
 from didcomm.did import create_peer_did_from_keypair
 from services.protocols import get_protocol_handler, ProtocolHandler
+from routers.utils import extract_protocol_name
 
 
 router = APIRouter(prefix="/api/didcomm", tags=["DIDComm"])
@@ -28,6 +29,13 @@ class DIDCommMessageResponse(BaseModel):
     success: bool = Field(..., description="Whether message was handled successfully")
     message: Optional[str] = Field(None, description="Status message")
     response: Optional[Dict[str, Any]] = Field(None, description="Response message if any")
+
+
+class SendTrustPingRequest(BaseModel):
+    """Request body for sending Trust Ping"""
+    recipient_did: str = Field(..., description="DID of the recipient")
+    response_requested: bool = Field(True, description="Whether a response is requested")
+    comment: Optional[str] = Field(None, description="Optional comment for the ping message")
 
 
 @router.post("/message", response_model=DIDCommMessageResponse)
@@ -137,11 +145,9 @@ async def handle_didcomm_message(
 
 @router.post("/send-ping")
 async def send_trust_ping(
-    recipient_did: str,
-    response_requested: bool = True,
-    comment: Optional[str] = None,
-    priv_key: PrivKeyDepends = Depends(),
-    settings: SettingsDepends = Depends()
+    request: SendTrustPingRequest,
+    priv_key: PrivKeyDepends,
+    settings: SettingsDepends
 ):
     """
     Send a Trust Ping message to another DID
@@ -150,11 +156,9 @@ async def send_trust_ping(
     with other DIDComm agents.
     
     Args:
-        recipient_did: DID of the recipient
-        response_requested: Whether to request a pong response
-        comment: Optional comment to include
-        priv_key: Node's private key
-        settings: Node settings
+        request: Trust Ping request containing recipient_did, response_requested, and optional comment
+        priv_key: Node's private key (from dependencies)
+        settings: Node settings (from dependencies)
         
     Returns:
         Packed Trust Ping message ready to send
@@ -182,9 +186,9 @@ async def send_trust_ping(
         
         # Create ping message
         ping_message = handler.create_ping(
-            recipient_did=recipient_did,
-            response_requested=response_requested,
-            comment=comment
+            recipient_did=request.recipient_did,
+            response_requested=request.response_requested,
+            comment=request.comment
         )
         
         # Note: In a real implementation, you'd need the recipient's public key
@@ -202,25 +206,4 @@ async def send_trust_ping(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error creating ping message: {str(e)}"
         )
-
-
-def extract_protocol_name(message_type: str) -> Optional[str]:
-    """
-    Extract protocol name from DIDComm message type URI
-    
-    Example: "https://didcomm.org/trust-ping/1.0/ping" -> "trust-ping"
-    
-    Args:
-        message_type: Full message type URI
-        
-    Returns:
-        Protocol name or None
-    """
-    try:
-        parts = message_type.split('/')
-        if len(parts) >= 4:
-            return parts[-3]  # protocol name is third from end
-    except Exception:
-        pass
-    return None
 

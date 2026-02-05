@@ -67,3 +67,46 @@ class Storage(Base):
     def __repr__(self):
         return f"<Storage(id={self.id}, uuid={self.uuid}, space={self.space})>"
 
+
+class Connection(Base):
+    """Model for storing DIDComm connection protocol states"""
+    
+    __tablename__ = "connections"
+    
+    id = Column(BigInteger, primary_key=True, autoincrement=True, index=True, comment="Autoincrement primary key")
+    
+    # Connection identifiers
+    connection_id = Column(String(255), unique=True, nullable=False, index=True, comment="Unique connection identifier (message ID)")
+    my_did = Column(String(255), nullable=False, index=True, comment="Our DID")
+    their_did = Column(String(255), nullable=True, index=True, comment="Their DID (null for pending invitations)")
+    
+    # Connection status: 'pending' or 'established'
+    status = Column(String(20), nullable=False, default='pending', index=True, comment="Connection status")
+    
+    # Connection type: 'invitation', 'request', 'response'
+    connection_type = Column(String(20), nullable=False, comment="Type of connection message")
+    
+    # Label for display
+    label = Column(String(255), nullable=True, comment="Human-readable label")
+    
+    # Additional metadata (invitation_id, invitation_label, request_id, etc.)
+    # Note: cannot use 'metadata' as field name - it's reserved by SQLAlchemy
+    connection_metadata = Column(JSONB, nullable=True, comment="Additional connection metadata")
+    
+    # Original message data (stored as JSON)
+    message_data = Column(JSONB, nullable=True, comment="Original DIDComm message data")
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="Last update timestamp (UTC)")
+    established_at = Column(DateTime(timezone=True), nullable=True, comment="When connection was established (UTC)")
+    
+    # Indexes for efficient queries
+    __table_args__ = (
+        Index('ix_connections_my_did_status', 'my_did', 'status'),
+        Index('ix_connections_their_did_status', 'their_did', 'status'),
+        Index('ix_connections_connection_metadata', 'connection_metadata', postgresql_using='gin'),
+    )
+    
+    def __repr__(self):
+        return f"<Connection(id={self.id}, connection_id={self.connection_id}, status={self.status}, my_did={self.my_did}, their_did={self.their_did})>"

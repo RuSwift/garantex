@@ -150,3 +150,131 @@ class BasicMessage(BaseModel):
             }
         }
 
+
+# Connection Protocol schemas (RFC 0160)
+
+
+class ConnectionInvitationBody(BaseModel):
+    """
+    Body of a Connection Invitation message
+    """
+    label: str = Field(..., description="Human-readable label for the inviter")
+    recipient_keys: List[str] = Field(..., description="Public keys for encryption")
+    service_endpoint: Optional[str] = Field(None, description="Service endpoint URL")
+    routing_keys: Optional[List[str]] = Field(None, description="Keys for routing")
+    image_url: Optional[str] = Field(None, description="Optional image URL")
+
+
+class ConnectionInvitation(BaseModel):
+    """
+    Connection Invitation schema (RFC 0160)
+    
+    Message type: https://didcomm.org/connections/1.0/invitation
+    """
+    id: str = Field(..., description="Unique message identifier")
+    type: str = Field(
+        default="https://didcomm.org/connections/1.0/invitation",
+        description="Message type URI"
+    )
+    body: ConnectionInvitationBody = Field(..., description="Message body")
+    label: Optional[str] = Field(None, description="Deprecated: use body.label instead")
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "id": "invitation-id",
+                "type": "https://didcomm.org/connections/1.0/invitation",
+                "body": {
+                    "label": "Alice Agent",
+                    "recipient_keys": ["did:key:z6MkExample"],
+                    "service_endpoint": "https://example.com/didcomm",
+                    "routing_keys": []
+                }
+            }
+        }
+
+
+class ConnectionRequestBody(BaseModel):
+    """
+    Body of a Connection Request message
+    """
+    label: str = Field(..., description="Human-readable label for the requester")
+    connection: Dict[str, Any] = Field(..., description="Connection details with DID and DID document")
+    image_url: Optional[str] = Field(None, description="Optional image URL")
+
+
+class ConnectionRequest(BaseModel):
+    """
+    Connection Request schema (RFC 0160)
+    
+    Message type: https://didcomm.org/connections/1.0/request
+    """
+    id: str = Field(..., description="Unique message identifier")
+    type: str = Field(
+        default="https://didcomm.org/connections/1.0/request",
+        description="Message type URI"
+    )
+    body: ConnectionRequestBody = Field(..., description="Message body")
+    from_did: Optional[str] = Field(None, alias="from", description="Sender's DID")
+    to: Optional[List[str]] = Field(None, description="Recipient DIDs")
+    created_time: Optional[str] = Field(None, description="Message creation time (ISO 8601)")
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "id": "request-id",
+                "type": "https://didcomm.org/connections/1.0/request",
+                "body": {
+                    "label": "Bob Agent",
+                    "connection": {
+                        "DID": "did:peer:1:zQmBobExample",
+                        "DIDDoc": {}
+                    }
+                },
+                "from": "did:peer:1:zQmBobExample"
+            }
+        }
+
+
+class ConnectionResponseBody(BaseModel):
+    """
+    Body of a Connection Response message
+    """
+    connection: Dict[str, Any] = Field(..., description="Connection details with DID and signed DID document")
+
+
+class ConnectionResponse(BaseModel):
+    """
+    Connection Response schema (RFC 0160)
+    
+    Message type: https://didcomm.org/connections/1.0/response
+    """
+    id: str = Field(..., description="Unique message identifier")
+    type: str = Field(
+        default="https://didcomm.org/connections/1.0/response",
+        description="Message type URI"
+    )
+    thid: str = Field(..., description="Thread ID (references original request message ID)")
+    body: ConnectionResponseBody = Field(..., description="Message body")
+    from_did: Optional[str] = Field(None, alias="from", description="Sender's DID")
+    to: Optional[List[str]] = Field(None, description="Recipient DIDs")
+    created_time: Optional[str] = Field(None, description="Message creation time (ISO 8601)")
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "id": "response-id",
+                "type": "https://didcomm.org/connections/1.0/response",
+                "thid": "request-id",
+                "body": {
+                    "connection": {
+                        "DID": "did:peer:1:zQmAliceExample",
+                        "DIDDoc": {}
+                    }
+                },
+                "from": "did:peer:1:zQmAliceExample"
+            }
+        }

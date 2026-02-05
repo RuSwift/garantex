@@ -11,6 +11,15 @@ Base = declarative_base()
 # Global session factory (will be initialized in init_db)
 SessionLocal = None
 
+# Import models after Base is defined to avoid circular imports
+# This ensures models are registered with Base
+def _import_models():
+    """Import all models to register them with Base"""
+    from db import models  # noqa: F401
+
+# Import models on module load
+_import_models()
+
 
 def init_db(database_settings: DatabaseSettings):
     """Initialize database connection and session factory"""
