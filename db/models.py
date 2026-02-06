@@ -37,6 +37,32 @@ class NodeSettings(Base):
         return f"<NodeSettings(id={self.id}, key_type={self.key_type}, address={self.ethereum_address})>"
 
 
+class AdminUser(Base):
+    """Model for storing root admin credentials"""
+    
+    __tablename__ = "admin_users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Authentication method: 'password' or 'tron'
+    auth_method = Column(String(20), nullable=False, comment="Auth method: password or tron")
+    
+    # For password authentication
+    username = Column(String(255), nullable=True, unique=True, index=True, comment="Admin username")
+    password_hash = Column(Text, nullable=True, comment="Hashed password (bcrypt)")
+    
+    # For TRON authentication
+    tron_address = Column(String(34), nullable=True, index=True, comment="Whitelisted TRON address")
+    
+    # Metadata
+    is_active = Column(Boolean, default=True, nullable=False, comment="Whether this admin is active")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<AdminUser(id={self.id}, auth_method={self.auth_method}, username={self.username}, tron={self.tron_address})>"
+
+
 class Storage(Base):
     """Model for storing JSON payloads with space-based organization"""
     

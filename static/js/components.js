@@ -312,6 +312,7 @@ Vue.component('NodeInitModal', {
     data() {
         return {
             show: false,
+            currentStep: 1,  // 1 or 2
             currentMethod: 'pem',
             mouseEntropy: [],
             entropyProgress: 0,
@@ -325,16 +326,54 @@ Vue.component('NodeInitModal', {
             status: { message: '', type: '', visible: false },
             pemFile: null,
             pemPassword: '',
-            pemContent: ''
+            pemContent: '',
+            // Step 2: Root credentials
+            rootCredentialMethod: 'password',
+            rootUsername: '',
+            rootPassword: '',
+            rootPasswordConfirm: '',
+            rootTronAddress: null,
+            rootTronAuthenticated: false,
+            savingCredentials: false
         };
     },
-    mounted() {
+    async mounted() {
         // Check if node needs initialization
         const initScript = document.getElementById('is-node-initialized');
+        let nodeInitialized = false;
+        
         if (initScript) {
-            const initialized = JSON.parse(initScript.textContent);
-            if (!initialized) {
-                this.show = true;
+            nodeInitialized = JSON.parse(initScript.textContent);
+        }
+        
+        // Check if admin is configured
+        let adminConfigured = false;
+        try {
+            const response = await fetch('/api/node/is-admin-configured');
+            if (response.ok) {
+                const data = await response.json();
+                adminConfigured = data.configured;
+            }
+        } catch (error) {
+            console.error('Error checking admin configuration:', error);
+        }
+        
+        // Show modal if node is not initialized OR admin is not configured
+        if (!nodeInitialized || !adminConfigured) {
+            this.show = true;
+            
+            // If node is initialized but admin is not, go directly to Step 2
+            if (nodeInitialized && !adminConfigured) {
+                this.currentStep = 2;
+                // Set a fake result so Step 2 knows node is initialized
+                this.result = {
+                    address: 'Already initialized',
+                    keyType: 'existing',
+                    message: 'Ключ ноды уже создан, настройте root доступ'
+                };
+            } else {
+                // Node not initialized, start from Step 1
+                this.currentStep = 1;
                 this.$nextTick(() => {
                     this.initCanvas();
                 });
@@ -361,6 +400,15 @@ Vue.component('NodeInitModal', {
                     this.initCanvas();
                 });
             }
+        },
+        switchRootCredentialMethod(method) {
+            this.rootCredentialMethod = method;
+            this.rootUsername = '';
+            this.rootPassword = '';
+            this.rootPasswordConfirm = '';
+            this.rootTronAddress = null;
+            this.rootTronAuthenticated = false;
+            this.hideStatus();
         },
         handlePemFileSelect(event) {
             const file = event.target.files[0];
@@ -413,12 +461,127 @@ Vue.component('NodeInitModal', {
                 };
                 
                 // Don't auto-reload, let user close manually after copying data
-                this.showStatus('Ключ успешно сохранен! Скопируйте данные и закройте окно.', 'success');
-                // Убрать автоматическую перезагрузку
-                // Пользователь сам закроет окно через кнопку "Закрыть"
+                this.showStatus('Ключ успешно сохранен! Переходите к Step 2.', 'success');
             } catch (error) {
                 console.error('Error:', error);
                 this.showStatus('Ошибка: ' + error.message, 'error');
+            }
+        },
+        async proceedToStep2() {
+            // Check if result exists OR if node is already initialized
+            if (!this.result) {
+                // Check if node might be initialized from DB
+                try {
+                    const response = await fetch('/api/node/key-info');
+                    if (response.ok) {
+                        // Node is initialized, allow to proceed
+                        this.result = {
+                            address: 'Already initialized',
+                            keyType: 'existing',
+                            message: 'Ключ ноды уже создан'
+                        };
+                    } else {
+                        this.showStatus('Сначала завершите инициализацию ключа', 'error');
+                        return;
+                    }
+                } catch (error) {
+                    this.showStatus('Сначала завершите инициализацию ключа', 'error');
+                    return;
+                }
+            }
+            this.currentStep = 2;
+            this.hideStatus();
+        },
+        backToStep1() {
+            this.currentStep = 1;
+            this.hideStatus();
+        },
+        handleTronAuthComplete(address, token) {
+            console.log('TRON auth complete:', address, token);
+            this.rootTronAddress = address;
+            this.rootTronAuthenticated = true;
+            this.showStatus('TRON кошелек подключен как root', 'success');
+        },
+        async saveRootCredentials() {
+            try {
+                this.savingCredentials = true;
+                
+                if (this.rootCredentialMethod === 'password') {
+                    // Validate password credentials
+                    if (!this.rootUsername || !this.rootPassword) {
+                        this.showStatus('Введите логин и пароль', 'error');
+                        return;
+                    }
+                    
+                    if (this.rootPassword.length < 8) {
+                        this.showStatus('Пароль должен быть минимум 8 символов', 'error');
+                        return;
+                    }
+                    
+                    if (this.rootPassword !== this.rootPasswordConfirm) {
+                        this.showStatus('Пароли не совпадают', 'error');
+                        return;
+                    }
+                    
+                    this.showStatus('Сохранение root кредов...', 'info');
+                    
+                    // Send to backend
+                    const response = await fetch('/api/node/set-root-credentials', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            method: 'password',
+                            username: this.rootUsername,
+                            password: this.rootPassword
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Ошибка сохранения кредов');
+                    }
+                    
+                } else if (this.rootCredentialMethod === 'tron') {
+                    // Validate TRON authentication
+                    if (!this.rootTronAuthenticated || !this.rootTronAddress) {
+                        this.showStatus('Сначала авторизуйтесь через TRON кошелек', 'error');
+                        return;
+                    }
+                    
+                    this.showStatus('Сохранение TRON root доступа...', 'info');
+                    
+                    // Send to backend
+                    const response = await fetch('/api/node/set-root-credentials', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            method: 'tron',
+                            tron_address: this.rootTronAddress
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Ошибка сохранения TRON доступа');
+                    }
+                }
+                
+                this.showStatus('Root креды успешно сохранены! Инициализация завершена.', 'success');
+                
+                // Allow closing now
+                setTimeout(() => {
+                    this.closeModalComplete();
+                }, 2000);
+                
+            } catch (error) {
+                console.error('Error saving root credentials:', error);
+                this.showStatus('Ошибка: ' + error.message, 'error');
+            } finally {
+                this.savingCredentials = false;
             }
         },
         resetForm() {
@@ -582,10 +745,7 @@ Vue.component('NodeInitModal', {
                     throw new Error('Ошибка сохранения мнемонической фразы');
                 }
                 
-                // Don't auto-reload, let user close manually after copying data
-                this.showStatus('Ключ успешно сохранен! Скопируйте данные и закройте окно.', 'success');
-                // Убрать автоматическую перезагрузку
-                // Пользователь сам закроет окно через кнопку "Закрыть"
+                this.showStatus('Ключ успешно сохранен! Переходите к Step 2.', 'success');
             } catch (error) {
                 console.error('Error saving mnemonic:', error);
                 throw error;
@@ -623,15 +783,43 @@ Vue.component('NodeInitModal', {
                 }
             });
         },
-        closeModal() {
-            // If result exists, node is initialized, so reload page
-            if (this.result) {
-                this.show = false;
-                location.reload();
-            } else {
-                // Prevent closing if not initialized
-                this.showStatus('Необходимо инициализировать ноду перед продолжением', 'error');
+        async closeModal() {
+            // Check if we can close
+            // Step 2: Cannot close, must configure admin
+            if (this.currentStep === 2) {
+                this.showStatus('Завершите настройку root кредов', 'error');
+                return;
             }
+            
+            // Step 1: Can only close if both node AND admin are configured
+            if (this.currentStep === 1) {
+                // Check if result exists (node initialized in this session)
+                if (!this.result) {
+                    this.showStatus('Необходимо инициализировать ноду перед продолжением', 'error');
+                    return;
+                }
+                
+                // Check if admin is configured
+                try {
+                    const response = await fetch('/api/node/is-admin-configured');
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (!data.configured) {
+                            this.showStatus('Необходимо настроить root доступ (Шаг 2)', 'error');
+                            return;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error checking admin:', error);
+                }
+            }
+            
+            // If we reach here, both are configured
+            this.showStatus('Завершите инициализацию перед закрытием', 'error');
+        },
+        closeModalComplete() {
+            this.show = false;
+            location.reload();
         }
     },
     computed: {
@@ -642,13 +830,15 @@ Vue.component('NodeInitModal', {
     template: `
         <modal-window v-if="show" :width="'90%'" @close="closeModal">
             <template #header>
-                <h3>🔑 Инициализация ноды</h3>
+                <h3>🔑 Инициализация ноды - Шаг [[ currentStep ]] из 2</h3>
             </template>
             <template #body>
                 <div v-if="status.visible" :class="'alert alert-' + (status.type === 'error' ? 'danger' : status.type === 'success' ? 'success' : 'info')" style="border-radius: 10px; margin-bottom: 20px;">
                     [[ status.message ]]
                 </div>
                 
+                <!-- Step 1: Key Initialization -->
+                <div v-if="currentStep === 1">
                 <p class="seed-modal-intro">Для работы ноды в одноранговой P2P сети необходим крипто-ключ</p>
                 
                 <div class="method-selector">
@@ -740,9 +930,9 @@ Vue.component('NodeInitModal', {
                 <div v-if="result" ref="resultCard" class="seed-result-card">
                     <div class="seed-result-title">
                         <span>✅</span>
-                        <span>Ключ успешно создан</span>
+                        <span>[[ result.keyType === 'existing' ? 'Ключ уже создан' : 'Ключ успешно создан' ]]</span>
                     </div>
-                    <div class="seed-result-item">
+                    <div class="seed-result-item" v-if="result.address && result.keyType !== 'existing'">
                         <label class="seed-result-label">Адрес кошелька:</label>
                         <div class="seed-result-value">[[ result.address ]]</div>
                         <button class="seed-copy-btn" @click="copyToClipboard(result.address)">
@@ -756,18 +946,127 @@ Vue.component('NodeInitModal', {
                             📋 Копировать фразу
                         </button>
                     </div>
-                    <div class="seed-result-item" v-if="result.keyType">
+                    <div class="seed-result-item" v-if="result.keyType && result.keyType !== 'existing'">
                         <label class="seed-result-label">Тип ключа:</label>
                         <div class="seed-result-value">[[ result.keyType ]]</div>
                     </div>
-                    <div class="alert alert-warning mt-3" style="border-radius: 10px; border-left: 4px solid #ffc107;">
+                    <div class="alert alert-warning mt-3" style="border-radius: 10px; border-left: 4px solid #ffc107;" v-if="result.keyType !== 'existing'">
                         <strong>🔒 Безопасность</strong> Сохраните эту информацию в безопасном месте.
                     </div>
+                    <div class="alert alert-info mt-3" style="border-radius: 10px; border-left: 4px solid #0dcaf0;" v-if="result.keyType === 'existing'">
+                        <strong>ℹ️ Информация</strong> Ключ ноды уже настроен. Перейдите к настройке root доступа.
+                    </div>
+                    
+                    <button 
+                        class="seed-btn-primary" 
+                        style="margin-top: 20px;"
+                        @click="proceedToStep2">
+                        Далее: Создать Root Креды →
+                    </button>
+                </div>
+                </div>
+                
+                <!-- Step 2: Root Credentials -->
+                <div v-if="currentStep === 2">
+                    <p class="seed-modal-intro">Создайте root учетные данные для доступа к ноде</p>
+                    
+                    <div class="method-selector">
+                        <button type="button" 
+                                :class="'method-btn ' + (rootCredentialMethod === 'password' ? 'active' : '')"
+                                @click="switchRootCredentialMethod('password')">
+                            🔐 Логин + Пароль
+                        </button>
+                        <button type="button" 
+                                :class="'method-btn ' + (rootCredentialMethod === 'tron' ? 'active' : '')"
+                                @click="switchRootCredentialMethod('tron')">
+                            🔗 TRON Auth
+                        </button>
+                    </div>
+                    
+                    <!-- Password Method -->
+                    <div v-if="rootCredentialMethod === 'password'" class="method-content">
+                        <div class="alert alert-info" style="border-radius: 10px; border-left: 4px solid #0dcaf0;">
+                            <strong>ℹ️ Информация</strong> Создайте логин и пароль для root доступа к ноде.
+                        </div>
+                        <div class="seed-form-group">
+                            <label for="root-username" class="seed-form-label">Логин:</label>
+                            <input 
+                                type="text"
+                                id="root-username"
+                                v-model="rootUsername"
+                                class="form-control"
+                                placeholder="Введите логин (минимум 3 символа)"
+                            />
+                        </div>
+                        <div class="seed-form-group">
+                            <label for="root-password" class="seed-form-label">Пароль:</label>
+                            <input 
+                                type="password"
+                                id="root-password"
+                                v-model="rootPassword"
+                                class="form-control"
+                                placeholder="Минимум 8 символов"
+                            />
+                        </div>
+                        <div class="seed-form-group">
+                            <label for="root-password-confirm" class="seed-form-label">Подтвердите пароль:</label>
+                            <input 
+                                type="password"
+                                id="root-password-confirm"
+                                v-model="rootPasswordConfirm"
+                                class="form-control"
+                                placeholder="Повторите пароль"
+                            />
+                        </div>
+                        <button 
+                            class="seed-btn-primary" 
+                            :disabled="!rootUsername || !rootPassword || !rootPasswordConfirm || savingCredentials"
+                            @click="saveRootCredentials">
+                            [[ savingCredentials ? 'Сохранение...' : 'Сохранить Root Креды' ]]
+                        </button>
+                    </div>
+                    
+                    <!-- TRON Auth Method -->
+                    <div v-if="rootCredentialMethod === 'tron'" class="method-content">
+                        <div class="alert alert-info" style="border-radius: 10px; border-left: 4px solid #0dcaf0;">
+                            <strong>ℹ️ Информация</strong> Используйте TRON кошелек для авторизации как root. Ваш адрес будет добавлен в whitelist администраторов.
+                        </div>
+                        
+                        <div v-if="!rootTronAuthenticated" style="padding: 20px; background: #f8f9fa; border-radius: 10px; margin-bottom: 20px;">
+                            <p style="margin-bottom: 15px; color: #666;">Подключите TRON кошелек для настройки root доступа:</p>
+                            <tron-auth @authenticated="handleTronAuthComplete"></tron-auth>
+                        </div>
+                        
+                        <div v-if="rootTronAuthenticated" class="seed-result-card">
+                            <div class="seed-result-title">
+                                <span>✅</span>
+                                <span>TRON кошелек подключен</span>
+                            </div>
+                            <div class="seed-result-item">
+                                <label class="seed-result-label">TRON Address:</label>
+                                <div class="seed-result-value">[[ rootTronAddress ]]</div>
+                            </div>
+                            <button 
+                                class="seed-btn-primary" 
+                                style="margin-top: 20px;"
+                                :disabled="savingCredentials"
+                                @click="saveRootCredentials">
+                                [[ savingCredentials ? 'Сохранение...' : 'Сохранить TRON Root Доступ' ]]
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <button 
+                        class="seed-btn-secondary" 
+                        style="margin-top: 20px;"
+                        @click="backToStep1">
+                        ← Назад к Шагу 1
+                    </button>
                 </div>
             </template>
             <template #footer>
-                <button class="modal-default-button btn btn-secondary" @click="closeModal">
-                    Закрыть
+                <button class="modal-default-button btn btn-secondary" @click="closeModal" :disabled="currentStep === 2 || !result">
+                    [[ currentStep === 2 ? 'Завершите настройку root' : (!result ? 'Инициализируйте ноду' : 'Закрыть') ]]
                 </button>
             </template>
         </modal-window>
@@ -2572,6 +2871,9 @@ Vue.component('TronAuth', {
                 this.storeToken(token);
                 this.isAuthenticated = true;
                 
+                // Emit authenticated event for parent components
+                this.$emit('authenticated', this.walletAddress, token);
+                
                 this.showStatus('Успешно авторизован!', 'success');
                 
             } catch (error) {
@@ -2921,6 +3223,387 @@ Vue.component('TronAuth', {
                                 <div>[[ signature ]]</div>
                             </div>
                         </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `
+});
+
+// AdminAccount Component
+Vue.component('AdminAccount', {
+    delimiters: ['[[', ']]'],
+    data() {
+        return {
+            loading: true,
+            error: null,
+            adminInfo: null,
+            
+            // Change password
+            changingPassword: false,
+            oldPassword: '',
+            newPassword: '',
+            confirmPassword: '',
+            passwordError: null,
+            passwordSuccess: null,
+            
+            // Change TRON address
+            changingTron: false,
+            newTronAddress: '',
+            tronError: null,
+            tronSuccess: null,
+            
+            // Change auth method
+            showMethodChange: false,
+            targetMethod: null
+        };
+    },
+    mounted() {
+        this.loadAdminInfo();
+    },
+    methods: {
+        async loadAdminInfo() {
+            this.loading = true;
+            this.error = null;
+            try {
+                const response = await fetch('/api/admin/info');
+                
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        this.error = 'Администратор не настроен';
+                        return;
+                    }
+                    
+                    const contentType = response.headers.get('content-type');
+                    if (contentType && contentType.includes('application/json')) {
+                        const errorData = await response.json();
+                        this.error = errorData.detail || 'Ошибка загрузки информации';
+                    } else {
+                        this.error = `Ошибка ${response.status}: ${response.statusText}`;
+                    }
+                    return;
+                }
+                
+                this.adminInfo = await response.json();
+            } catch (error) {
+                console.error('Error loading admin info:', error);
+                this.error = error.message || 'Ошибка загрузки информации';
+            } finally {
+                this.loading = false;
+            }
+        },
+        
+        async changePassword() {
+            // Validate inputs
+            if (!this.oldPassword || !this.newPassword || !this.confirmPassword) {
+                this.passwordError = 'Все поля обязательны для заполнения';
+                return;
+            }
+            
+            if (this.newPassword !== this.confirmPassword) {
+                this.passwordError = 'Новые пароли не совпадают';
+                return;
+            }
+            
+            if (this.newPassword.length < 8) {
+                this.passwordError = 'Пароль должен содержать минимум 8 символов';
+                return;
+            }
+            
+            this.passwordError = null;
+            this.passwordSuccess = null;
+            this.changingPassword = true;
+            
+            try {
+                const response = await fetch('/api/admin/change-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        old_password: this.oldPassword,
+                        new_password: this.newPassword
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    this.passwordError = data.detail || 'Ошибка смены пароля';
+                    return;
+                }
+                
+                this.passwordSuccess = 'Пароль успешно изменен';
+                this.oldPassword = '';
+                this.newPassword = '';
+                this.confirmPassword = '';
+                
+                // Clear success message after 3 seconds
+                setTimeout(() => {
+                    this.passwordSuccess = null;
+                }, 3000);
+            } catch (error) {
+                console.error('Error changing password:', error);
+                this.passwordError = error.message || 'Ошибка смены пароля';
+            } finally {
+                this.changingPassword = false;
+            }
+        },
+        
+        async changeTronAddress() {
+            // Validate TRON address
+            if (!this.newTronAddress) {
+                this.tronError = 'Введите TRON адрес';
+                return;
+            }
+            
+            if (!this.newTronAddress.startsWith('T') || this.newTronAddress.length !== 34) {
+                this.tronError = 'Неверный формат TRON адреса';
+                return;
+            }
+            
+            this.tronError = null;
+            this.tronSuccess = null;
+            this.changingTron = true;
+            
+            try {
+                const response = await fetch('/api/admin/change-tron-address', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        new_tron_address: this.newTronAddress
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    this.tronError = data.detail || 'Ошибка смены TRON адреса';
+                    return;
+                }
+                
+                this.tronSuccess = 'TRON адрес успешно изменен';
+                this.newTronAddress = '';
+                
+                // Reload admin info
+                await this.loadAdminInfo();
+                
+                // Clear success message after 3 seconds
+                setTimeout(() => {
+                    this.tronSuccess = null;
+                }, 3000);
+            } catch (error) {
+                console.error('Error changing TRON address:', error);
+                this.tronError = error.message || 'Ошибка смены TRON адреса';
+            } finally {
+                this.changingTron = false;
+            }
+        },
+        
+        formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            const date = new Date(dateString);
+            return date.toLocaleString('ru-RU', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+    },
+    template: `
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="fas fa-user-shield me-1"></i>
+                Администрирование аккаунта
+            </div>
+            <div class="card-body">
+                <div v-if="loading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2">Загрузка информации...</p>
+                </div>
+                
+                <div v-else-if="error" class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    [[ error ]]
+                </div>
+                
+                <div v-else-if="adminInfo">
+                    <!-- Admin Info -->
+                    <div class="mb-4">
+                        <h5 class="mb-3">
+                            <i class="fas fa-info-circle me-2 text-primary"></i>
+                            Информация об аккаунте
+                        </h5>
+                        
+                        <div class="row mb-2">
+                            <div class="col-md-4 fw-bold">Метод аутентификации:</div>
+                            <div class="col-md-8">
+                                <span v-if="adminInfo.auth_method === 'password'" class="badge bg-primary">
+                                    <i class="fas fa-key me-1"></i> Пароль
+                                </span>
+                                <span v-else-if="adminInfo.auth_method === 'tron'" class="badge bg-info">
+                                    <i class="fas fa-wallet me-1"></i> TRON кошелек
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div v-if="adminInfo.username" class="row mb-2">
+                            <div class="col-md-4 fw-bold">Имя пользователя:</div>
+                            <div class="col-md-8">[[ adminInfo.username ]]</div>
+                        </div>
+                        
+                        <div v-if="adminInfo.tron_address" class="row mb-2">
+                            <div class="col-md-4 fw-bold">TRON адрес:</div>
+                            <div class="col-md-8">
+                                <code>[[ adminInfo.tron_address ]]</code>
+                            </div>
+                        </div>
+                        
+                        <div class="row mb-2">
+                            <div class="col-md-4 fw-bold">Создан:</div>
+                            <div class="col-md-8">[[ formatDate(adminInfo.created_at) ]]</div>
+                        </div>
+                        
+                        <div class="row mb-2">
+                            <div class="col-md-4 fw-bold">Обновлен:</div>
+                            <div class="col-md-8">[[ formatDate(adminInfo.updated_at) ]]</div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-4 fw-bold">Статус:</div>
+                            <div class="col-md-8">
+                                <span v-if="adminInfo.is_active" class="badge bg-success">
+                                    <i class="fas fa-check-circle me-1"></i> Активен
+                                </span>
+                                <span v-else class="badge bg-danger">
+                                    <i class="fas fa-times-circle me-1"></i> Неактивен
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    
+                    <!-- Change Password (for password auth) -->
+                    <div v-if="adminInfo.auth_method === 'password'" class="mb-4">
+                        <h5 class="mb-3">
+                            <i class="fas fa-lock me-2 text-warning"></i>
+                            Сменить пароль
+                        </h5>
+                        
+                        <div v-if="passwordError" class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle me-2"></i>
+                            [[ passwordError ]]
+                        </div>
+                        
+                        <div v-if="passwordSuccess" class="alert alert-success">
+                            <i class="fas fa-check-circle me-2"></i>
+                            [[ passwordSuccess ]]
+                        </div>
+                        
+                        <div class="row g-3">
+                            <div class="col-md-12">
+                                <label class="form-label">Старый пароль</label>
+                                <input 
+                                    type="password" 
+                                    class="form-control" 
+                                    v-model="oldPassword"
+                                    placeholder="Введите текущий пароль"
+                                    :disabled="changingPassword"
+                                />
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <label class="form-label">Новый пароль</label>
+                                <input 
+                                    type="password" 
+                                    class="form-control" 
+                                    v-model="newPassword"
+                                    placeholder="Минимум 8 символов"
+                                    :disabled="changingPassword"
+                                />
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <label class="form-label">Подтвердите новый пароль</label>
+                                <input 
+                                    type="password" 
+                                    class="form-control" 
+                                    v-model="confirmPassword"
+                                    placeholder="Повторите новый пароль"
+                                    :disabled="changingPassword"
+                                />
+                            </div>
+                            
+                            <div class="col-12">
+                                <button 
+                                    class="btn btn-primary"
+                                    @click="changePassword"
+                                    :disabled="changingPassword || !oldPassword || !newPassword || !confirmPassword"
+                                >
+                                    <span v-if="changingPassword" class="spinner-border spinner-border-sm me-2"></span>
+                                    [[ changingPassword ? 'Смена пароля...' : 'Сменить пароль' ]]
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Change TRON Address (for tron auth) -->
+                    <div v-if="adminInfo.auth_method === 'tron'" class="mb-4">
+                        <h5 class="mb-3">
+                            <i class="fas fa-wallet me-2 text-info"></i>
+                            Сменить TRON адрес
+                        </h5>
+                        
+                        <div v-if="tronError" class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle me-2"></i>
+                            [[ tronError ]]
+                        </div>
+                        
+                        <div v-if="tronSuccess" class="alert alert-success">
+                            <i class="fas fa-check-circle me-2"></i>
+                            [[ tronSuccess ]]
+                        </div>
+                        
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">Новый TRON адрес</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    v-model="newTronAddress"
+                                    placeholder="T..."
+                                    :disabled="changingTron"
+                                />
+                                <small class="form-text text-muted">
+                                    Введите новый TRON адрес для доступа к админ-панели
+                                </small>
+                            </div>
+                            
+                            <div class="col-12">
+                                <button 
+                                    class="btn btn-info text-white"
+                                    @click="changeTronAddress"
+                                    :disabled="changingTron || !newTronAddress"
+                                >
+                                    <span v-if="changingTron" class="spinner-border spinner-border-sm me-2"></span>
+                                    [[ changingTron ? 'Смена адреса...' : 'Сменить TRON адрес' ]]
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Security Notice -->
+                    <div class="alert alert-info">
+                        <i class="fas fa-shield-alt me-2"></i>
+                        <strong>Безопасность:</strong> Убедитесь, что вы находитесь в безопасном месте при изменении учетных данных.
+                        После смены пароля или TRON адреса вам потребуется повторная авторизация.
                     </div>
                 </div>
             </div>

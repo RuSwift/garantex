@@ -139,6 +139,51 @@ class MnemonicSettings(BaseSettings):
         default=None,
         description="Зашифрованная мнемоническая фраза (опционально)"
     )
+
+
+class AdminSettings(BaseSettings):
+    """Настройки администратора"""
+    
+    model_config = SettingsConfigDict(
+        env_prefix="ADMIN_",
+        case_sensitive=False,
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+    
+    method: Optional[str] = Field(
+        default=None,
+        description="Метод авторизации: 'password' или 'tron' (опционально)"
+    )
+    
+    username: Optional[str] = Field(
+        default=None,
+        description="Имя пользователя администратора (для password метода)"
+    )
+    
+    password: Optional[SecretStr] = Field(
+        default=None,
+        description="Пароль администратора (для password метода)"
+    )
+    
+    tron_address: Optional[str] = Field(
+        default=None,
+        description="TRON адрес администратора (для tron метода)"
+    )
+    
+    @property
+    def is_configured(self) -> bool:
+        """Проверяет, настроен ли админ через env vars"""
+        if not self.method:
+            return False
+        
+        if self.method == "password":
+            return bool(self.username and self.password)
+        elif self.method == "tron":
+            return bool(self.tron_address)
+        
+        return False
     
 
 class Settings(BaseSettings):
@@ -182,6 +227,9 @@ class Settings(BaseSettings):
     # Настройки мнемонической фразы
     mnemonic: MnemonicSettings = Field(default_factory=MnemonicSettings)
     
+    # Настройки администратора
+    admin: AdminSettings = Field(default_factory=AdminSettings)
+    
     # Настройки PEM ключа
     pem: Optional[str] = Field(
         default=None,
@@ -192,6 +240,11 @@ class Settings(BaseSettings):
     def is_node_initialized(self) -> bool:
         return bool(self.mnemonic.phrase or self.mnemonic.encrypted_phrase or self.pem)
     
+    @property
+    def is_admin_configured_from_env(self) -> bool:
+        """Проверяет, настроен ли админ через env vars"""
+        return self.admin.is_configured
+    
 
 # Экспортируем для удобства
 __all__ = [
@@ -199,4 +252,5 @@ __all__ = [
     "DatabaseSettings",
     "MnemonicSettings",
     "RedisSettings",
+    "AdminSettings",
 ]
