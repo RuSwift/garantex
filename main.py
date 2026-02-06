@@ -102,6 +102,24 @@ async def web3_auth_mobile_test(request: Request):
     )
 
 
+@app.get("/tron-auth-test", response_class=HTMLResponse)
+async def tron_auth_test(request: Request):
+    """
+    Тестовая страница для компонента TronAuth
+    
+    Поддерживает авторизацию через TRON кошельки:
+    - TronLink (desktop)
+    - TrustWallet (desktop + mobile)
+    - WalletConnect (mobile)
+    """
+    return templates.TemplateResponse(
+        "tron-auth-test.html",
+        {
+            "request": request
+        }
+    )
+
+
 @app.get("/health")
 async def health_check():
     """Проверка здоровья приложения"""

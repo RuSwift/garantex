@@ -2240,3 +2240,690 @@ Vue.component('Web3AuthMobile', {
         </div>
     `
 });
+
+// TRON Authentication Component (Desktop + Mobile)
+Vue.component('TronAuth', {
+    delimiters: ['[[', ']]'],
+    data() {
+        return {
+            // API base URL
+            apiBase: '',
+            
+            // State
+            walletAddress: null,
+            isAuthenticated: false,
+            isConnecting: false,
+            isSigning: false,
+            
+            // UI state
+            statusMessage: '',
+            statusType: 'info',
+            statusVisible: false,
+            messageToSign: '',
+            signature: '',
+            
+            // Device detection
+            isMobileDevice: false,
+            
+            // WalletConnect
+            useWalletConnect: false,
+            walletConnectProvider: null,
+            waitingForCallback: false,
+            
+            // TRON Web availability
+            isTronWebAvailable: false
+        };
+    },
+    
+    computed: {
+        shortAddress() {
+            if (!this.walletAddress) return '';
+            return `${this.walletAddress.slice(0, 6)}...${this.walletAddress.slice(-4)}`;
+        }
+    },
+    
+    mounted() {
+        this.detectMobileDevice();
+        this.checkTronWebWithRetry();
+        this.checkExistingAuth();
+    },
+    
+    methods: {
+        /**
+         * Show status message
+         */
+        showStatus(message, type = 'info') {
+            this.statusMessage = message;
+            this.statusType = type;
+            this.statusVisible = true;
+            
+            // Auto-hide success messages after 3 seconds
+            if (type === 'success') {
+                setTimeout(() => {
+                    this.statusVisible = false;
+                }, 3000);
+            }
+        },
+        
+        /**
+         * Hide status message
+         */
+        hideStatus() {
+            this.statusVisible = false;
+        },
+        
+        /**
+         * Detect mobile device
+         */
+        detectMobileDevice() {
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+            const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+            const isSmallScreen = window.innerWidth < 768 || (window.innerHeight > window.innerWidth && window.innerWidth < 1024);
+            
+            this.isMobileDevice = isMobile || isSmallScreen;
+        },
+        
+        /**
+         * Check TronWeb with retry logic (для асинхронной инжекции от TrustWallet)
+         */
+        checkTronWebWithRetry() {
+            console.log('=== TronAuth: Starting TronWeb detection with retry ===');
+            
+            let attempts = 0;
+            const maxAttempts = 20; // 20 попыток = 6 секунд
+            const retryInterval = 300; // проверяем каждые 300ms
+            
+            const checkInterval = setInterval(() => {
+                attempts++;
+                console.log(`Attempt ${attempts}/${maxAttempts} - Checking for TronWeb...`);
+                
+                if (typeof window.tronWeb !== 'undefined') {
+                    console.log('✅ TronWeb detected!');
+                    clearInterval(checkInterval);
+                    this.checkTronWeb();
+                } else if (attempts >= maxAttempts) {
+                    console.log('❌ TronWeb not found after all attempts');
+                    clearInterval(checkInterval);
+                    this.checkTronWeb(); // Финальная проверка
+                }
+            }, retryInterval);
+        },
+        
+        /**
+         * Check if TronWeb is available
+         */
+        checkTronWeb() {
+            console.log('=== TronAuth: Checking TronWeb ===');
+            console.log('window.tronWeb exists:', typeof window.tronWeb !== 'undefined');
+            console.log('window.tronWeb:', window.tronWeb);
+            
+            // Проверяем только наличие tronWeb (без strict ready check для совместимости с TrustWallet)
+            if (typeof window.tronWeb !== 'undefined') {
+                console.log('TronWeb detected!');
+                this.isTronWebAvailable = true;
+                
+                // Проверяем, подключен ли кошелек к сайту
+                const isConnected = window.tronWeb.defaultAddress && 
+                                   window.tronWeb.defaultAddress.base58 &&
+                                   window.tronWeb.defaultAddress.base58 !== false;
+                
+                console.log('Is connected:', isConnected);
+                
+                if (isConnected) {
+                    this.showStatus('TronLink или TrustWallet подключен', 'success');
+                } else {
+                    this.showStatus('TronLink или TrustWallet обнаружен. Нажмите "Подключить" для авторизации.', 'info');
+                }
+            } else if (this.isMobileDevice) {
+                console.log('Mobile device, will use WalletConnect');
+                // На мобильных устройствах будем использовать WalletConnect
+                this.useWalletConnect = true;
+                this.isTronWebAvailable = true; // Разрешаем подключение через WC
+            } else {
+                console.log('TronWeb not found');
+                this.showStatus('Установите TronLink или TrustWallet', 'info');
+            }
+            
+            console.log('isTronWebAvailable:', this.isTronWebAvailable);
+        },
+        
+        /**
+         * Get nonce from backend
+         */
+        async getNonce(address) {
+            try {
+                const response = await fetch(`${this.apiBase}/auth/tron/nonce`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ wallet_address: address })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to get nonce');
+                }
+
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                this.showStatus(`Ошибка получения nonce: ${error.message}`, 'error');
+                throw error;
+            }
+        },
+        
+        /**
+         * Sign message with TronWeb
+         */
+        async signMessage(message, address) {
+            try {
+                const signature = await window.tronWeb.trx.sign(message);
+                return signature;
+            } catch (error) {
+                if (error.message && error.message.includes('Confirmation declined')) {
+                    this.showStatus('Подпись сообщения отклонена.', 'error');
+                } else {
+                    this.showStatus(`Ошибка подписи: ${error.message}`, 'error');
+                }
+                throw error;
+            }
+        },
+        
+        /**
+         * Verify signature and get JWT token
+         */
+        async verifySignature(address, signature, message) {
+            try {
+                const response = await fetch(`${this.apiBase}/auth/tron/verify`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        wallet_address: address,
+                        signature: signature,
+                        message: message
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to verify signature');
+                }
+
+                const data = await response.json();
+                return data.token;
+            } catch (error) {
+                this.showStatus(`Ошибка проверки подписи: ${error.message}`, 'error');
+                throw error;
+            }
+        },
+        
+        /**
+         * Store token in cookie
+         */
+        storeToken(token) {
+            const expires = new Date();
+            expires.setTime(expires.getTime() + 24 * 60 * 60 * 1000);
+            document.cookie = `tron_auth_token=${token}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
+        },
+        
+        /**
+         * Remove token from cookie
+         */
+        removeToken() {
+            document.cookie = 'tron_auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+        },
+        
+        /**
+         * Connect directly via TronLink/TrustWallet
+         */
+        async connectDirectly() {
+            if (!window.tronWeb) {
+                this.showStatus('Кошелек не обнаружен', 'error');
+                return;
+            }
+            
+            try {
+                this.isConnecting = true;
+                console.log('Attempting to connect to TRON wallet...');
+                
+                // TrustWallet/TronLink могут требовать явного запроса разрешения
+                // Пробуем разные методы запроса доступа
+                
+                // Метод 1: Через tronWeb.request (современный API)
+                if (window.tronWeb.request) {
+                    try {
+                        console.log('Trying tronWeb.request...');
+                        const accounts = await window.tronWeb.request({ 
+                            method: 'tron_requestAccounts' 
+                        });
+                        console.log('Request result:', accounts);
+                    } catch (requestError) {
+                        console.log('tronWeb.request failed:', requestError);
+                    }
+                }
+                
+                // Метод 2: Проверяем tronLink API (для TronLink расширения)
+                if (window.tronLink && !window.tronLink.ready) {
+                    try {
+                        console.log('Requesting tronLink...');
+                        const res = await window.tronLink.request({ method: 'tron_requestAccounts' });
+                        console.log('tronLink.request result:', res);
+                    } catch (e) {
+                        console.log('tronLink.request failed:', e);
+                    }
+                }
+                
+                // Даем время кошельку обновиться
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Пробуем получить адрес из разных источников
+                let address = null;
+                
+                // Источник 1: window.tronWeb.defaultAddress
+                if (window.tronWeb.defaultAddress?.base58 && 
+                    window.tronWeb.defaultAddress.base58 !== false) {
+                    address = window.tronWeb.defaultAddress.base58;
+                    console.log('Address from tronWeb.defaultAddress:', address);
+                }
+                
+                // Источник 2: window.tronLink.tronWeb (для TronLink)
+                if (!address && window.tronLink?.tronWeb?.defaultAddress?.base58) {
+                    address = window.tronLink.tronWeb.defaultAddress.base58;
+                    console.log('Address from tronLink.tronWeb:', address);
+                }
+                
+                // Источник 3: Прямой запрос через tronWeb
+                if (!address) {
+                    try {
+                        // Некоторые кошельки могут иметь метод для получения адресов
+                        if (typeof window.tronWeb.trx?.getAccount === 'function') {
+                            console.log('Trying tronWeb.trx.getAccount...');
+                        }
+                    } catch (e) {
+                        console.log('Failed to get account:', e);
+                    }
+                }
+                
+                if (!address) {
+                    console.error('Could not get wallet address. Please unlock wallet and refresh the page.');
+                    this.showStatus('Разблокируйте кошелек TrustWallet, обновите страницу и попробуйте снова', 'error');
+                    return;
+                }
+                
+                console.log('Successfully got address:', address);
+                this.walletAddress = address;
+                
+                // Get nonce from backend
+                this.showStatus('Получение запроса на авторизацию...', 'info');
+                const { nonce, message } = await this.getNonce(address);
+                
+                // Sign message
+                this.showStatus('Подпишите сообщение в кошельке...', 'info');
+                const signature = await this.signMessage(message, address);
+                
+                // Verify signature
+                this.showStatus('Проверка подписи...', 'info');
+                const token = await this.verifySignature(address, signature, message);
+                
+                // Store token
+                this.storeToken(token);
+                this.isAuthenticated = true;
+                
+                this.showStatus('Успешно авторизован!', 'success');
+                
+            } catch (error) {
+                console.error('Connection error:', error);
+                this.walletAddress = null;
+                this.isAuthenticated = false;
+            } finally {
+                this.isConnecting = false;
+            }
+        },
+        
+        /**
+         * Connect via WalletConnect (for mobile)
+         */
+        async connectViaWalletConnect() {
+            try {
+                this.isConnecting = true;
+                this.showStatus('Инициализация WalletConnect...', 'info');
+                
+                // Check if WalletConnect is available
+                if (typeof WalletConnectProvider === 'undefined') {
+                    this.showStatus('WalletConnect не загружен. Используйте прямое подключение.', 'error');
+                    return;
+                }
+                
+                const provider = new WalletConnectProvider.default({
+                    rpc: {
+                        728126428: "https://api.trongrid.io"
+                    },
+                    chainId: 728126428,
+                    qrcode: true,
+                    qrcodeModalOptions: {
+                        mobileLinks: [
+                            "metamask",
+                            "trust",
+                            "rainbow",
+                        ]
+                    }
+                });
+                
+                // Enable provider (shows QR code)
+                await provider.enable();
+                
+                this.walletConnectProvider = provider;
+                const accounts = provider.accounts;
+                
+                if (accounts && accounts.length > 0) {
+                    const address = accounts[0];
+                    this.walletAddress = address;
+                    
+                    // Get nonce and authorize
+                    const { nonce, message } = await this.getNonce(address);
+                    
+                    // Sign through WalletConnect
+                    const signature = await this.signMessageViaWalletConnect(message);
+                    
+                    const token = await this.verifySignature(address, signature, message);
+                    
+                    this.storeToken(token);
+                    this.isAuthenticated = true;
+                    this.showStatus('Успешно авторизован через WalletConnect!', 'success');
+                }
+                
+            } catch (error) {
+                console.error('WalletConnect error:', error);
+                this.showStatus(`Ошибка WalletConnect: ${error.message}`, 'error');
+            } finally {
+                this.isConnecting = false;
+            }
+        },
+        
+        /**
+         * Sign message via WalletConnect
+         */
+        async signMessageViaWalletConnect(message) {
+            if (!this.walletConnectProvider) {
+                throw new Error('WalletConnect не инициализирован');
+            }
+            
+            const signature = await this.walletConnectProvider.request({
+                method: 'tron_signMessage',
+                params: [message, this.walletAddress]
+            });
+            
+            return signature;
+        },
+        
+        /**
+         * Universal connect method
+         */
+        async connect() {
+            this.hideStatus();
+            
+            // Determine connection method
+            if (this.isMobileDevice && !window.tronWeb) {
+                // Use WalletConnect for mobile without extension
+                await this.connectViaWalletConnect();
+            } else if (window.tronWeb) {
+                // Use direct connection via TronLink/TrustWallet (убрана проверка ready)
+                await this.connectDirectly();
+            } else {
+                this.showStatus('Установите TronLink или TrustWallet для продолжения', 'error');
+            }
+        },
+        
+        /**
+         * Disconnect wallet
+         */
+        disconnect() {
+            if (this.walletConnectProvider) {
+                try {
+                    this.walletConnectProvider.disconnect();
+                } catch (e) {
+                    console.error('Error disconnecting WalletConnect:', e);
+                }
+            }
+            
+            this.walletAddress = null;
+            this.isAuthenticated = false;
+            this.removeToken();
+            this.showStatus('Отключено', 'info');
+            this.signature = '';
+            this.messageToSign = '';
+            this.waitingForCallback = false;
+        },
+        
+        /**
+         * Sign arbitrary text
+         */
+        async signText() {
+            console.log('=== signText called ===');
+            console.log('isAuthenticated:', this.isAuthenticated);
+            console.log('walletAddress:', this.walletAddress);
+            console.log('window.tronWeb exists:', typeof window.tronWeb !== 'undefined');
+            console.log('window.tronWeb:', window.tronWeb);
+            
+            if (!this.isAuthenticated) {
+                this.showStatus('Сначала подключитесь и авторизуйтесь', 'error');
+                return;
+            }
+
+            const text = this.messageToSign.trim();
+            
+            if (!text) {
+                this.showStatus('Введите текст для подписи', 'error');
+                return;
+            }
+
+            try {
+                this.isSigning = true;
+                this.hideStatus();
+
+                this.showStatus('Подпишите сообщение в кошельке...', 'info');
+
+                // Sign message - проверяем наличие tronWeb без проверки ready
+                let signature;
+                if (window.tronWeb) {
+                    console.log('Using window.tronWeb for signing');
+                    try {
+                        signature = await window.tronWeb.trx.sign(text);
+                        console.log('Signature received:', signature);
+                    } catch (signError) {
+                        console.error('TronWeb sign error:', signError);
+                        throw signError;
+                    }
+                } else if (this.walletConnectProvider) {
+                    console.log('Using WalletConnect for signing');
+                    signature = await this.signMessageViaWalletConnect(text);
+                } else {
+                    console.error('No wallet available for signing');
+                    this.showStatus('Кошелек не подключен', 'error');
+                    return;
+                }
+
+                this.signature = signature;
+                this.showStatus('Сообщение подписано!', 'success');
+
+            } catch (error) {
+                console.error('Signing error:', error);
+                if (error.message && error.message.includes('declined')) {
+                    this.showStatus('Подпись отклонена.', 'error');
+                } else {
+                    this.showStatus(`Ошибка подписи: ${error.message}`, 'error');
+                }
+                this.signature = '';
+            } finally {
+                this.isSigning = false;
+            }
+        },
+        
+        /**
+         * Handle keydown event for message input
+         */
+        handleKeyDown(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                this.signText();
+            }
+        },
+        
+        /**
+         * Check if user is already authenticated
+         */
+        async checkExistingAuth() {
+            const cookies = document.cookie.split(';');
+            const tokenCookie = cookies.find(c => c.trim().startsWith('tron_auth_token='));
+            
+            if (tokenCookie) {
+                const token = tokenCookie.split('=')[1];
+                try {
+                    const response = await fetch(`${this.apiBase}/auth/tron/me`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (response.ok) {
+                        const userInfo = await response.json();
+                        this.walletAddress = userInfo.wallet_address;
+                        this.isAuthenticated = true;
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Error checking auth:', error);
+                }
+            }
+
+            // If no valid token, check if TronWeb is already connected
+            if (window.tronWeb) {
+                try {
+                    const address = window.tronWeb.defaultAddress?.base58;
+                    if (address && address !== false) {
+                        this.walletAddress = address;
+                    }
+                } catch (error) {
+                    console.error('Error checking TronWeb:', error);
+                }
+            }
+        }
+    },
+    
+    template: `
+        <div :class="isMobileDevice ? 'web3-auth-mobile' : 'web3-auth-container'">
+            <div :class="isMobileDevice ? 'mobile-container' : 'container'">
+                <div :class="isMobileDevice ? 'mobile-header' : ''">
+                    <h1>🔐 TRON Authentication</h1>
+                    <p :class="isMobileDevice ? 'mobile-subtitle' : 'subtitle'">
+                        Подключитесь через TRON кошелек
+                    </p>
+                </div>
+
+                <div v-if="statusVisible" :class="isMobileDevice ? ['mobile-status', statusType] : ['status', statusType]">
+                    [[ statusMessage ]]
+                </div>
+
+                <div v-if="!isAuthenticated" :class="isMobileDevice ? 'mobile-not-connected' : 'not-connected'">
+                    <button 
+                        :class="isMobileDevice ? 'mobile-btn mobile-btn-primary' : ''"
+                        :id="!isMobileDevice ? 'connect-btn' : ''"
+                        @click="connect"
+                        :disabled="isConnecting || (!isTronWebAvailable && !useWalletConnect)"
+                    >
+                        <span v-if="isConnecting" :class="isMobileDevice ? 'mobile-loading' : 'loading'"></span>
+                        [[ isConnecting ? 'Подключение...' : 'Подключить TRON кошелек' ]]
+                    </button>
+                    <p :class="isMobileDevice ? 'mobile-hint' : ''" style="color: #999; font-size: 12px; margin-top: 20px;">
+                        <template v-if="!isMobileDevice">
+                            Убедитесь, что TronLink или TrustWallet установлен и разблокирован
+                        </template>
+                        <template v-else>
+                            Нажмите кнопку для подключения через мобильный кошелек
+                        </template>
+                    </p>
+                </div>
+
+                <div v-else :class="isMobileDevice ? 'mobile-connected' : ''">
+                    <div v-if="isMobileDevice" class="mobile-user-card">
+                        <div class="mobile-user-header">
+                            <div class="mobile-user-icon">✓</div>
+                            <div class="mobile-user-info">
+                                <div class="mobile-user-label">Подключено</div>
+                                <div class="mobile-user-address">[[ shortAddress ]]</div>
+                            </div>
+                        </div>
+                        <button class="mobile-btn mobile-btn-secondary" @click="disconnect">
+                            Отключить
+                        </button>
+                    </div>
+                    
+                    <div v-if="!isMobileDevice">
+                        <button id="disconnect-btn" class="secondary" @click="disconnect">
+                            Отключить
+                        </button>
+                        
+                        <div class="user-info">
+                            <h3>Авторизован</h3>
+                            <p><strong>TRON адрес:</strong> [[ walletAddress ]]</p>
+                            <p><strong>Статус:</strong> <span>Авторизован</span></p>
+                        </div>
+                    </div>
+
+                    <div :class="isMobileDevice ? 'mobile-section' : 'sign-section'">
+                        <h3 v-if="!isMobileDevice">✍️ Подписать сообщение</h3>
+                        <div v-if="isMobileDevice">
+                            <div class="mobile-section-header" style="background: transparent; cursor: default; padding: 16px 0;">
+                                <span>✍️ Подписать сообщение</span>
+                            </div>
+                            <div class="mobile-section-content" style="display: block;">
+                                <textarea
+                                    v-model="messageToSign"
+                                    class="mobile-textarea"
+                                    placeholder="Введите текст для подписи..."
+                                    @keydown="handleKeyDown"
+                                ></textarea>
+                                <button 
+                                    class="mobile-btn mobile-btn-primary"
+                                    @click="signText"
+                                    :disabled="isSigning || !messageToSign.trim()"
+                                >
+                                    <span v-if="isSigning" class="mobile-loading"></span>
+                                    [[ isSigning ? 'Подписание...' : 'Подписать' ]]
+                                </button>
+                                <div v-if="signature" class="mobile-signature">
+                                    <div class="mobile-signature-label">Подпись:</div>
+                                    <div class="mobile-signature-value">[[ signature ]]</div>
+                                </div>
+                            </div>
+                        </div>
+                        <template v-else>
+                            <label for="tron-message-input">Введите текст для подписи:</label>
+                            <textarea
+                                id="tron-message-input"
+                                v-model="messageToSign"
+                                placeholder="Введите любое сообщение для подписи вашим кошельком..."
+                                @keydown="handleKeyDown"
+                            ></textarea>
+                            <button 
+                                id="sign-btn"
+                                @click="signText"
+                                :disabled="isSigning || !messageToSign.trim()"
+                            >
+                                <span v-if="isSigning" class="loading"></span>
+                                [[ isSigning ? 'Подписание...' : 'Подписать с TRON' ]]
+                            </button>
+                            <div v-if="signature" class="signature-result">
+                                <strong>Подпись:</strong>
+                                <div>[[ signature ]]</div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `
+});

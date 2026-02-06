@@ -6,6 +6,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import Optional
 from web3_auth import web3_auth
+from tron_auth import tron_auth
 
 router = APIRouter(prefix="/auth", tags=["Авторизация"])
 
@@ -139,6 +140,123 @@ async def get_current_user(
 async def get_current_user_info(current_user: UserInfo = Depends(get_current_user)):
     """
     Получить информацию о текущем авторизованном пользователе
+    
+    Требует валидный JWT токен в заголовке Authorization: Bearer <token>
+    """
+    return current_user
+
+
+# ============================================================================
+# TRON Authentication Endpoints
+# ============================================================================
+
+@router.post("/tron/nonce", response_model=NonceResponse)
+async def get_tron_nonce(request: NonceRequest):
+    """
+    Получить nonce для авторизации через TRON кошелек
+    
+    Поддерживаемые кошельки:
+    - TronLink
+    - TrustWallet
+    - WalletConnect
+    
+    Процесс авторизации:
+    1. Вызовите этот endpoint с TRON адресом кошелька
+    2. Подпишите полученное сообщение в кошельке
+    3. Отправьте подпись на /auth/tron/verify
+    """
+    # Валидация TRON адреса (base58 формат)
+    wallet_address = request.wallet_address.strip()
+    if not tron_auth.validate_tron_address(wallet_address):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid TRON address format. Address must start with 'T' and be 34 characters long."
+        )
+    
+    # Получаем или генерируем nonce
+    nonce = tron_auth.get_nonce(wallet_address)
+    
+    # Формируем сообщение для подписи
+    message = f"Please sign this message to authenticate:\n\nNonce: {nonce}"
+    
+    return NonceResponse(nonce=nonce, message=message)
+
+
+@router.post("/tron/verify", response_model=AuthResponse)
+async def verify_tron_signature(request: VerifyRequest):
+    """
+    Проверить TRON подпись и получить JWT токен
+    
+    После успешной проверки подписи возвращается JWT токен,
+    который можно использовать для авторизации в защищенных эндпоинтах.
+    """
+    wallet_address = request.wallet_address.strip()
+    
+    # Валидация TRON адреса
+    if not tron_auth.validate_tron_address(wallet_address):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid TRON address format"
+        )
+    
+    # Проверяем подпись
+    try:
+        is_valid = tron_auth.verify_signature(
+            wallet_address=wallet_address,
+            signature=request.signature,
+            message=request.message
+        )
+        
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid signature"
+            )
+        
+        # Генерируем JWT токен
+        token = tron_auth.generate_jwt_token(wallet_address)
+        
+        return AuthResponse(token=token, wallet_address=wallet_address)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error during verification: {str(e)}"
+        )
+
+
+async def get_current_tron_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> UserInfo:
+    """
+    Dependency для получения текущего TRON пользователя из JWT токена
+    """
+    token = credentials.credentials
+    payload = tron_auth.verify_jwt_token(token)
+    wallet_address = payload.get("wallet_address")
+    
+    if not wallet_address:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload"
+        )
+    
+    # Проверяем, что это TRON токен
+    if payload.get("blockchain") != "tron":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: not a TRON token"
+        )
+    
+    return UserInfo(wallet_address=wallet_address)
+
+
+@router.get("/tron/me", response_model=UserInfo)
+async def get_current_tron_user_info(current_user: UserInfo = Depends(get_current_tron_user)):
+    """
+    Получить информацию о текущем авторизованном TRON пользователе
     
     Требует валидный JWT токен в заголовке Authorization: Bearer <token>
     """
