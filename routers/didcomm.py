@@ -7,10 +7,11 @@ to appropriate protocol handlers.
 from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional
-from dependencies import PrivKeyDepends, SettingsDepends
+from dependencies import PrivKeyDepends, SettingsDepends, DbDepends
 from didcomm.message import DIDCommMessage, unpack_message
 from didcomm.did import create_peer_did_from_keypair
 from services.protocols import get_protocol_handler, ProtocolHandler
+from services.node import NodeService
 from routers.utils import extract_protocol_name
 
 
@@ -42,7 +43,8 @@ class SendTrustPingRequest(BaseModel):
 async def handle_didcomm_message(
     request: DIDCommMessageRequest,
     priv_key: PrivKeyDepends,
-    settings: SettingsDepends
+    settings: SettingsDepends,
+    db: DbDepends
 ):
     """
     Handle incoming DIDComm message
@@ -55,12 +57,14 @@ async def handle_didcomm_message(
         request: Packed DIDComm message
         priv_key: Node's private key (from dependencies)
         settings: Node settings (from dependencies)
+        db: Database session
         
     Returns:
         Response indicating success and optional response message
     """
     # Check if node is initialized
-    if not settings.is_node_initialized:
+    is_initialized = await NodeService.is_node_initialized(db)
+    if not is_initialized:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Node not initialized. Please initialize the node first."
@@ -147,7 +151,8 @@ async def handle_didcomm_message(
 async def send_trust_ping(
     request: SendTrustPingRequest,
     priv_key: PrivKeyDepends,
-    settings: SettingsDepends
+    settings: SettingsDepends,
+    db: DbDepends
 ):
     """
     Send a Trust Ping message to another DID
@@ -159,12 +164,14 @@ async def send_trust_ping(
         request: Trust Ping request containing recipient_did, response_requested, and optional comment
         priv_key: Node's private key (from dependencies)
         settings: Node settings (from dependencies)
+        db: Database session
         
     Returns:
         Packed Trust Ping message ready to send
     """
     # Check if node is initialized
-    if not settings.is_node_initialized:
+    is_initialized = await NodeService.is_node_initialized(db)
+    if not is_initialized:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Node not initialized"

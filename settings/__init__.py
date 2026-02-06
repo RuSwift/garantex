@@ -169,7 +169,7 @@ class Settings(BaseSettings):
     
     # Secret key for encryption/signing
     secret: SecretStr = Field(
-        default=SecretStr(""),
+        default=SecretStr("default-secret-key-change-in-production"),
         description="Secret key for encryption and signing operations"
     )
     

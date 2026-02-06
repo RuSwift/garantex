@@ -6,9 +6,10 @@ from fastapi.templating import Jinja2Templates
 
 from routers import auth
 from routers import didcomm
-from dependencies import UserDepends, SettingsDepends, PrivKeyDepends
-from schemas.node import NodeInitRequest, NodeInitPemRequest
+from dependencies import UserDepends, SettingsDepends, PrivKeyDepends, DbDepends
+from schemas.node import NodeInitRequest, NodeInitPemRequest, NodeInitResponse
 from didcomm.did import create_peer_did_from_keypair
+from services.node import NodeService
 
 
 app = FastAPI(
@@ -16,6 +17,17 @@ app = FastAPI(
     description="Decentralized financial marketplace",
     version="1.0.0"
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Инициализация при запуске приложения"""
+    from db import init_db
+    from settings import Settings
+    
+    # Инициализируем базу данных
+    settings = Settings()
+    init_db(settings.database)
 
 # Настройка Jinja2 шаблонов
 templates = Jinja2Templates(directory="templates")
@@ -42,6 +54,7 @@ async def root(
     request: Request,
     user_info: UserDepends,
     settings: SettingsDepends,
+    db: DbDepends,
 ):
     """
     Главная страница с админ-панелью
@@ -77,6 +90,9 @@ async def root(
         }
     ]
     
+    # Проверяем инициализацию ноды из базы данных
+    is_node_initialized = await NodeService.is_node_initialized(db)
+    
     return templates.TemplateResponse(
         "panel.html",
         {
@@ -87,7 +103,7 @@ async def root(
             "selected_menu": "dashboard",
             "current_page": "Dashboard",
             "labels": {},
-            "is_node_initialized": settings.is_node_initialized
+            "is_node_initialized": is_node_initialized
         }
     )
 
@@ -103,25 +119,117 @@ async def health_check():
 
 
 # API для инициализации ноды
-@app.post("/api/node/init")
-async def init_node(request: NodeInitRequest):
-    ...
+@app.post("/api/node/init", response_model=NodeInitResponse)
+async def init_node(
+    request: NodeInitRequest,
+    db: DbDepends,
+    settings: SettingsDepends
+):
+    """
+    Инициализирует ноду с использованием мнемонической фразы
+    
+    Args:
+        request: Запрос с мнемонической фразой
+        db: Database session
+        settings: Настройки приложения
+        
+    Returns:
+        Информация о созданном ключе ноды
+    """
+    # Проверяем что SECRET установлен
+    if not settings.secret.get_secret_value():
+        raise HTTPException(
+            status_code=500,
+            detail="SECRET not configured in environment variables"
+        )
+    
+    try:
+        # Вызываем сервис инициализации
+        result = await NodeService.init_from_mnemonic(
+            request.mnemonic,
+            db,
+            settings.secret.get_secret_value()
+        )
+        
+        return NodeInitResponse(
+            success=True,
+            message="Node initialized successfully",
+            **result
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mnemonic: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error initializing node: {str(e)}"
+        )
 
 
-@app.post("/api/node/init-pem")
-async def init_node_from_pem(request: NodeInitPemRequest):
-    ...
+@app.post("/api/node/init-pem", response_model=NodeInitResponse)
+async def init_node_from_pem(
+    request: NodeInitPemRequest,
+    db: DbDepends,
+    settings: SettingsDepends
+):
+    """
+    Инициализирует ноду с использованием PEM ключа
+    
+    Args:
+        request: Запрос с PEM данными и опциональным паролем
+        db: Database session
+        settings: Настройки приложения
+        
+    Returns:
+        Информация о созданном ключе ноды
+    """
+    # Проверяем что SECRET установлен
+    if not settings.secret.get_secret_value():
+        raise HTTPException(
+            status_code=500,
+            detail="SECRET not configured in environment variables"
+        )
+    
+    try:
+        # Вызываем сервис инициализации
+        result = await NodeService.init_from_pem(
+            request.pem_data,
+            request.password,
+            db,
+            settings.secret.get_secret_value()
+        )
+        
+        return NodeInitResponse(
+            success=True,
+            message="Node initialized successfully",
+            **result
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid PEM data: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error initializing node: {str(e)}"
+        )
 
 
 @app.get("/api/node/key-info")
 async def get_key_info(
     settings: SettingsDepends,
-    priv_key: PrivKeyDepends
+    priv_key: PrivKeyDepends,
+    db: DbDepends
 ):
     """
     Получить информацию о ключе ноды, включая DID и DIDDoc
     """
-    if not settings.is_node_initialized:
+    # Проверяем инициализацию ноды из базы данных
+    is_initialized = await NodeService.is_node_initialized(db)
+    if not is_initialized:
         raise HTTPException(status_code=404, detail="Нода не инициализирована")
     
     if priv_key is None:

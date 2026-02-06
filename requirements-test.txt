@@ -13,6 +13,9 @@ asyncio>=3.4.3
 httpx>=0.24.0
 pytest-httpx>=0.22.0
 
+# For in-memory test database
+aiosqlite>=0.19.0
+
 # For fixtures and test data
 faker>=19.0.0
 
