@@ -106,7 +106,15 @@ Vue.component('Profile', {
         return {
             keyInfo: null,
             loading: false,
-            error: null
+            error: null,
+            // Service Endpoint editing
+            editingEndpoint: false,
+            serviceEndpoint: '',
+            testingEndpoint: false,
+            endpointVerified: false,
+            endpointTestResult: null,
+            savingEndpoint: false,
+            endpointStatus: { message: '', type: '', visible: false }
         };
     },
     mounted() {
@@ -174,6 +182,127 @@ Vue.component('Profile', {
             }).catch(err => {
                 console.error('Error copying to clipboard:', err);
             });
+        },
+        getDefaultEndpoint() {
+            // Get current page's scheme://domain and add /endpoint
+            return `${window.location.origin}/endpoint`;
+        },
+        startEditingEndpoint() {
+            this.editingEndpoint = true;
+            // Use existing endpoint or default to current domain
+            // Set value immediately (not just placeholder)
+            this.serviceEndpoint = this.keyInfo.service_endpoint || this.getDefaultEndpoint();
+            this.endpointVerified = false;
+            this.endpointTestResult = null;
+            this.hideEndpointStatus();
+        },
+        cancelEditingEndpoint() {
+            this.editingEndpoint = false;
+            this.serviceEndpoint = '';
+            this.endpointVerified = false;
+            this.endpointTestResult = null;
+            this.hideEndpointStatus();
+        },
+        async testServiceEndpoint() {
+            if (!this.serviceEndpoint || !this.serviceEndpoint.trim()) {
+                this.showEndpointStatus('Введите URL эндпоинта', 'error');
+                return;
+            }
+            
+            try {
+                this.testingEndpoint = true;
+                this.endpointVerified = false;
+                this.endpointTestResult = null;
+                this.showEndpointStatus('Тестирование эндпоинта...', 'info');
+                
+                const response = await fetch('/api/node/test-service-endpoint', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        service_endpoint: this.serviceEndpoint
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Ошибка при тестировании эндпоинта');
+                }
+                
+                const result = await response.json();
+                this.endpointTestResult = result;
+                
+                if (result.success) {
+                    this.endpointVerified = true;
+                    this.showEndpointStatus(
+                        `✅ ${result.message} (${result.response_time_ms}ms)`,
+                        'success'
+                    );
+                } else {
+                    this.endpointVerified = false;
+                    this.showEndpointStatus(`❌ ${result.message}`, 'error');
+                }
+                
+            } catch (error) {
+                console.error('Error testing endpoint:', error);
+                this.showEndpointStatus('Ошибка: ' + error.message, 'error');
+                this.endpointVerified = false;
+            } finally {
+                this.testingEndpoint = false;
+            }
+        },
+        async saveServiceEndpoint() {
+            if (!this.serviceEndpoint || !this.serviceEndpoint.trim()) {
+                this.showEndpointStatus('Введите URL эндпоинта', 'error');
+                return;
+            }
+            
+            if (!this.endpointVerified) {
+                this.showEndpointStatus('Сначала проверьте доступность эндпоинта', 'error');
+                return;
+            }
+            
+            try {
+                this.savingEndpoint = true;
+                this.showEndpointStatus('Сохранение Service Endpoint...', 'info');
+                
+                const response = await fetch('/api/node/set-service-endpoint', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        service_endpoint: this.serviceEndpoint
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Ошибка сохранения эндпоинта');
+                }
+                
+                this.showEndpointStatus('Service Endpoint успешно сохранен!', 'success');
+                
+                // Reload key info to get updated DID Document
+                await this.loadKeyInfo();
+                
+                // Close editing mode
+                setTimeout(() => {
+                    this.cancelEditingEndpoint();
+                }, 1500);
+                
+            } catch (error) {
+                console.error('Error saving service endpoint:', error);
+                this.showEndpointStatus('Ошибка: ' + error.message, 'error');
+            } finally {
+                this.savingEndpoint = false;
+            }
+        },
+        showEndpointStatus(message, type) {
+            this.endpointStatus = { message, type, visible: true };
+        },
+        hideEndpointStatus() {
+            this.endpointStatus.visible = false;
         }
     },
     template: `
@@ -259,6 +388,105 @@ Vue.component('Profile', {
                         </small>
                     </div>
                     
+                    <!-- Service Endpoint Section -->
+                    <hr class="my-4">
+                    
+                    <h5 class="mb-4">
+                        <i class="fas fa-network-wired me-2 text-primary"></i>
+                        Service Endpoint
+                    </h5>
+                    
+                    <div v-if="!editingEndpoint">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">
+                                <i class="fas fa-link me-2"></i>
+                                Service Endpoint URL:
+                            </label>
+                            <div class="input-group">
+                                <input 
+                                    type="text" 
+                                    class="form-control font-monospace" 
+                                    :value="keyInfo.service_endpoint || 'Не настроен'" 
+                                    readonly
+                                    :class="{'text-muted': !keyInfo.service_endpoint}"
+                                    style="font-size: 0.9rem;"
+                                />
+                                <button 
+                                    class="btn btn-outline-primary" 
+                                    type="button"
+                                    @click="startEditingEndpoint"
+                                    title="Редактировать Service Endpoint">
+                                    <i class="fas fa-edit"></i> Редактировать
+                                </button>
+                            </div>
+                            <small class="form-text text-muted">
+                                HTTP адрес для приема DIDComm сообщений
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <div v-else>
+                        <div v-if="endpointStatus.visible" :class="'alert alert-' + (endpointStatus.type === 'error' ? 'danger' : endpointStatus.type === 'success' ? 'success' : 'info')" style="border-radius: 10px; margin-bottom: 20px;">
+                            [[ endpointStatus.message ]]
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="edit-service-endpoint" class="form-label fw-bold">
+                                <i class="fas fa-link me-2"></i>
+                                Service Endpoint URL:
+                            </label>
+                            <input 
+                                type="text"
+                                id="edit-service-endpoint"
+                                v-model="serviceEndpoint"
+                                class="form-control"
+                                placeholder="https://domain.com/endpoint"
+                                @input="endpointVerified = false; endpointTestResult = null"
+                            />
+                            <small class="form-text text-muted" style="display: block; margin-top: 8px; font-size: 12px;">
+                                URL должен быть доступен из интернета и возвращать HTTP 200 при GET запросе
+                            </small>
+                        </div>
+                        
+                        <button 
+                            class="btn btn-secondary me-2 mb-2" 
+                            :disabled="!serviceEndpoint || testingEndpoint"
+                            @click="testServiceEndpoint">
+                            [[ testingEndpoint ? '🔄 Тестирование...' : '🧪 Проверить доступность' ]]
+                        </button>
+                        
+                        <div v-if="endpointTestResult" class="alert mb-3" :class="endpointVerified ? 'alert-success' : 'alert-danger'" style="border-radius: 10px;">
+                            <strong>[[ endpointVerified ? '✅ Endpoint доступен' : '❌ Endpoint недоступен' ]]</strong>
+                            <div class="mt-2">
+                                <small><strong>Результат:</strong> [[ endpointTestResult.message ]]</small>
+                            </div>
+                            <div v-if="endpointTestResult.status_code" class="mt-1">
+                                <small><strong>HTTP Status:</strong> [[ endpointTestResult.status_code ]]</small>
+                            </div>
+                            <div v-if="endpointTestResult.response_time_ms" class="mt-1">
+                                <small><strong>Время ответа:</strong> [[ endpointTestResult.response_time_ms ]] мс</small>
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex gap-2">
+                            <button 
+                                class="btn btn-primary" 
+                                :disabled="!serviceEndpoint || !endpointVerified || savingEndpoint"
+                                @click="saveServiceEndpoint">
+                                [[ savingEndpoint ? 'Сохранение...' : '💾 Сохранить' ]]
+                            </button>
+                            
+                            <button 
+                                class="btn btn-secondary" 
+                                :disabled="savingEndpoint"
+                                @click="cancelEditingEndpoint">
+                                Отмена
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <hr class="my-4">
+                    
                     <div class="mb-3" v-if="keyInfo.did_document">
                         <label class="form-label fw-bold">
                             <i class="fas fa-file-alt me-2"></i>
@@ -312,7 +540,7 @@ Vue.component('NodeInitModal', {
     data() {
         return {
             show: false,
-            currentStep: 1,  // 1 or 2
+            currentStep: 1,  // 1, 2, or 3
             currentMethod: 'pem',
             mouseEntropy: [],
             entropyProgress: 0,
@@ -334,7 +562,13 @@ Vue.component('NodeInitModal', {
             rootPasswordConfirm: '',
             rootTronAddress: null,
             rootTronAuthenticated: false,
-            savingCredentials: false
+            savingCredentials: false,
+            // Step 3: Service Endpoint
+            serviceEndpoint: '',
+            testingEndpoint: false,
+            endpointVerified: false,
+            endpointTestResult: null,
+            savingEndpoint: false
         };
     },
     async mounted() {
@@ -358,25 +592,49 @@ Vue.component('NodeInitModal', {
             console.error('Error checking admin configuration:', error);
         }
         
-        // Show modal if node is not initialized OR admin is not configured
-        if (!nodeInitialized || !adminConfigured) {
+        // Check if service endpoint is configured
+        let endpointConfigured = false;
+        try {
+            const response = await fetch('/api/node/is-service-endpoint-configured');
+            if (response.ok) {
+                const data = await response.json();
+                endpointConfigured = data.configured;
+            }
+        } catch (error) {
+            console.error('Error checking service endpoint configuration:', error);
+        }
+        
+        // Show modal if node is not fully configured
+        if (!nodeInitialized || !adminConfigured || !endpointConfigured) {
             this.show = true;
             
-            // If node is initialized but admin is not, go directly to Step 2
-            if (nodeInitialized && !adminConfigured) {
+            // Determine which step to start from
+            if (!nodeInitialized) {
+                // Start from Step 1: Key initialization
+                this.currentStep = 1;
+                this.$nextTick(() => {
+                    this.initCanvas();
+                });
+            } else if (!adminConfigured) {
+                // Skip to Step 2: Root credentials
                 this.currentStep = 2;
-                // Set a fake result so Step 2 knows node is initialized
                 this.result = {
                     address: 'Already initialized',
                     keyType: 'existing',
                     message: 'Ключ ноды уже создан, настройте root доступ'
                 };
-            } else {
-                // Node not initialized, start from Step 1
-                this.currentStep = 1;
-                this.$nextTick(() => {
-                    this.initCanvas();
-                });
+            } else if (!endpointConfigured) {
+                // Skip to Step 3: Service endpoint
+                this.currentStep = 3;
+                this.result = {
+                    address: 'Already initialized',
+                    keyType: 'existing'
+                };
+                // Set default endpoint value immediately
+                this.serviceEndpoint = `${window.location.origin}/endpoint`;
+                this.endpointVerified = false;
+                // Try to load existing endpoint if any
+                this.loadExistingEndpoint();
             }
         }
     },
@@ -569,18 +827,144 @@ Vue.component('NodeInitModal', {
                     }
                 }
                 
-                this.showStatus('Root креды успешно сохранены! Инициализация завершена.', 'success');
+                this.showStatus('Root креды успешно сохранены! Переход к Step 3...', 'success');
                 
-                // Allow closing now
+                // Proceed to Step 3
                 setTimeout(() => {
-                    this.closeModalComplete();
-                }, 2000);
+                    this.proceedToStep3();
+                }, 1500);
                 
             } catch (error) {
                 console.error('Error saving root credentials:', error);
                 this.showStatus('Ошибка: ' + error.message, 'error');
             } finally {
                 this.savingCredentials = false;
+            }
+        },
+        proceedToStep3() {
+            this.currentStep = 3;
+            this.hideStatus();
+            // Set default endpoint immediately (will be replaced if existing one is found)
+            this.serviceEndpoint = this.getDefaultEndpoint();
+            this.endpointVerified = false;
+            // Try to load existing endpoint if any
+            this.loadExistingEndpoint();
+        },
+        getDefaultEndpoint() {
+            // Get current page's scheme://domain and add /endpoint
+            return `${window.location.origin}/endpoint`;
+        },
+        backToStep2() {
+            this.currentStep = 2;
+            this.hideStatus();
+        },
+        async loadExistingEndpoint() {
+            try {
+                const response = await fetch('/api/node/service-endpoint');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.service_endpoint) {
+                        // Replace default with existing endpoint
+                        this.serviceEndpoint = data.service_endpoint;
+                        this.endpointVerified = true;
+                    }
+                    // If no existing endpoint, keep the default that was already set
+                }
+            } catch (error) {
+                console.error('Error loading existing endpoint:', error);
+                // Keep the default that was already set
+            }
+        },
+        async testServiceEndpoint() {
+            if (!this.serviceEndpoint || !this.serviceEndpoint.trim()) {
+                this.showStatus('Введите URL эндпоинта', 'error');
+                return;
+            }
+            
+            try {
+                this.testingEndpoint = true;
+                this.endpointVerified = false;
+                this.endpointTestResult = null;
+                this.showStatus('Тестирование эндпоинта...', 'info');
+                
+                const response = await fetch('/api/node/test-service-endpoint', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        service_endpoint: this.serviceEndpoint
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Ошибка при тестировании эндпоинта');
+                }
+                
+                const result = await response.json();
+                this.endpointTestResult = result;
+                
+                if (result.success) {
+                    this.endpointVerified = true;
+                    this.showStatus(
+                        `✅ ${result.message} (${result.response_time_ms}ms)`,
+                        'success'
+                    );
+                } else {
+                    this.endpointVerified = false;
+                    this.showStatus(`❌ ${result.message}`, 'error');
+                }
+                
+            } catch (error) {
+                console.error('Error testing endpoint:', error);
+                this.showStatus('Ошибка: ' + error.message, 'error');
+                this.endpointVerified = false;
+            } finally {
+                this.testingEndpoint = false;
+            }
+        },
+        async saveServiceEndpoint() {
+            if (!this.serviceEndpoint || !this.serviceEndpoint.trim()) {
+                this.showStatus('Введите URL эндпоинта', 'error');
+                return;
+            }
+            
+            if (!this.endpointVerified) {
+                this.showStatus('Сначала проверьте доступность эндпоинта', 'error');
+                return;
+            }
+            
+            try {
+                this.savingEndpoint = true;
+                this.showStatus('Сохранение Service Endpoint...', 'info');
+                
+                const response = await fetch('/api/node/set-service-endpoint', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        service_endpoint: this.serviceEndpoint
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Ошибка сохранения эндпоинта');
+                }
+                
+                this.showStatus('Service Endpoint успешно сохранен! Инициализация завершена.', 'success');
+                
+                // Reload page after success
+                setTimeout(() => {
+                    this.closeModalComplete();
+                }, 2000);
+                
+            } catch (error) {
+                console.error('Error saving service endpoint:', error);
+                this.showStatus('Ошибка: ' + error.message, 'error');
+            } finally {
+                this.savingEndpoint = false;
             }
         },
         resetForm() {
@@ -784,13 +1168,19 @@ Vue.component('NodeInitModal', {
         },
         async closeModal() {
             // Check if we can close
+            // Step 3: Cannot close, must configure service endpoint
+            if (this.currentStep === 3) {
+                this.showStatus('Завершите настройку Service Endpoint', 'error');
+                return;
+            }
+            
             // Step 2: Cannot close, must configure admin
             if (this.currentStep === 2) {
                 this.showStatus('Завершите настройку root кредов', 'error');
                 return;
             }
             
-            // Step 1: Can only close if both node AND admin are configured
+            // Step 1: Can only close if all steps are configured
             if (this.currentStep === 1) {
                 // Check if result exists (node initialized in this session)
                 if (!this.result) {
@@ -811,9 +1201,23 @@ Vue.component('NodeInitModal', {
                 } catch (error) {
                     console.error('Error checking admin:', error);
                 }
+                
+                // Check if service endpoint is configured
+                try {
+                    const response = await fetch('/api/node/is-service-endpoint-configured');
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (!data.configured) {
+                            this.showStatus('Необходимо настроить Service Endpoint (Шаг 3)', 'error');
+                            return;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error checking service endpoint:', error);
+                }
             }
             
-            // If we reach here, both are configured
+            // If we reach here, all steps are configured
             this.showStatus('Завершите инициализацию перед закрытием', 'error');
         },
         closeModalComplete() {
@@ -829,7 +1233,7 @@ Vue.component('NodeInitModal', {
     template: `
         <modal-window v-if="show" :width="'90%'" @close="closeModal">
             <template #header>
-                <h3>🔑 Инициализация ноды - Шаг [[ currentStep ]] из 2</h3>
+                <h3>🔑 Инициализация ноды - Шаг [[ currentStep ]] из 3</h3>
             </template>
             <template #body>
                 <div v-if="status.visible" :class="'alert alert-' + (status.type === 'error' ? 'danger' : status.type === 'success' ? 'success' : 'info')" style="border-radius: 10px; margin-bottom: 20px;">
@@ -1062,10 +1466,78 @@ Vue.component('NodeInitModal', {
                         ← Назад к Шагу 1
                     </button>
                 </div>
+                
+                <!-- Step 3: Service Endpoint -->
+                <div v-if="currentStep === 3">
+                    <p class="seed-modal-intro">Настройте Service Endpoint для DIDComm сообщений</p>
+                    
+                    <div class="alert alert-info" style="border-radius: 10px; border-left: 4px solid #0dcaf0;">
+                        <strong>ℹ️ Информация</strong> Service Endpoint - это HTTP адрес, по которому нода будет принимать DIDComm сообщения. 
+                        Формат: <code>https://your-domain.com/endpoint</code> или <code>http://your-ip:port/endpoint</code>
+                    </div>
+                    
+                    <div class="method-content">
+                        <div class="seed-form-group">
+                            <label for="service-endpoint" class="seed-form-label">Service Endpoint URL:</label>
+                            <input 
+                                type="text"
+                                id="service-endpoint"
+                                v-model="serviceEndpoint"
+                                class="form-control"
+                                placeholder="https://domain.com/endpoint"
+                                @input="endpointVerified = false; endpointTestResult = null"
+                            />
+                            <small class="form-text text-muted" style="display: block; margin-top: 8px; font-size: 12px;">
+                                URL должен быть доступен из интернета и возвращать HTTP 200 при GET запросе
+                            </small>
+                        </div>
+                        
+                        <button 
+                            class="seed-btn-secondary" 
+                            :disabled="!serviceEndpoint || testingEndpoint"
+                            @click="testServiceEndpoint"
+                            style="margin-bottom: 15px;">
+                            [[ testingEndpoint ? '🔄 Тестирование...' : '🧪 Проверить доступность' ]]
+                        </button>
+                        
+                        <div v-if="endpointTestResult" class="seed-result-card" style="margin-bottom: 20px;">
+                            <div class="seed-result-title" :style="{backgroundColor: endpointVerified ? '#d4edda' : '#f8d7da'}">
+                                <span>[[ endpointVerified ? '✅' : '❌' ]]</span>
+                                <span>[[ endpointVerified ? 'Endpoint доступен' : 'Endpoint недоступен' ]]</span>
+                            </div>
+                            <div class="seed-result-item">
+                                <label class="seed-result-label">Результат проверки:</label>
+                                <div class="seed-result-value">[[ endpointTestResult.message ]]</div>
+                            </div>
+                            <div class="seed-result-item" v-if="endpointTestResult.status_code">
+                                <label class="seed-result-label">HTTP Status:</label>
+                                <div class="seed-result-value">[[ endpointTestResult.status_code ]]</div>
+                            </div>
+                            <div class="seed-result-item" v-if="endpointTestResult.response_time_ms">
+                                <label class="seed-result-label">Время ответа:</label>
+                                <div class="seed-result-value">[[ endpointTestResult.response_time_ms ]] мс</div>
+                            </div>
+                        </div>
+                        
+                        <button 
+                            class="seed-btn-primary" 
+                            :disabled="!serviceEndpoint || !endpointVerified || savingEndpoint"
+                            @click="saveServiceEndpoint">
+                            [[ savingEndpoint ? 'Сохранение...' : '💾 Сохранить и завершить' ]]
+                        </button>
+                    </div>
+                    
+                    <button 
+                        class="seed-btn-secondary" 
+                        style="margin-top: 20px;"
+                        @click="backToStep2">
+                        ← Назад к Шагу 2
+                    </button>
+                </div>
             </template>
             <template #footer>
-                <button class="modal-default-button btn btn-secondary" @click="closeModal" :disabled="currentStep === 2 || !result">
-                    [[ currentStep === 2 ? 'Завершите настройку root' : (!result ? 'Инициализируйте ноду' : 'Закрыть') ]]
+                <button class="modal-default-button btn btn-secondary" @click="closeModal" :disabled="(currentStep === 2 && !result) || currentStep === 3">
+                    [[ currentStep === 3 ? 'Завершите настройку endpoint' : (currentStep === 2 ? 'Завершите настройку root' : (!result ? 'Инициализируйте ноду' : 'Закрыть')) ]]
                 </button>
             </template>
         </modal-window>
@@ -3543,6 +4015,13 @@ Vue.component('AdminAccount', {
                             <div class="col-md-8">[[ adminInfo.username ]]</div>
                         </div>
                         
+                        <div v-if="adminInfo.tron_address" class="row mb-2">
+                            <div class="col-md-4 fw-bold">TRON адрес:</div>
+                            <div class="col-md-8">
+                                <code>[[ adminInfo.tron_address ]]</code>
+                            </div>
+                        </div>
+                        
                         <div class="row mb-2">
                             <div class="col-md-4 fw-bold">Создан:</div>
                             <div class="col-md-8">[[ formatDate(adminInfo.created_at) ]]</div>
@@ -3551,6 +4030,18 @@ Vue.component('AdminAccount', {
                         <div class="row mb-2">
                             <div class="col-md-4 fw-bold">Обновлен:</div>
                             <div class="col-md-8">[[ formatDate(adminInfo.updated_at) ]]</div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-4 fw-bold">Статус:</div>
+                            <div class="col-md-8">
+                                <span v-if="adminInfo.has_password || adminInfo.tron_addresses_count > 0" class="badge bg-success">
+                                    <i class="fas fa-check-circle me-1"></i> Активен
+                                </span>
+                                <span v-else class="badge bg-warning">
+                                    <i class="fas fa-exclamation-triangle me-1"></i> Не настроен
+                                </span>
+                            </div>
                         </div>
                     </div>
                     

@@ -99,3 +99,31 @@ class AdminConfiguredResponse(BaseModel):
     configured: bool = Field(..., description="Whether admin is configured")
     has_password: bool = Field(False, description="Whether password is configured")
     tron_addresses_count: int = Field(0, description="Number of TRON addresses")
+
+
+# ====================
+# ServiceEndpoint Schemas
+# ====================
+
+class SetServiceEndpointRequest(BaseModel):
+    """Request to set service endpoint"""
+    service_endpoint: str = Field(..., description="Service endpoint URL (e.g., https://node.example.com/endpoint)")
+
+
+class ServiceEndpointResponse(BaseModel):
+    """Response with service endpoint information"""
+    service_endpoint: Optional[str] = Field(None, description="Current service endpoint URL")
+    configured: bool = Field(..., description="Whether service endpoint is configured")
+
+
+class TestServiceEndpointRequest(BaseModel):
+    """Request to test service endpoint availability"""
+    service_endpoint: str = Field(..., description="Service endpoint URL to test")
+
+
+class TestServiceEndpointResponse(BaseModel):
+    """Response for service endpoint test"""
+    success: bool = Field(..., description="Whether endpoint is accessible")
+    status_code: Optional[int] = Field(None, description="HTTP status code received")
+    message: str = Field(..., description="Test result message")
+    response_time_ms: Optional[float] = Field(None, description="Response time in milliseconds")

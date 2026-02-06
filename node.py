@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,7 +11,9 @@ from schemas.node import (
     NodeInitRequest, NodeInitPemRequest, NodeInitResponse,
     SetPasswordRequest, ChangePasswordRequest, AdminInfoResponse, AdminConfiguredResponse,
     TronAddressList, TronAddressItem, AddTronAddressRequest, UpdateTronAddressRequest,
-    ToggleTronAddressRequest, ChangeResponse
+    ToggleTronAddressRequest, ChangeResponse,
+    SetServiceEndpointRequest, ServiceEndpointResponse, 
+    TestServiceEndpointRequest, TestServiceEndpointResponse
 )
 from didcomm.did import create_peer_did_from_keypair
 from services.node import NodeService
@@ -277,8 +279,17 @@ async def get_key_info(
     if hasattr(priv_key, 'address'):
         address = priv_key.address
     
-    # Создаем DID из ключа
-    did_obj = create_peer_did_from_keypair(priv_key)
+    # Получаем service_endpoint из базы данных
+    service_endpoint = await NodeService.get_service_endpoint(db)
+    
+    # Создаем service endpoints для DID если они настроены
+    service_endpoints = None
+    if service_endpoint:
+        from didcomm.utils import create_service_endpoint
+        service_endpoints = [create_service_endpoint(service_endpoint)]
+    
+    # Создаем DID из ключа с service endpoints
+    did_obj = create_peer_did_from_keypair(priv_key, service_endpoints=service_endpoints)
     did = did_obj.did
     did_document = did_obj.to_dict()
     
@@ -288,7 +299,8 @@ async def get_key_info(
         "public_key": public_key_hex,
         "public_key_pem": public_key_pem,
         "did": did,
-        "did_document": did_document
+        "did_document": did_document,
+        "service_endpoint": service_endpoint
     }
 
 
@@ -677,6 +689,323 @@ async def toggle_tron_address(
         raise HTTPException(
             status_code=500,
             detail=f"Error toggling TRON address: {str(e)}"
+        )
+
+
+@app.post("/api/node/set-service-endpoint", response_model=ChangeResponse)
+async def set_service_endpoint(
+    request: SetServiceEndpointRequest,
+    db: DbDepends
+):
+    """
+    Set service endpoint for the node
+    
+    Args:
+        request: Service endpoint configuration
+        db: Database session
+        
+    Returns:
+        Success status
+    """
+    try:
+        success = await NodeService.set_service_endpoint(
+            db,
+            request.service_endpoint
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=404,
+                detail="Node not initialized"
+            )
+        
+        return ChangeResponse(
+            success=True,
+            message="Service endpoint configured successfully"
+        )
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error configuring service endpoint: {str(e)}"
+        )
+
+
+@app.get("/api/node/service-endpoint", response_model=ServiceEndpointResponse)
+async def get_service_endpoint(db: DbDepends):
+    """
+    Get current service endpoint
+    
+    Args:
+        db: Database session
+        
+    Returns:
+        Service endpoint information
+    """
+    try:
+        endpoint = await NodeService.get_service_endpoint(db)
+        configured = await NodeService.is_service_endpoint_configured(db)
+        
+        return ServiceEndpointResponse(
+            service_endpoint=endpoint,
+            configured=configured
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting service endpoint: {str(e)}"
+        )
+
+
+@app.post("/api/node/test-service-endpoint", response_model=TestServiceEndpointResponse)
+async def test_service_endpoint(request: TestServiceEndpointRequest):
+    """
+    Test service endpoint availability
+    
+    Args:
+        request: Service endpoint to test
+        
+    Returns:
+        Test result with status and response time
+    """
+    import httpx
+    import time
+    
+    try:
+        start_time = time.time()
+        
+        # Try to make a GET request to the endpoint
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.get(request.service_endpoint)
+                response_time_ms = (time.time() - start_time) * 1000
+                
+                # Check if we got a 200 OK
+                if response.status_code == 200:
+                    return TestServiceEndpointResponse(
+                        success=True,
+                        status_code=response.status_code,
+                        message=f"Endpoint is accessible (HTTP {response.status_code})",
+                        response_time_ms=round(response_time_ms, 2)
+                    )
+                else:
+                    return TestServiceEndpointResponse(
+                        success=False,
+                        status_code=response.status_code,
+                        message=f"Endpoint returned HTTP {response.status_code}, expected 200",
+                        response_time_ms=round(response_time_ms, 2)
+                    )
+            except httpx.ConnectError:
+                return TestServiceEndpointResponse(
+                    success=False,
+                    status_code=None,
+                    message="Connection failed: Cannot connect to endpoint",
+                    response_time_ms=None
+                )
+            except httpx.TimeoutException:
+                return TestServiceEndpointResponse(
+                    success=False,
+                    status_code=None,
+                    message="Request timeout: Endpoint took too long to respond",
+                    response_time_ms=None
+                )
+            except Exception as e:
+                return TestServiceEndpointResponse(
+                    success=False,
+                    status_code=None,
+                    message=f"Request failed: {str(e)}",
+                    response_time_ms=None
+                )
+                
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error testing endpoint: {str(e)}"
+        )
+
+
+@app.get("/api/node/is-service-endpoint-configured")
+async def check_service_endpoint_configured(db: DbDepends):
+    """
+    Check if service endpoint has been configured
+    
+    Returns:
+        Service endpoint configuration status
+    """
+    configured = await NodeService.is_service_endpoint_configured(db)
+    
+    return {"configured": configured}
+
+
+# ====================
+# Public Service Endpoint
+# ====================
+
+@app.get("/endpoint")
+async def get_node_did_document(
+    priv_key: PrivKeyDepends,
+    db: DbDepends
+):
+    """
+    Public endpoint that returns the node's DID Document
+    
+    This endpoint is the service endpoint advertised in the DID Document.
+    It allows other nodes to discover the node's public keys and capabilities.
+    
+    Returns:
+        DID Document in JSON format
+    """
+    # Check if node is initialized
+    is_initialized = await NodeService.is_node_initialized(db)
+    if not is_initialized:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Node not initialized"
+        )
+    
+    if priv_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Node key not available"
+        )
+    
+    try:
+        # Get service endpoint from database
+        service_endpoint = await NodeService.get_service_endpoint(db)
+        
+        # Create service endpoints for DID if configured
+        service_endpoints = None
+        if service_endpoint:
+            from didcomm.utils import create_service_endpoint
+            service_endpoints = [create_service_endpoint(service_endpoint)]
+        
+        # Create DID with service endpoints
+        did_obj = create_peer_did_from_keypair(priv_key, service_endpoints=service_endpoints)
+        
+        # Return DID Document
+        return did_obj.to_dict()
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating DID Document: {str(e)}"
+        )
+
+
+@app.post("/endpoint")
+async def receive_didcomm_message(
+    message: dict,
+    priv_key: PrivKeyDepends,
+    db: DbDepends
+):
+    """
+    Public endpoint that receives incoming DIDComm messages
+    
+    This endpoint is the service endpoint advertised in the DID Document.
+    It accepts packed DIDComm messages, unpacks them, routes to appropriate
+    protocol handlers, and returns any response.
+    
+    Args:
+        message: Packed DIDComm message (can include sender_public_key and sender_key_type)
+        priv_key: Node's private key (from dependencies)
+        db: Database session
+        
+    Returns:
+        Response message or success status
+    """
+    from didcomm.message import unpack_message
+    from routers.utils import extract_protocol_name
+    from services.protocols import get_protocol_handler
+    
+    # Check if node is initialized
+    is_initialized = await NodeService.is_node_initialized(db)
+    if not is_initialized:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Node not initialized"
+        )
+    
+    if priv_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Node key not available"
+        )
+    
+    try:
+        # Extract optional sender info from message
+        sender_public_key = None
+        sender_key_type = None
+        didcomm_message = message
+        
+        # Check if message includes metadata (sender_public_key, sender_key_type)
+        if isinstance(message, dict):
+            if "sender_public_key" in message:
+                sender_public_key = bytes.fromhex(message["sender_public_key"])
+                sender_key_type = message.get("sender_key_type")
+                didcomm_message = message.get("message", message)
+        
+        # Unpack the message
+        unpacked_message = unpack_message(
+            didcomm_message,
+            priv_key,
+            sender_public_key=sender_public_key,
+            sender_key_type=sender_key_type
+        )
+        
+        # Extract protocol name from message type
+        protocol_name = extract_protocol_name(unpacked_message.type)
+        if not protocol_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Could not determine protocol from message type: {unpacked_message.type}"
+            )
+        
+        # Get protocol handler
+        handler_class = get_protocol_handler(protocol_name)
+        if not handler_class:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=f"Protocol '{protocol_name}' is not supported"
+            )
+        
+        # Create handler instance
+        did_obj = create_peer_did_from_keypair(priv_key)
+        handler = handler_class(priv_key, did_obj.did)
+        
+        # Handle the message
+        response_message = await handler.handle_message(
+            unpacked_message,
+            sender_public_key=sender_public_key,
+            sender_key_type=sender_key_type
+        )
+        
+        # If handler returns a response, pack it
+        if response_message and sender_public_key:
+            packed_response = handler.pack_response(
+                response_message,
+                [sender_public_key],
+                encrypt=True
+            )
+            return {
+                "success": True,
+                "message": f"Message processed by {protocol_name} protocol",
+                "response": packed_response
+            }
+        
+        return {
+            "success": True,
+            "message": f"Message processed by {protocol_name} protocol"
+        }
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid message format: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing message: {str(e)}"
         )
 
 

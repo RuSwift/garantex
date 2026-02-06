@@ -28,6 +28,9 @@ class NodeSettings(Base):
     # Ethereum address derived from the key
     ethereum_address = Column(String(42), nullable=True, unique=True, index=True, comment="Ethereum address")
     
+    # Service endpoint for DIDComm (e.g. https://node.example.com/endpoint)
+    service_endpoint = Column(String(255), nullable=True, comment="Service endpoint URL for DIDComm")
+    
     # Metadata
     is_active = Column(Boolean, default=True, nullable=False, comment="Whether this key is currently active")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

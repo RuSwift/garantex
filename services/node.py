@@ -293,4 +293,66 @@ class NodeService:
             select(NodeSettings).where(NodeSettings.is_active == True)
         )
         return result.scalar_one_or_none() is not None
+    
+    @staticmethod
+    async def set_service_endpoint(
+        db: AsyncSession,
+        service_endpoint: str
+    ) -> bool:
+        """
+        Устанавливает ServiceEndpoint для ноды
+        
+        Args:
+            db: Database session
+            service_endpoint: URL эндпоинта (например, https://node.example.com/endpoint)
+            
+        Returns:
+            True если успешно, False если нода не инициализирована
+        """
+        result = await db.execute(
+            select(NodeSettings).where(NodeSettings.is_active == True)
+        )
+        node_settings = result.scalar_one_or_none()
+        
+        if not node_settings:
+            return False
+        
+        node_settings.service_endpoint = service_endpoint
+        await db.commit()
+        return True
+    
+    @staticmethod
+    async def get_service_endpoint(db: AsyncSession) -> Optional[str]:
+        """
+        Получает текущий ServiceEndpoint ноды
+        
+        Args:
+            db: Database session
+            
+        Returns:
+            URL эндпоинта или None если не установлен
+        """
+        result = await db.execute(
+            select(NodeSettings).where(NodeSettings.is_active == True)
+        )
+        node_settings = result.scalar_one_or_none()
+        
+        if not node_settings:
+            return None
+        
+        return node_settings.service_endpoint
+    
+    @staticmethod
+    async def is_service_endpoint_configured(db: AsyncSession) -> bool:
+        """
+        Проверяет, настроен ли ServiceEndpoint
+        
+        Args:
+            db: Database session
+            
+        Returns:
+            True если ServiceEndpoint настроен, False иначе
+        """
+        endpoint = await NodeService.get_service_endpoint(db)
+        return endpoint is not None and endpoint.strip() != ""
 
