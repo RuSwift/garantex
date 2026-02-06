@@ -123,7 +123,8 @@ class AdminService:
     @staticmethod
     async def create_tron_admin(
         tron_address: str,
-        db: AsyncSession
+        db: AsyncSession,
+        allow_multiple: bool = False
     ) -> AdminUser:
         """
         Create a new admin user with TRON authentication
@@ -131,6 +132,7 @@ class AdminService:
         Args:
             tron_address: TRON wallet address
             db: Database session
+            allow_multiple: Allow multiple TRON admins (default: False for backwards compatibility)
             
         Returns:
             Created AdminUser instance
@@ -142,8 +144,8 @@ class AdminService:
         if not AdminService.validate_tron_address(tron_address):
             raise ValueError("Invalid TRON address format")
         
-        # Check if admin already configured
-        if await AdminService.is_admin_configured(db):
+        # Check if admin already configured (only if not allowing multiple)
+        if not allow_multiple and await AdminService.is_admin_configured(db):
             raise ValueError("Admin already configured")
         
         # Check if TRON address already exists

@@ -10,7 +10,8 @@ from dependencies import UserDepends, SettingsDepends, PrivKeyDepends, DbDepends
 from schemas.node import (
     NodeInitRequest, NodeInitPemRequest, NodeInitResponse, 
     RootCredentialsRequest, RootCredentialsResponse,
-    AdminInfoResponse, ChangePasswordRequest, ChangeTronAddressRequest, ChangeResponse
+    AdminInfoResponse, ChangePasswordRequest, ChangeTronAddressRequest, ChangeResponse,
+    TronAddressList, TronAddressItem, AddTronAddressRequest, UpdateTronAddressRequest
 )
 from didcomm.did import create_peer_did_from_keypair
 from services.node import NodeService
@@ -572,6 +573,234 @@ async def change_admin_tron_address(
         raise HTTPException(
             status_code=500,
             detail=f"Error changing TRON address: {str(e)}"
+        )
+
+
+@app.get("/api/admin/tron-addresses", response_model=TronAddressList)
+async def get_tron_addresses(db: DbDepends):
+    """
+    Get list of all TRON admin addresses
+    
+    Args:
+        db: Database session
+        
+    Returns:
+        List of TRON addresses
+    """
+    from sqlalchemy import select
+    from db.models import AdminUser
+    
+    try:
+        result = await db.execute(
+            select(AdminUser).where(
+                AdminUser.auth_method == 'tron',
+                AdminUser.is_active == True
+            ).order_by(AdminUser.created_at.desc())
+        )
+        admins = result.scalars().all()
+        
+        addresses = [
+            TronAddressItem(
+                id=admin.id,
+                tron_address=admin.tron_address,
+                created_at=admin.created_at,
+                is_active=admin.is_active
+            )
+            for admin in admins
+        ]
+        
+        return TronAddressList(addresses=addresses)
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error loading TRON addresses: {str(e)}"
+        )
+
+
+@app.post("/api/admin/tron-addresses", response_model=ChangeResponse)
+async def add_tron_address(
+    request: AddTronAddressRequest,
+    db: DbDepends
+):
+    """
+    Add new TRON admin address
+    
+    Args:
+        request: Add TRON address request
+        db: Database session
+        
+    Returns:
+        Success status
+    """
+    try:
+        # Create new TRON admin (allow multiple)
+        admin_user = await AdminService.create_tron_admin(
+            request.tron_address,
+            db,
+            allow_multiple=True
+        )
+        
+        return ChangeResponse(
+            success=True,
+            message=f"TRON address added successfully"
+        )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error adding TRON address: {str(e)}"
+        )
+
+
+@app.put("/api/admin/tron-addresses/{admin_id}", response_model=ChangeResponse)
+async def update_tron_address(
+    admin_id: int,
+    request: UpdateTronAddressRequest,
+    db: DbDepends
+):
+    """
+    Update TRON admin address
+    
+    Args:
+        admin_id: Admin ID
+        request: Update TRON address request
+        db: Database session
+        
+    Returns:
+        Success status
+    """
+    from sqlalchemy import select, update
+    from db.models import AdminUser
+    
+    try:
+        # Find admin by ID
+        result = await db.execute(
+            select(AdminUser).where(
+                AdminUser.id == admin_id,
+                AdminUser.auth_method == 'tron',
+                AdminUser.is_active == True
+            )
+        )
+        admin_user = result.scalar_one_or_none()
+        
+        if not admin_user:
+            raise HTTPException(
+                status_code=404,
+                detail="TRON admin not found"
+            )
+        
+        # Validate new TRON address
+        if not AdminService.validate_tron_address(request.new_tron_address):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid TRON address format"
+            )
+        
+        # Check if new address already exists (for different admin)
+        result = await db.execute(
+            select(AdminUser).where(
+                AdminUser.tron_address == request.new_tron_address,
+                AdminUser.id != admin_id
+            )
+        )
+        if result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=400,
+                detail="TRON address already in use"
+            )
+        
+        # Update TRON address
+        await db.execute(
+            update(AdminUser)
+            .where(AdminUser.id == admin_id)
+            .values(tron_address=request.new_tron_address)
+        )
+        await db.commit()
+        
+        return ChangeResponse(
+            success=True,
+            message="TRON address updated successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating TRON address: {str(e)}"
+        )
+
+
+@app.delete("/api/admin/tron-addresses/{admin_id}", response_model=ChangeResponse)
+async def delete_tron_address(
+    admin_id: int,
+    db: DbDepends
+):
+    """
+    Delete TRON admin address
+    
+    Args:
+        admin_id: Admin ID
+        db: Database session
+        
+    Returns:
+        Success status
+    """
+    from sqlalchemy import select, delete, func
+    from db.models import AdminUser
+    
+    try:
+        # Find admin by ID first
+        result = await db.execute(
+            select(AdminUser).where(
+                AdminUser.id == admin_id,
+                AdminUser.auth_method == 'tron',
+                AdminUser.is_active == True
+            )
+        )
+        admin_user = result.scalar_one_or_none()
+        
+        if not admin_user:
+            raise HTTPException(
+                status_code=404,
+                detail="TRON admin not found"
+            )
+        
+        # Check if this is the last admin
+        result = await db.execute(
+            select(func.count(AdminUser.id)).where(AdminUser.is_active == True)
+        )
+        total_admins = result.scalar()
+        
+        if total_admins <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete the last admin. At least one admin must exist."
+            )
+        
+        # Delete admin
+        await db.execute(
+            delete(AdminUser).where(AdminUser.id == admin_id)
+        )
+        await db.commit()
+        
+        return ChangeResponse(
+            success=True,
+            message="TRON address deleted successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error deleting TRON address: {str(e)}"
         )
 
 

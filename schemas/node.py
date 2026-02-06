@@ -1,8 +1,10 @@
 """
 Схемы для API инициализации ноды
 """
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 
@@ -84,3 +86,26 @@ class ChangeResponse(BaseModel):
     """Response after changing credentials"""
     success: bool = Field(..., description="Success status")
     message: str = Field(..., description="Status message")
+
+
+class TronAddressItem(BaseModel):
+    """Single TRON admin address"""
+    id: int = Field(..., description="Admin ID")
+    tron_address: str = Field(..., description="TRON address")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    is_active: bool = Field(..., description="Whether admin is active")
+
+
+class TronAddressList(BaseModel):
+    """List of TRON admin addresses"""
+    addresses: List[TronAddressItem] = Field(..., description="List of TRON addresses")
+
+
+class AddTronAddressRequest(BaseModel):
+    """Request to add TRON address"""
+    tron_address: str = Field(..., description="TRON address to add")
+
+
+class UpdateTronAddressRequest(BaseModel):
+    """Request to update TRON address"""
+    new_tron_address: str = Field(..., description="New TRON address")

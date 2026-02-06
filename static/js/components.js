@@ -3253,13 +3253,21 @@ Vue.component('AdminAccount', {
             tronError: null,
             tronSuccess: null,
             
-            // Change auth method
-            showMethodChange: false,
-            targetMethod: null
+            // TRON addresses list
+            tronAddresses: [],
+            loadingTronAddresses: false,
+            addingTronAddress: false,
+            newTronAddressToAdd: '',
+            addTronError: null,
+            addTronSuccess: null,
+            editingTronId: null,
+            editTronAddress: '',
+            deletingTronId: null
         };
     },
     mounted() {
         this.loadAdminInfo();
+        this.loadTronAddresses();
     },
     methods: {
         async loadAdminInfo() {
@@ -3399,6 +3407,125 @@ Vue.component('AdminAccount', {
                 this.tronError = error.message || 'Ошибка смены TRON адреса';
             } finally {
                 this.changingTron = false;
+            }
+        },
+        
+        async loadTronAddresses() {
+            this.loadingTronAddresses = true;
+            try {
+                const response = await fetch('/api/admin/tron-addresses');
+                if (response.ok) {
+                    const data = await response.json();
+                    this.tronAddresses = data.addresses || [];
+                }
+            } catch (error) {
+                console.error('Error loading TRON addresses:', error);
+            } finally {
+                this.loadingTronAddresses = false;
+            }
+        },
+        
+        async addTronAddress() {
+            if (!this.newTronAddressToAdd) {
+                this.addTronError = 'Введите TRON адрес';
+                return;
+            }
+            
+            if (!this.newTronAddressToAdd.startsWith('T') || this.newTronAddressToAdd.length !== 34) {
+                this.addTronError = 'Неверный формат TRON адреса';
+                return;
+            }
+            
+            this.addTronError = null;
+            this.addTronSuccess = null;
+            this.addingTronAddress = true;
+            
+            try {
+                const response = await fetch('/api/admin/tron-addresses', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({tron_address: this.newTronAddressToAdd})
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    this.addTronError = data.detail || 'Ошибка добавления адреса';
+                    return;
+                }
+                
+                this.addTronSuccess = 'TRON адрес добавлен';
+                this.newTronAddressToAdd = '';
+                await this.loadTronAddresses();
+                
+                setTimeout(() => {
+                    this.addTronSuccess = null;
+                }, 3000);
+            } catch (error) {
+                console.error('Error adding TRON address:', error);
+                this.addTronError = error.message || 'Ошибка добавления адреса';
+            } finally {
+                this.addingTronAddress = false;
+            }
+        },
+        
+        startEditTron(item) {
+            this.editingTronId = item.id;
+            this.editTronAddress = item.tron_address;
+        },
+        
+        cancelEditTron() {
+            this.editingTronId = null;
+            this.editTronAddress = '';
+        },
+        
+        async saveTronAddress(item) {
+            if (!this.editTronAddress || !this.editTronAddress.startsWith('T') || this.editTronAddress.length !== 34) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/admin/tron-addresses/${item.id}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({new_tron_address: this.editTronAddress})
+                });
+                
+                if (response.ok) {
+                    this.editingTronId = null;
+                    this.editTronAddress = '';
+                    await this.loadTronAddresses();
+                }
+            } catch (error) {
+                console.error('Error updating TRON address:', error);
+            }
+        },
+        
+        async deleteTronAddress(item) {
+            if (!confirm(`Удалить TRON адрес ${item.tron_address}?`)) {
+                return;
+            }
+            
+            this.deletingTronId = item.id;
+            
+            try {
+                const response = await fetch(`/api/admin/tron-addresses/${item.id}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    alert(data.detail || 'Ошибка удаления');
+                    return;
+                }
+                
+                await this.loadTronAddresses();
+            } catch (error) {
+                console.error('Error deleting TRON address:', error);
+                alert('Ошибка удаления адреса');
+            } finally {
+                this.deletingTronId = null;
             }
         },
         
@@ -3598,6 +3725,138 @@ Vue.component('AdminAccount', {
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- TRON Addresses Management -->
+                    <div class="mb-4">
+                        <h5 class="mb-3">
+                            <i class="fas fa-list me-2 text-info"></i>
+                            Управление TRON адресами
+                        </h5>
+                        
+                        <!-- Add new TRON address -->
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6 class="card-title">Добавить TRON адрес</h6>
+                                
+                                <div v-if="addTronError" class="alert alert-danger alert-sm">
+                                    <i class="fas fa-exclamation-circle me-2"></i>
+                                    [[ addTronError ]]
+                                </div>
+                                
+                                <div v-if="addTronSuccess" class="alert alert-success alert-sm">
+                                    <i class="fas fa-check-circle me-2"></i>
+                                    [[ addTronSuccess ]]
+                                </div>
+                                
+                                <div class="row g-2">
+                                    <div class="col-md-9">
+                                        <input 
+                                            type="text" 
+                                            class="form-control" 
+                                            v-model="newTronAddressToAdd"
+                                            placeholder="T..."
+                                            :disabled="addingTronAddress"
+                                        />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <button 
+                                            class="btn btn-primary w-100"
+                                            @click="addTronAddress"
+                                            :disabled="addingTronAddress || !newTronAddressToAdd"
+                                        >
+                                            <span v-if="addingTronAddress" class="spinner-border spinner-border-sm me-1"></span>
+                                            <i v-else class="fas fa-plus me-1"></i>
+                                            Добавить
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- List of TRON addresses -->
+                        <div v-if="loadingTronAddresses" class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm text-primary"></div>
+                            <span class="ms-2">Загрузка...</span>
+                        </div>
+                        
+                        <div v-else-if="tronAddresses.length === 0" class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Нет добавленных TRON адресов
+                        </div>
+                        
+                        <div v-else class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>TRON Адрес</th>
+                                        <th>Добавлен</th>
+                                        <th>Статус</th>
+                                        <th width="120">Действия</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="item in tronAddresses" :key="item.id">
+                                        <td>
+                                            <span v-if="editingTronId !== item.id">
+                                                <code>[[ item.tron_address ]]</code>
+                                            </span>
+                                            <input 
+                                                v-else
+                                                type="text" 
+                                                class="form-control form-control-sm" 
+                                                v-model="editTronAddress"
+                                            />
+                                        </td>
+                                        <td>[[ formatDate(item.created_at) ]]</td>
+                                        <td>
+                                            <span v-if="item.is_active" class="badge bg-success">
+                                                <i class="fas fa-check-circle me-1"></i> Активен
+                                            </span>
+                                            <span v-else class="badge bg-secondary">Неактивен</span>
+                                        </td>
+                                        <td>
+                                            <div v-if="editingTronId !== item.id" class="btn-group btn-group-sm">
+                                                <button 
+                                                    class="btn btn-outline-primary"
+                                                    @click="startEditTron(item)"
+                                                    title="Редактировать"
+                                                >
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                                <button 
+                                                    class="btn btn-outline-danger"
+                                                    @click="deleteTronAddress(item)"
+                                                    :disabled="deletingTronId === item.id"
+                                                    title="Удалить"
+                                                >
+                                                    <span v-if="deletingTronId === item.id" class="spinner-border spinner-border-sm"></span>
+                                                    <i v-else class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                            <div v-else class="btn-group btn-group-sm">
+                                                <button 
+                                                    class="btn btn-success"
+                                                    @click="saveTronAddress(item)"
+                                                    title="Сохранить"
+                                                >
+                                                    <i class="fas fa-check"></i>
+                                                </button>
+                                                <button 
+                                                    class="btn btn-secondary"
+                                                    @click="cancelEditTron"
+                                                    title="Отмена"
+                                                >
+                                                    <i class="fas fa-times"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <hr>
                     
                     <!-- Security Notice -->
                     <div class="alert alert-info">
