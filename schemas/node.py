@@ -1,5 +1,5 @@
 """
-Схемы для API инициализации ноды
+Схемы для API инициализации ноды и управления админом
 """
 from __future__ import annotations
 
@@ -30,45 +30,14 @@ class NodeInitResponse(BaseModel):
     did_document: Dict[str, Any] = Field(..., description="DID документ")
 
 
-class RootCredentialsRequest(BaseModel):
-    """Request to set root admin credentials"""
-    method: str = Field(..., description="Auth method: 'password' or 'tron'")
-    username: Optional[str] = Field(None, description="Admin username (for password method)")
-    password: Optional[str] = Field(None, description="Admin password (for password method)")
-    tron_address: Optional[str] = Field(None, description="TRON address (for tron method)")
+# ====================
+# Admin Schemas (New Architecture)
+# ====================
 
-
-class RootCredentialsResponse(BaseModel):
-    """Response after setting root credentials"""
-    success: bool = Field(..., description="Success status")
-    message: str = Field(..., description="Status message")
-    auth_method: str = Field(..., description="Authentication method configured")
-
-
-class AdminLoginRequest(BaseModel):
-    """Request to login as admin"""
-    method: str = Field(..., description="Auth method: 'password' or 'tron'")
-    username: Optional[str] = Field(None, description="Admin username (for password method)")
-    password: Optional[str] = Field(None, description="Admin password (for password method)")
-    tron_token: Optional[str] = Field(None, description="TRON auth JWT token (for tron method)")
-
-
-class AdminLoginResponse(BaseModel):
-    """Response after admin login"""
-    success: bool = Field(..., description="Success status")
-    token: str = Field(..., description="Admin session JWT token")
-    auth_method: str = Field(..., description="Authentication method used")
-
-
-class AdminInfoResponse(BaseModel):
-    """Response with admin information"""
-    id: int = Field(..., description="Admin ID")
-    auth_method: str = Field(..., description="Auth method: password or tron")
-    username: Optional[str] = Field(None, description="Admin username")
-    tron_address: Optional[str] = Field(None, description="TRON address")
-    is_active: bool = Field(..., description="Whether admin is active")
-    created_at: datetime = Field(..., description="Creation timestamp")
-    updated_at: datetime = Field(..., description="Update timestamp")
+class SetPasswordRequest(BaseModel):
+    """Request to set/update admin password"""
+    username: str = Field(..., description="Admin username")
+    password: str = Field(..., description="Admin password")
 
 
 class ChangePasswordRequest(BaseModel):
@@ -77,23 +46,24 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., description="New password")
 
 
-class ChangeTronAddressRequest(BaseModel):
-    """Request to change admin TRON address"""
-    new_tron_address: str = Field(..., description="New TRON address")
-
-
-class ChangeResponse(BaseModel):
-    """Response after changing credentials"""
-    success: bool = Field(..., description="Success status")
-    message: str = Field(..., description="Status message")
+class AdminInfoResponse(BaseModel):
+    """Response with admin information"""
+    id: int = Field(..., description="Admin ID (always 1)")
+    has_password: bool = Field(..., description="Whether password is configured")
+    username: Optional[str] = Field(None, description="Admin username (if password configured)")
+    tron_addresses_count: int = Field(..., description="Number of active TRON addresses")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Update timestamp")
 
 
 class TronAddressItem(BaseModel):
     """Single TRON admin address"""
-    id: int = Field(..., description="Admin ID")
+    id: int = Field(..., description="Address ID")
     tron_address: str = Field(..., description="TRON address")
+    label: Optional[str] = Field(None, description="Optional label")
+    is_active: bool = Field(..., description="Whether address is active")
     created_at: datetime = Field(..., description="Creation timestamp")
-    is_active: bool = Field(..., description="Whether admin is active")
+    updated_at: datetime = Field(..., description="Update timestamp")
 
 
 class TronAddressList(BaseModel):
@@ -104,8 +74,28 @@ class TronAddressList(BaseModel):
 class AddTronAddressRequest(BaseModel):
     """Request to add TRON address"""
     tron_address: str = Field(..., description="TRON address to add")
+    label: Optional[str] = Field(None, description="Optional label for this address")
 
 
 class UpdateTronAddressRequest(BaseModel):
     """Request to update TRON address"""
-    new_tron_address: str = Field(..., description="New TRON address")
+    tron_address: Optional[str] = Field(None, description="New TRON address (optional)")
+    label: Optional[str] = Field(None, description="New label (optional)")
+
+
+class ToggleTronAddressRequest(BaseModel):
+    """Request to toggle TRON address active status"""
+    is_active: bool = Field(..., description="Active status")
+
+
+class ChangeResponse(BaseModel):
+    """Generic response for change operations"""
+    success: bool = Field(..., description="Success status")
+    message: str = Field(..., description="Status message")
+
+
+class AdminConfiguredResponse(BaseModel):
+    """Response for admin configured check"""
+    configured: bool = Field(..., description="Whether admin is configured")
+    has_password: bool = Field(False, description="Whether password is configured")
+    tron_addresses_count: int = Field(0, description="Number of TRON addresses")

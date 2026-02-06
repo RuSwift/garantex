@@ -525,14 +525,13 @@ Vue.component('NodeInitModal', {
                     
                     this.showStatus('Сохранение root кредов...', 'info');
                     
-                    // Send to backend
-                    const response = await fetch('/api/node/set-root-credentials', {
+                    // NEW API: Set password
+                    const response = await fetch('/api/admin/set-password', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
-                            method: 'password',
                             username: this.rootUsername,
                             password: this.rootPassword
                         })
@@ -540,7 +539,7 @@ Vue.component('NodeInitModal', {
                     
                     if (!response.ok) {
                         const error = await response.json();
-                        throw new Error(error.detail || 'Ошибка сохранения кредов');
+                        throw new Error(error.detail || 'Ошибка сохранения пароля');
                     }
                     
                 } else if (this.rootCredentialMethod === 'tron') {
@@ -552,21 +551,21 @@ Vue.component('NodeInitModal', {
                     
                     this.showStatus('Сохранение TRON root доступа...', 'info');
                     
-                    // Send to backend
-                    const response = await fetch('/api/node/set-root-credentials', {
+                    // NEW API: Add TRON address
+                    const response = await fetch('/api/admin/tron-addresses', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
-                            method: 'tron',
-                            tron_address: this.rootTronAddress
+                            tron_address: this.rootTronAddress,
+                            label: 'Root admin'
                         })
                     });
                     
                     if (!response.ok) {
                         const error = await response.json();
-                        throw new Error(error.detail || 'Ошибка сохранения TRON доступа');
+                        throw new Error(error.detail || 'Ошибка сохранения TRON адреса');
                     }
                 }
                 
@@ -3346,6 +3345,9 @@ Vue.component('AdminAccount', {
                 this.newPassword = '';
                 this.confirmPassword = '';
                 
+                // Reload admin info
+                await this.loadAdminInfo();
+                
                 // Clear success message after 3 seconds
                 setTimeout(() => {
                     this.passwordSuccess = null;
@@ -3358,57 +3360,7 @@ Vue.component('AdminAccount', {
             }
         },
         
-        async changeTronAddress() {
-            // Validate TRON address
-            if (!this.newTronAddress) {
-                this.tronError = 'Введите TRON адрес';
-                return;
-            }
-            
-            if (!this.newTronAddress.startsWith('T') || this.newTronAddress.length !== 34) {
-                this.tronError = 'Неверный формат TRON адреса';
-                return;
-            }
-            
-            this.tronError = null;
-            this.tronSuccess = null;
-            this.changingTron = true;
-            
-            try {
-                const response = await fetch('/api/admin/change-tron-address', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        new_tron_address: this.newTronAddress
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (!response.ok) {
-                    this.tronError = data.detail || 'Ошибка смены TRON адреса';
-                    return;
-                }
-                
-                this.tronSuccess = 'TRON адрес успешно изменен';
-                this.newTronAddress = '';
-                
-                // Reload admin info
-                await this.loadAdminInfo();
-                
-                // Clear success message after 3 seconds
-                setTimeout(() => {
-                    this.tronSuccess = null;
-                }, 3000);
-            } catch (error) {
-                console.error('Error changing TRON address:', error);
-                this.tronError = error.message || 'Ошибка смены TRON адреса';
-            } finally {
-                this.changingTron = false;
-            }
-        },
+        // OLD METHOD - REMOVED: changeTronAddress() - now using list management
         
         async loadTronAddresses() {
             this.loadingTronAddresses = true;
@@ -3457,6 +3409,7 @@ Vue.component('AdminAccount', {
                 this.addTronSuccess = 'TRON адрес добавлен';
                 this.newTronAddressToAdd = '';
                 await this.loadTronAddresses();
+                await this.loadAdminInfo(); // Refresh admin info to update tron_addresses_count
                 
                 setTimeout(() => {
                     this.addTronSuccess = null;
@@ -3488,13 +3441,14 @@ Vue.component('AdminAccount', {
                 const response = await fetch(`/api/admin/tron-addresses/${item.id}`, {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({new_tron_address: this.editTronAddress})
+                    body: JSON.stringify({tron_address: this.editTronAddress})
                 });
                 
                 if (response.ok) {
                     this.editingTronId = null;
                     this.editTronAddress = '';
                     await this.loadTronAddresses();
+                    await this.loadAdminInfo(); // Refresh admin info to update tron_addresses_count
                 }
             } catch (error) {
                 console.error('Error updating TRON address:', error);
@@ -3521,6 +3475,7 @@ Vue.component('AdminAccount', {
                 }
                 
                 await this.loadTronAddresses();
+                await this.loadAdminInfo(); // Refresh admin info to update tron_addresses_count
             } catch (error) {
                 console.error('Error deleting TRON address:', error);
                 alert('Ошибка удаления адреса');
@@ -3569,13 +3524,16 @@ Vue.component('AdminAccount', {
                         </h5>
                         
                         <div class="row mb-2">
-                            <div class="col-md-4 fw-bold">Метод аутентификации:</div>
+                            <div class="col-md-4 fw-bold">Методы аутентификации:</div>
                             <div class="col-md-8">
-                                <span v-if="adminInfo.auth_method === 'password'" class="badge bg-primary">
+                                <span v-if="adminInfo.has_password" class="badge bg-primary me-2">
                                     <i class="fas fa-key me-1"></i> Пароль
                                 </span>
-                                <span v-else-if="adminInfo.auth_method === 'tron'" class="badge bg-info">
-                                    <i class="fas fa-wallet me-1"></i> TRON кошелек
+                                <span v-if="adminInfo.tron_addresses_count > 0" class="badge bg-info">
+                                    <i class="fas fa-wallet me-1"></i> TRON ([[ adminInfo.tron_addresses_count ]])
+                                </span>
+                                <span v-if="!adminInfo.has_password && adminInfo.tron_addresses_count === 0" class="badge bg-warning">
+                                    <i class="fas fa-exclamation-triangle me-1"></i> Не настроено
                                 </span>
                             </div>
                         </div>
@@ -3583,13 +3541,6 @@ Vue.component('AdminAccount', {
                         <div v-if="adminInfo.username" class="row mb-2">
                             <div class="col-md-4 fw-bold">Имя пользователя:</div>
                             <div class="col-md-8">[[ adminInfo.username ]]</div>
-                        </div>
-                        
-                        <div v-if="adminInfo.tron_address" class="row mb-2">
-                            <div class="col-md-4 fw-bold">TRON адрес:</div>
-                            <div class="col-md-8">
-                                <code>[[ adminInfo.tron_address ]]</code>
-                            </div>
                         </div>
                         
                         <div class="row mb-2">
@@ -3601,24 +3552,12 @@ Vue.component('AdminAccount', {
                             <div class="col-md-4 fw-bold">Обновлен:</div>
                             <div class="col-md-8">[[ formatDate(adminInfo.updated_at) ]]</div>
                         </div>
-                        
-                        <div class="row">
-                            <div class="col-md-4 fw-bold">Статус:</div>
-                            <div class="col-md-8">
-                                <span v-if="adminInfo.is_active" class="badge bg-success">
-                                    <i class="fas fa-check-circle me-1"></i> Активен
-                                </span>
-                                <span v-else class="badge bg-danger">
-                                    <i class="fas fa-times-circle me-1"></i> Неактивен
-                                </span>
-                            </div>
-                        </div>
                     </div>
                     
                     <hr>
                     
-                    <!-- Change Password (for password auth) -->
-                    <div v-if="adminInfo.auth_method === 'password'" class="mb-4">
+                    <!-- Change Password (if password is configured) -->
+                    <div v-if="adminInfo.has_password" class="mb-4">
                         <h5 class="mb-3">
                             <i class="fas fa-lock me-2 text-warning"></i>
                             Сменить пароль
@@ -3681,8 +3620,8 @@ Vue.component('AdminAccount', {
                         </div>
                     </div>
                     
-                    <!-- Change TRON Address (for tron auth) -->
-                    <div v-if="adminInfo.auth_method === 'tron'" class="mb-4">
+                    <!-- Old TRON address change - REMOVED, now using list management below -->
+                    <div v-if="false" class="mb-4">
                         <h5 class="mb-3">
                             <i class="fas fa-wallet me-2 text-info"></i>
                             Сменить TRON адрес

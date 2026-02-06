@@ -1,11 +1,12 @@
 """
 Service for managing admin user credentials
+New architecture: single admin with optional password + multiple TRON addresses
 """
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete, update, func
 from passlib.context import CryptContext
-from db.models import AdminUser
+from db.models import AdminUser, AdminTronAddress
 import re
 
 # Configure password hashing
@@ -13,33 +14,16 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class AdminService:
-    """Service for managing admin credentials"""
+    """Service for managing admin credentials (single admin with multiple auth methods)"""
     
     @staticmethod
     def hash_password(password: str) -> str:
-        """
-        Hash a password using bcrypt
-        
-        Args:
-            password: Plain text password
-            
-        Returns:
-            Hashed password
-        """
+        """Hash a password using bcrypt"""
         return pwd_context.hash(password)
     
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
-        """
-        Verify a password against its hash
-        
-        Args:
-            plain_password: Plain text password to verify
-            hashed_password: Hashed password to check against
-            
-        Returns:
-            True if password matches, False otherwise
-        """
+        """Verify a password against its hash"""
         return pwd_context.verify(plain_password, hashed_password)
     
     @staticmethod
@@ -62,14 +46,69 @@ class AdminService:
         base58_pattern = r'^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$'
         return bool(re.match(base58_pattern, address))
     
+    # ====================
+    # Admin User Management
+    # ====================
+    
     @staticmethod
-    async def create_password_admin(
+    async def get_admin(db: AsyncSession) -> Optional[AdminUser]:
+        """Get the single admin user (ID=1)"""
+        result = await db.execute(
+            select(AdminUser).where(AdminUser.id == 1)
+        )
+        return result.scalar_one_or_none()
+    
+    @staticmethod
+    async def ensure_admin_exists(db: AsyncSession) -> AdminUser:
+        """Ensure admin user exists, create if not"""
+        admin = await AdminService.get_admin(db)
+        if not admin:
+            admin = AdminUser(
+                id=1,
+                username=None,
+                password_hash=None
+            )
+            db.add(admin)
+            await db.commit()
+            await db.refresh(admin)
+        return admin
+    
+    @staticmethod
+    async def is_admin_configured(db: AsyncSession) -> bool:
+        """
+        Check if admin has at least one authentication method configured
+        
+        Returns:
+            True if admin has password OR at least one active TRON address
+        """
+        admin = await AdminService.get_admin(db)
+        if not admin:
+            return False
+        
+        # Check if password is configured
+        has_password = bool(admin.username and admin.password_hash)
+        
+        # Check if at least one TRON address exists
+        result = await db.execute(
+            select(func.count(AdminTronAddress.id))
+            .where(AdminTronAddress.is_active == True)
+        )
+        has_tron = result.scalar() > 0
+        
+        return has_password or has_tron
+    
+    # ====================
+    # Password Management
+    # ====================
+    
+    @staticmethod
+    async def set_password(
         username: str,
         password: str,
         db: AsyncSession
     ) -> AdminUser:
         """
-        Create a new admin user with password authentication
+        Set or update admin password
         
         Args:
             username: Admin username
@@ -77,10 +116,10 @@ class AdminService:
             db: Database session
             
         Returns:
-            Created AdminUser instance
+            Updated AdminUser
             
         Raises:
-            ValueError: If validation fails or admin already exists
+            ValueError: If validation fails
         """
         # Validate inputs
         if not username or not password:
@@ -92,86 +131,102 @@ class AdminService:
         if len(username) < 3:
             raise ValueError("Username must be at least 3 characters long")
         
-        # Check if admin already configured
-        if await AdminService.is_admin_configured(db):
-            raise ValueError("Admin already configured")
+        # Ensure admin exists
+        admin = await AdminService.ensure_admin_exists(db)
         
-        # Check if username already exists
-        result = await db.execute(
-            select(AdminUser).where(AdminUser.username == username)
-        )
-        if result.scalar_one_or_none():
-            raise ValueError(f"Username '{username}' already exists")
-        
-        # Hash password and create admin
+        # Hash password and update
         password_hash = AdminService.hash_password(password)
         
-        admin_user = AdminUser(
-            auth_method='password',
-            username=username,
-            password_hash=password_hash,
-            tron_address=None,
-            is_active=True
+        await db.execute(
+            update(AdminUser)
+            .where(AdminUser.id == 1)
+            .values(username=username, password_hash=password_hash)
         )
-        
-        db.add(admin_user)
         await db.commit()
-        await db.refresh(admin_user)
+        await db.refresh(admin)
         
-        return admin_user
+        return admin
     
     @staticmethod
-    async def create_tron_admin(
-        tron_address: str,
-        db: AsyncSession,
-        allow_multiple: bool = False
+    async def change_password(
+        old_password: str,
+        new_password: str,
+        db: AsyncSession
     ) -> AdminUser:
         """
-        Create a new admin user with TRON authentication
+        Change admin password (requires old password verification)
         
         Args:
-            tron_address: TRON wallet address
+            old_password: Current password
+            new_password: New password
             db: Database session
-            allow_multiple: Allow multiple TRON admins (default: False for backwards compatibility)
             
         Returns:
-            Created AdminUser instance
+            Updated AdminUser
             
         Raises:
-            ValueError: If validation fails or admin already exists
+            ValueError: If validation fails or old password is incorrect
         """
-        # Validate TRON address
-        if not AdminService.validate_tron_address(tron_address):
-            raise ValueError("Invalid TRON address format")
+        admin = await AdminService.get_admin(db)
+        if not admin or not admin.password_hash:
+            raise ValueError("Password authentication not configured")
         
-        # Check if admin already configured (only if not allowing multiple)
-        if not allow_multiple and await AdminService.is_admin_configured(db):
-            raise ValueError("Admin already configured")
+        # Verify old password
+        if not AdminService.verify_password(old_password, admin.password_hash):
+            raise ValueError("Incorrect current password")
         
-        # Check if TRON address already exists
-        result = await db.execute(
-            select(AdminUser).where(AdminUser.tron_address == tron_address)
+        # Validate new password
+        if len(new_password) < 8:
+            raise ValueError("New password must be at least 8 characters long")
+        
+        # Update password
+        password_hash = AdminService.hash_password(new_password)
+        
+        await db.execute(
+            update(AdminUser)
+            .where(AdminUser.id == 1)
+            .values(password_hash=password_hash)
         )
-        if result.scalar_one_or_none():
-            raise ValueError(f"TRON address '{tron_address}' already registered")
-        
-        # Create admin
-        admin_user = AdminUser(
-            auth_method='tron',
-            username=None,
-            password_hash=None,
-            tron_address=tron_address,
-            is_active=True
-        )
-        
-        db.add(admin_user)
         await db.commit()
-        await db.refresh(admin_user)
+        await db.refresh(admin)
         
-        return admin_user
+        return admin
     
     @staticmethod
-    async def verify_password_admin(
+    async def remove_password(db: AsyncSession) -> AdminUser:
+        """
+        Remove password authentication (must have TRON addresses configured)
+        
+        Raises:
+            ValueError: If no TRON addresses configured
+        """
+        # Check if at least one TRON address exists
+        result = await db.execute(
+            select(func.count(AdminTronAddress.id))
+            .where(AdminTronAddress.is_active == True)
+        )
+        tron_count = result.scalar()
+        
+        if tron_count == 0:
+            raise ValueError("Cannot remove password: no TRON addresses configured")
+        
+        admin = await AdminService.get_admin(db)
+        if not admin:
+            raise ValueError("Admin not found")
+        
+        # Remove password
+        await db.execute(
+            update(AdminUser)
+            .where(AdminUser.id == 1)
+            .values(username=None, password_hash=None)
+        )
+        await db.commit()
+        await db.refresh(admin)
+        
+        return admin
+    
+    @staticmethod
+    async def verify_password_auth(
         username: str,
         password: str,
         db: AsyncSession
@@ -179,121 +234,285 @@ class AdminService:
         """
         Verify admin credentials for password authentication
         
-        Args:
-            username: Admin username
-            password: Plain text password
-            db: Database session
-            
         Returns:
             AdminUser if credentials are valid, None otherwise
         """
-        # Find admin by username
-        result = await db.execute(
-            select(AdminUser).where(
-                AdminUser.username == username,
-                AdminUser.auth_method == 'password',
-                AdminUser.is_active == True
-            )
-        )
-        admin_user = result.scalar_one_or_none()
+        admin = await AdminService.get_admin(db)
         
-        if not admin_user or not admin_user.password_hash:
+        if not admin or not admin.username or not admin.password_hash:
+            return None
+        
+        if admin.username != username:
             return None
         
         # Verify password
-        if AdminService.verify_password(password, admin_user.password_hash):
-            return admin_user
+        if AdminService.verify_password(password, admin.password_hash):
+            return admin
         
         return None
     
+    # ====================
+    # TRON Address Management
+    # ====================
+    
     @staticmethod
-    async def verify_tron_admin(
+    async def add_tron_address(
         tron_address: str,
-        db: AsyncSession
-    ) -> Optional[AdminUser]:
+        db: AsyncSession,
+        label: Optional[str] = None
+    ) -> AdminTronAddress:
         """
-        Check if TRON address is whitelisted as admin
+        Add a TRON address to whitelist
         
         Args:
             tron_address: TRON wallet address
+            label: Optional label for this address
             db: Database session
             
         Returns:
-            AdminUser if address is whitelisted, None otherwise
+            Created AdminTronAddress
+            
+        Raises:
+            ValueError: If validation fails or address already exists
         """
+        # Validate TRON address
+        if not AdminService.validate_tron_address(tron_address):
+            raise ValueError("Invalid TRON address format")
+        
+        # Ensure admin exists
+        await AdminService.ensure_admin_exists(db)
+        
+        # Check if address already exists
         result = await db.execute(
-            select(AdminUser).where(
-                AdminUser.tron_address == tron_address,
-                AdminUser.auth_method == 'tron',
-                AdminUser.is_active == True
-            )
+            select(AdminTronAddress).where(AdminTronAddress.tron_address == tron_address)
         )
-        return result.scalar_one_or_none()
+        if result.scalar_one_or_none():
+            raise ValueError(f"TRON address '{tron_address}' already registered")
+        
+        # Create TRON address
+        tron_addr = AdminTronAddress(
+            tron_address=tron_address,
+            label=label,
+            is_active=True
+        )
+        
+        db.add(tron_addr)
+        await db.commit()
+        await db.refresh(tron_addr)
+        
+        return tron_addr
     
     @staticmethod
-    async def is_admin_configured(db: AsyncSession) -> bool:
+    async def get_tron_addresses(
+        db: AsyncSession,
+        active_only: bool = True
+    ) -> List[AdminTronAddress]:
+        """Get all TRON addresses"""
+        query = select(AdminTronAddress)
+        if active_only:
+            query = query.where(AdminTronAddress.is_active == True)
+        query = query.order_by(AdminTronAddress.created_at.desc())
+        
+        result = await db.execute(query)
+        return list(result.scalars().all())
+    
+    @staticmethod
+    async def update_tron_address(
+        tron_id: int,
+        db: AsyncSession,
+        new_address: Optional[str] = None,
+        new_label: Optional[str] = None
+    ) -> AdminTronAddress:
         """
-        Check if any admin user exists
+        Update TRON address or label
         
         Args:
+            tron_id: ID of the address to update
+            new_address: New TRON address (optional)
+            new_label: New label (optional)
             db: Database session
             
         Returns:
-            True if at least one admin exists, False otherwise
+            Updated AdminTronAddress
+            
+        Raises:
+            ValueError: If validation fails or address not found
+        """
+        # Find address
+        result = await db.execute(
+            select(AdminTronAddress).where(AdminTronAddress.id == tron_id)
+        )
+        tron_addr = result.scalar_one_or_none()
+        
+        if not tron_addr:
+            raise ValueError("TRON address not found")
+        
+        # Validate new address if provided
+        if new_address:
+            if not AdminService.validate_tron_address(new_address):
+                raise ValueError("Invalid TRON address format")
+            
+            # Check if new address already exists (for different entry)
+            result = await db.execute(
+                select(AdminTronAddress).where(
+                    AdminTronAddress.tron_address == new_address,
+                    AdminTronAddress.id != tron_id
+                )
+            )
+            if result.scalar_one_or_none():
+                raise ValueError("TRON address already in use")
+        
+        # Update fields
+        update_values = {}
+        if new_address:
+            update_values['tron_address'] = new_address
+        if new_label is not None:  # Allow empty string to clear label
+            update_values['label'] = new_label
+        
+        if update_values:
+            await db.execute(
+                update(AdminTronAddress)
+                .where(AdminTronAddress.id == tron_id)
+                .values(**update_values)
+            )
+            await db.commit()
+            await db.refresh(tron_addr)
+        
+        return tron_addr
+    
+    @staticmethod
+    async def toggle_tron_address(
+        tron_id: int,
+        is_active: bool,
+        db: AsyncSession
+    ) -> AdminTronAddress:
+        """Toggle TRON address active status"""
+        result = await db.execute(
+            select(AdminTronAddress).where(AdminTronAddress.id == tron_id)
+        )
+        tron_addr = result.scalar_one_or_none()
+        
+        if not tron_addr:
+            raise ValueError("TRON address not found")
+        
+        await db.execute(
+            update(AdminTronAddress)
+            .where(AdminTronAddress.id == tron_id)
+            .values(is_active=is_active)
+        )
+        await db.commit()
+        await db.refresh(tron_addr)
+        
+        return tron_addr
+    
+    @staticmethod
+    async def delete_tron_address(
+        tron_id: int,
+        db: AsyncSession
+    ) -> None:
+        """
+        Delete a TRON address
+        
+        Args:
+            tron_id: ID of the address to delete
+            db: Database session
+            
+        Raises:
+            ValueError: If trying to delete the last authentication method
+        """
+        # Check if admin has password configured
+        admin = await AdminService.get_admin(db)
+        has_password = bool(admin and admin.username and admin.password_hash)
+        
+        # Count active TRON addresses
+        result = await db.execute(
+            select(func.count(AdminTronAddress.id))
+            .where(AdminTronAddress.is_active == True)
+        )
+        tron_count = result.scalar()
+        
+        # Prevent deleting last auth method
+        if not has_password and tron_count <= 1:
+            raise ValueError("Cannot delete last authentication method. Add password or another TRON address first.")
+        
+        # Delete the address
+        await db.execute(
+            delete(AdminTronAddress).where(AdminTronAddress.id == tron_id)
+        )
+        await db.commit()
+    
+    @staticmethod
+    async def verify_tron_auth(
+        tron_address: str,
+        db: AsyncSession
+    ) -> bool:
+        """
+        Check if TRON address is whitelisted and active
+        
+        Returns:
+            True if address is whitelisted and active
         """
         result = await db.execute(
-            select(AdminUser).where(AdminUser.is_active == True).limit(1)
+            select(AdminTronAddress).where(
+                AdminTronAddress.tron_address == tron_address,
+                AdminTronAddress.is_active == True
+            )
         )
         return result.scalar_one_or_none() is not None
     
+    # ====================
+    # Environment Variables Init
+    # ====================
+    
     @staticmethod
-    async def init_from_env(admin_settings, db: AsyncSession) -> Optional[AdminUser]:
+    async def init_from_env(admin_settings, db: AsyncSession) -> bool:
         """
         Initialize admin from environment variables if configured
-        ENV VARS have priority over DB - will override existing admin
+        ENV VARS have priority over DB - will override existing config
         
         Args:
             admin_settings: AdminSettings from Settings
             db: Database session
             
         Returns:
-            Created/updated AdminUser or None if not configured
+            True if admin was initialized from env, False otherwise
         """
-        from sqlalchemy import delete
-        
         # Check if admin settings are configured
         if not admin_settings.is_configured:
-            return None
+            return False
         
-        # ENV VARS have priority: delete all existing admins
-        if await AdminService.is_admin_configured(db):
-            print("⚠ ENV VARS detected: overriding existing admin configuration")
-            await db.execute(delete(AdminUser))
-            await db.commit()
+        print("⚠ ENV VARS detected: overriding existing admin configuration")
         
-        # Create admin based on method
+        # Clear existing data
+        await db.execute(delete(AdminTronAddress))
+        await db.execute(delete(AdminUser))
+        await db.commit()
+        
+        # Ensure admin exists
+        admin = await AdminService.ensure_admin_exists(db)
+        
+        # Configure based on method
         try:
             if admin_settings.method == "password":
                 if admin_settings.username and admin_settings.password:
-                    admin = await AdminService.create_password_admin(
+                    await AdminService.set_password(
                         admin_settings.username,
                         admin_settings.password.get_secret_value(),
                         db
                     )
-                    print(f"✓ Admin created from ENV: password (user: {admin_settings.username})")
-                    return admin
+                    print(f"✓ Admin password set from ENV (user: {admin_settings.username})")
+                    return True
             elif admin_settings.method == "tron":
                 if admin_settings.tron_address:
-                    admin = await AdminService.create_tron_admin(
+                    await AdminService.add_tron_address(
                         admin_settings.tron_address,
-                        db
+                        db,
+                        label="From ENV"
                     )
-                    print(f"✓ Admin created from ENV: tron (address: {admin_settings.tron_address})")
-                    return admin
+                    print(f"✓ Admin TRON address added from ENV: {admin_settings.tron_address}")
+                    return True
         except ValueError as e:
-            # Validation error
-            print(f"✗ Error: Could not create admin from ENV: {e}")
-            return None
+            print(f"✗ Error: Could not configure admin from ENV: {e}")
+            return False
         
-        return None
-
+        return False

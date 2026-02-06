@@ -8,10 +8,10 @@ from routers import auth
 from routers import didcomm
 from dependencies import UserDepends, SettingsDepends, PrivKeyDepends, DbDepends
 from schemas.node import (
-    NodeInitRequest, NodeInitPemRequest, NodeInitResponse, 
-    RootCredentialsRequest, RootCredentialsResponse,
-    AdminInfoResponse, ChangePasswordRequest, ChangeTronAddressRequest, ChangeResponse,
-    TronAddressList, TronAddressItem, AddTronAddressRequest, UpdateTronAddressRequest
+    NodeInitRequest, NodeInitPemRequest, NodeInitResponse,
+    SetPasswordRequest, ChangePasswordRequest, AdminInfoResponse, AdminConfiguredResponse,
+    TronAddressList, TronAddressItem, AddTronAddressRequest, UpdateTronAddressRequest,
+    ToggleTronAddressRequest, ChangeResponse
 )
 from didcomm.did import create_peer_did_from_keypair
 from services.node import NodeService
@@ -37,7 +37,7 @@ async def startup_event():
     
     # Инициализируем админа из env vars если настроен
     # ENV VARS имеют приоритет над БД
-    if settings.is_admin_configured_from_env:
+    if settings.admin.is_configured:
         async with SessionLocal() as session:
             await AdminService.init_from_env(settings.admin, session)
 
@@ -292,65 +292,32 @@ async def get_key_info(
     }
 
 
-@app.post("/api/node/set-root-credentials", response_model=RootCredentialsResponse)
-async def set_root_credentials(
-    request: RootCredentialsRequest,
+@app.post("/api/admin/set-password", response_model=ChangeResponse)
+async def set_admin_password(
+    request: SetPasswordRequest,
     db: DbDepends
 ):
     """
-    Set root admin credentials during node initialization (Step 2)
+    Set or update admin password
     
     Args:
-        request: Root credentials configuration
+        request: Password configuration
         db: Database session
         
     Returns:
-        Success status and configured auth method
+        Success status
     """
     try:
-        if request.method == "password":
-            if not request.username or not request.password:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Username and password required for password method"
-                )
-            
-            # Create password admin
-            admin_user = await AdminService.create_password_admin(
-                request.username,
-                request.password,
-                db
-            )
-            
-            return RootCredentialsResponse(
-                success=True,
-                message="Admin credentials configured successfully",
-                auth_method="password"
-            )
-            
-        elif request.method == "tron":
-            if not request.tron_address:
-                raise HTTPException(
-                    status_code=400,
-                    detail="TRON address required for tron method"
-                )
-            
-            # Create TRON admin
-            admin_user = await AdminService.create_tron_admin(
-                request.tron_address,
-                db
-            )
-            
-            return RootCredentialsResponse(
-                success=True,
-                message="TRON admin configured successfully",
-                auth_method="tron"
-            )
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid method: {request.method}. Must be 'password' or 'tron'"
-            )
+        await AdminService.set_password(
+            request.username,
+            request.password,
+            db
+        )
+        
+        return ChangeResponse(
+            success=True,
+            message="Admin password configured successfully"
+        )
             
     except ValueError as e:
         raise HTTPException(
@@ -360,26 +327,43 @@ async def set_root_credentials(
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error configuring admin: {str(e)}"
+            detail=f"Error configuring password: {str(e)}"
         )
 
 
-@app.get("/api/node/is-admin-configured")
+@app.get("/api/node/is-admin-configured", response_model=AdminConfiguredResponse)
 async def check_admin_configured(db: DbDepends):
     """
-    Check if admin user has been configured
+    Check if admin has been configured with at least one auth method
     
     Returns:
-        Boolean indicating if admin is configured
+        Admin configuration status
     """
+    from sqlalchemy import select, func
+    from db.models import AdminTronAddress
+    
     is_configured = await AdminService.is_admin_configured(db)
-    return {"configured": is_configured}
+    admin = await AdminService.get_admin(db)
+    
+    has_password = bool(admin and admin.username and admin.password_hash)
+    
+    result = await db.execute(
+        select(func.count(AdminTronAddress.id))
+        .where(AdminTronAddress.is_active == True)
+    )
+    tron_count = result.scalar()
+    
+    return AdminConfiguredResponse(
+        configured=is_configured,
+        has_password=has_password,
+        tron_addresses_count=tron_count
+    )
 
 
 @app.get("/api/admin/info", response_model=AdminInfoResponse)
 async def get_admin_info(db: DbDepends):
     """
-    Get information about the current admin user
+    Get information about the admin user
     
     Args:
         db: Database session
@@ -387,30 +371,32 @@ async def get_admin_info(db: DbDepends):
     Returns:
         Admin user information
     """
-    from sqlalchemy import select
-    from db.models import AdminUser
+    from sqlalchemy import select, func
+    from db.models import AdminUser, AdminTronAddress
     
     try:
-        # Get the first active admin user
-        result = await db.execute(
-            select(AdminUser).where(AdminUser.is_active == True).limit(1)
-        )
-        admin_user = result.scalar_one_or_none()
+        admin = await AdminService.get_admin(db)
         
-        if not admin_user:
+        if not admin:
             raise HTTPException(
                 status_code=404,
-                detail="Admin user not found"
+                detail="Admin not configured"
             )
         
+        # Count TRON addresses
+        result = await db.execute(
+            select(func.count(AdminTronAddress.id))
+            .where(AdminTronAddress.is_active == True)
+        )
+        tron_count = result.scalar()
+        
         return AdminInfoResponse(
-            id=admin_user.id,
-            auth_method=admin_user.auth_method,
-            username=admin_user.username,
-            tron_address=admin_user.tron_address,
-            is_active=admin_user.is_active,
-            created_at=admin_user.created_at,
-            updated_at=admin_user.updated_at
+            id=admin.id,
+            has_password=bool(admin.username and admin.password_hash),
+            username=admin.username,
+            tron_addresses_count=tron_count,
+            created_at=admin.created_at,
+            updated_at=admin.updated_at
         )
     except HTTPException:
         raise
@@ -427,7 +413,7 @@ async def change_admin_password(
     db: DbDepends
 ):
     """
-    Change admin password (for password authentication)
+    Change admin password
     
     Args:
         request: Change password request
@@ -436,61 +422,23 @@ async def change_admin_password(
     Returns:
         Success status
     """
-    from sqlalchemy import select, update
-    from db.models import AdminUser
-    
     try:
-        # Get the first active admin user with password auth
-        result = await db.execute(
-            select(AdminUser).where(
-                AdminUser.is_active == True,
-                AdminUser.auth_method == 'password'
-            ).limit(1)
+        await AdminService.change_password(
+            request.old_password,
+            request.new_password,
+            db
         )
-        admin_user = result.scalar_one_or_none()
-        
-        if not admin_user:
-            raise HTTPException(
-                status_code=404,
-                detail="Admin user not found or not using password authentication"
-            )
-        
-        # Verify old password
-        if not admin_user.password_hash:
-            raise HTTPException(
-                status_code=400,
-                detail="Password not set"
-            )
-        
-        if not AdminService.verify_password(request.old_password, admin_user.password_hash):
-            raise HTTPException(
-                status_code=401,
-                detail="Incorrect old password"
-            )
-        
-        # Validate new password
-        if len(request.new_password) < 8:
-            raise HTTPException(
-                status_code=400,
-                detail="New password must be at least 8 characters long"
-            )
-        
-        # Hash new password
-        new_password_hash = AdminService.hash_password(request.new_password)
-        
-        # Update password
-        await db.execute(
-            update(AdminUser)
-            .where(AdminUser.id == admin_user.id)
-            .values(password_hash=new_password_hash)
-        )
-        await db.commit()
         
         return ChangeResponse(
             success=True,
             message="Password changed successfully"
         )
         
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -500,116 +448,70 @@ async def change_admin_password(
         )
 
 
-@app.post("/api/admin/change-tron-address", response_model=ChangeResponse)
-async def change_admin_tron_address(
-    request: ChangeTronAddressRequest,
-    db: DbDepends
-):
+@app.delete("/api/admin/password", response_model=ChangeResponse)
+async def remove_admin_password(db: DbDepends):
     """
-    Change admin TRON address (for TRON authentication)
+    Remove admin password authentication (must have TRON addresses)
     
     Args:
-        request: Change TRON address request
         db: Database session
         
     Returns:
         Success status
     """
-    from sqlalchemy import select, update
-    from db.models import AdminUser
-    
     try:
-        # Get the first active admin user with TRON auth
-        result = await db.execute(
-            select(AdminUser).where(
-                AdminUser.is_active == True,
-                AdminUser.auth_method == 'tron'
-            ).limit(1)
-        )
-        admin_user = result.scalar_one_or_none()
-        
-        if not admin_user:
-            raise HTTPException(
-                status_code=404,
-                detail="Admin user not found or not using TRON authentication"
-            )
-        
-        # Validate TRON address
-        if not AdminService.validate_tron_address(request.new_tron_address):
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid TRON address format"
-            )
-        
-        # Check if address already exists
-        result = await db.execute(
-            select(AdminUser).where(
-                AdminUser.tron_address == request.new_tron_address,
-                AdminUser.id != admin_user.id
-            )
-        )
-        if result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=400,
-                detail="TRON address already in use"
-            )
-        
-        # Update TRON address
-        await db.execute(
-            update(AdminUser)
-            .where(AdminUser.id == admin_user.id)
-            .values(tron_address=request.new_tron_address)
-        )
-        await db.commit()
+        await AdminService.remove_password(db)
         
         return ChangeResponse(
             success=True,
-            message="TRON address changed successfully"
+            message="Password removed successfully"
         )
         
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error changing TRON address: {str(e)}"
+            detail=f"Error removing password: {str(e)}"
         )
 
 
 @app.get("/api/admin/tron-addresses", response_model=TronAddressList)
-async def get_tron_addresses(db: DbDepends):
+async def get_tron_addresses(
+    active_only: bool = True,
+    db: DbDepends = None
+):
     """
     Get list of all TRON admin addresses
     
     Args:
+        active_only: Return only active addresses
         db: Database session
         
     Returns:
         List of TRON addresses
     """
-    from sqlalchemy import select
-    from db.models import AdminUser
-    
     try:
-        result = await db.execute(
-            select(AdminUser).where(
-                AdminUser.auth_method == 'tron',
-                AdminUser.is_active == True
-            ).order_by(AdminUser.created_at.desc())
-        )
-        admins = result.scalars().all()
+        addresses = await AdminService.get_tron_addresses(db, active_only=active_only)
         
-        addresses = [
+        items = [
             TronAddressItem(
-                id=admin.id,
-                tron_address=admin.tron_address,
-                created_at=admin.created_at,
-                is_active=admin.is_active
+                id=addr.id,
+                tron_address=addr.tron_address,
+                label=addr.label,
+                is_active=addr.is_active,
+                created_at=addr.created_at,
+                updated_at=addr.updated_at
             )
-            for admin in admins
+            for addr in addresses
         ]
         
-        return TronAddressList(addresses=addresses)
+        return TronAddressList(addresses=items)
         
     except Exception as e:
         raise HTTPException(
@@ -624,7 +526,7 @@ async def add_tron_address(
     db: DbDepends
 ):
     """
-    Add new TRON admin address
+    Add new TRON address to whitelist
     
     Args:
         request: Add TRON address request
@@ -634,16 +536,15 @@ async def add_tron_address(
         Success status
     """
     try:
-        # Create new TRON admin (allow multiple)
-        admin_user = await AdminService.create_tron_admin(
+        await AdminService.add_tron_address(
             request.tron_address,
             db,
-            allow_multiple=True
+            label=request.label
         )
         
         return ChangeResponse(
             success=True,
-            message=f"TRON address added successfully"
+            message="TRON address added successfully"
         )
         
     except ValueError as e:
@@ -658,76 +559,41 @@ async def add_tron_address(
         )
 
 
-@app.put("/api/admin/tron-addresses/{admin_id}", response_model=ChangeResponse)
+@app.put("/api/admin/tron-addresses/{tron_id}", response_model=ChangeResponse)
 async def update_tron_address(
-    admin_id: int,
+    tron_id: int,
     request: UpdateTronAddressRequest,
     db: DbDepends
 ):
     """
-    Update TRON admin address
+    Update TRON address or label
     
     Args:
-        admin_id: Admin ID
-        request: Update TRON address request
+        tron_id: TRON address ID
+        request: Update request
         db: Database session
         
     Returns:
         Success status
     """
-    from sqlalchemy import select, update
-    from db.models import AdminUser
-    
     try:
-        # Find admin by ID
-        result = await db.execute(
-            select(AdminUser).where(
-                AdminUser.id == admin_id,
-                AdminUser.auth_method == 'tron',
-                AdminUser.is_active == True
-            )
+        await AdminService.update_tron_address(
+            tron_id,
+            db,
+            new_address=request.tron_address,
+            new_label=request.label
         )
-        admin_user = result.scalar_one_or_none()
-        
-        if not admin_user:
-            raise HTTPException(
-                status_code=404,
-                detail="TRON admin not found"
-            )
-        
-        # Validate new TRON address
-        if not AdminService.validate_tron_address(request.new_tron_address):
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid TRON address format"
-            )
-        
-        # Check if new address already exists (for different admin)
-        result = await db.execute(
-            select(AdminUser).where(
-                AdminUser.tron_address == request.new_tron_address,
-                AdminUser.id != admin_id
-            )
-        )
-        if result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=400,
-                detail="TRON address already in use"
-            )
-        
-        # Update TRON address
-        await db.execute(
-            update(AdminUser)
-            .where(AdminUser.id == admin_id)
-            .values(tron_address=request.new_tron_address)
-        )
-        await db.commit()
         
         return ChangeResponse(
             success=True,
             message="TRON address updated successfully"
         )
         
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400 if "not found" not in str(e).lower() else 404,
+            detail=str(e)
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -737,70 +603,80 @@ async def update_tron_address(
         )
 
 
-@app.delete("/api/admin/tron-addresses/{admin_id}", response_model=ChangeResponse)
+@app.delete("/api/admin/tron-addresses/{tron_id}", response_model=ChangeResponse)
 async def delete_tron_address(
-    admin_id: int,
+    tron_id: int,
     db: DbDepends
 ):
     """
-    Delete TRON admin address
+    Delete TRON address from whitelist
     
     Args:
-        admin_id: Admin ID
+        tron_id: TRON address ID
         db: Database session
         
     Returns:
         Success status
     """
-    from sqlalchemy import select, delete, func
-    from db.models import AdminUser
-    
     try:
-        # Find admin by ID first
-        result = await db.execute(
-            select(AdminUser).where(
-                AdminUser.id == admin_id,
-                AdminUser.auth_method == 'tron',
-                AdminUser.is_active == True
-            )
-        )
-        admin_user = result.scalar_one_or_none()
-        
-        if not admin_user:
-            raise HTTPException(
-                status_code=404,
-                detail="TRON admin not found"
-            )
-        
-        # Check if this is the last admin
-        result = await db.execute(
-            select(func.count(AdminUser.id)).where(AdminUser.is_active == True)
-        )
-        total_admins = result.scalar()
-        
-        if total_admins <= 1:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot delete the last admin. At least one admin must exist."
-            )
-        
-        # Delete admin
-        await db.execute(
-            delete(AdminUser).where(AdminUser.id == admin_id)
-        )
-        await db.commit()
+        await AdminService.delete_tron_address(tron_id, db)
         
         return ChangeResponse(
             success=True,
             message="TRON address deleted successfully"
         )
         
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Error deleting TRON address: {str(e)}"
+        )
+
+
+@app.patch("/api/admin/tron-addresses/{tron_id}/toggle", response_model=ChangeResponse)
+async def toggle_tron_address(
+    tron_id: int,
+    request: ToggleTronAddressRequest,
+    db: DbDepends
+):
+    """
+    Toggle TRON address active status
+    
+    Args:
+        tron_id: TRON address ID
+        request: Toggle request
+        db: Database session
+        
+    Returns:
+        Success status
+    """
+    try:
+        await AdminService.toggle_tron_address(tron_id, request.is_active, db)
+        
+        status = "activated" if request.is_active else "deactivated"
+        return ChangeResponse(
+            success=True,
+            message=f"TRON address {status} successfully"
+        )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400 if "not found" not in str(e).lower() else 404,
+            detail=str(e)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error toggling TRON address: {str(e)}"
         )
 
 

@@ -38,29 +38,38 @@ class NodeSettings(Base):
 
 
 class AdminUser(Base):
-    """Model for storing root admin credentials"""
+    """Model for storing root admin credentials (single admin only)"""
     
     __tablename__ = "admin_users"
     
     id = Column(Integer, primary_key=True, index=True)
     
-    # Authentication method: 'password' or 'tron'
-    auth_method = Column(String(20), nullable=False, comment="Auth method: password or tron")
-    
-    # For password authentication
+    # Password authentication (optional)
     username = Column(String(255), nullable=True, unique=True, index=True, comment="Admin username")
     password_hash = Column(Text, nullable=True, comment="Hashed password (bcrypt)")
     
-    # For TRON authentication
-    tron_address = Column(String(34), nullable=True, index=True, comment="Whitelisted TRON address")
-    
     # Metadata
-    is_active = Column(Boolean, default=True, nullable=False, comment="Whether this admin is active")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     def __repr__(self):
-        return f"<AdminUser(id={self.id}, auth_method={self.auth_method}, username={self.username}, tron={self.tron_address})>"
+        return f"<AdminUser(id={self.id}, username={self.username})>"
+
+
+class AdminTronAddress(Base):
+    """Model for storing whitelisted TRON addresses for admin authentication"""
+    
+    __tablename__ = "admin_tron_addresses"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    tron_address = Column(String(34), unique=True, nullable=False, index=True, comment="Whitelisted TRON address")
+    label = Column(String(255), nullable=True, comment="Optional label for this address")
+    is_active = Column(Boolean, default=True, nullable=False, comment="Whether this address is active")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<AdminTronAddress(id={self.id}, address={self.tron_address}, label={self.label})>"
 
 
 class Storage(Base):
