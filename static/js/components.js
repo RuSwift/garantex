@@ -67,7 +67,7 @@ Vue.component('modal-window', {
                             </slot>
                         </div>
         
-                        <div ref="footer" class="modal-footer">
+                        <div v-if="$slots.footer" ref="footer" class="modal-footer">
                             <slot name="footer">
                                 default footer
                                 <button class="modal-default-button" @click="$emit('close')">
@@ -5471,7 +5471,7 @@ Vue.component('DealsChat', {
         }
     },
     template: `
-        <modal-window v-if="show" :width="'100%'" :height="'100%'" @close="close">
+        <modal-window v-if="show" :width="'90%'" :height="'100%'" @close="close">
             <template #header>
                 <div class="d-flex justify-content-between align-items-center w-100">
                     <h3 class="mb-0">Сделки</h3>
