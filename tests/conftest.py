@@ -24,7 +24,11 @@ def event_loop():
     Создает event loop для всей сессии тестов
     Необходимо для async фикстур с scope="session"
     """
-    loop = asyncio.get_event_loop_policy().new_event_loop()
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     yield loop
     loop.close()
 
