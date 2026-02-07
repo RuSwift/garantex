@@ -30,9 +30,43 @@ jobs:
         pip install -r requirements-test.txt
         pip install -r didcomm/requirements.txt
     
+    - name: Start PostgreSQL and Redis
+      run: |
+        docker-compose up -d postgres redis
+        sleep 5
+    
+    - name: Wait for PostgreSQL
+      run: |
+        until docker-compose exec -T postgres pg_isready -U garantex; do
+          echo "Waiting for PostgreSQL..."
+          sleep 2
+        done
+        echo "PostgreSQL is ready!"
+    
+    - name: Set environment variables
+      run: |
+        echo "DB_HOST=localhost" >> $GITHUB_ENV
+        echo "DB_PORT=5432" >> $GITHUB_ENV
+        echo "DB_USER=garantex" >> $GITHUB_ENV
+        echo "DB_PASSWORD=garantex" >> $GITHUB_ENV
+        echo "DB_DATABASE=garantex" >> $GITHUB_ENV
+        echo "REDIS_HOST=localhost" >> $GITHUB_ENV
+        echo "REDIS_PORT=6379" >> $GITHUB_ENV
+        echo "REDIS_DB=0" >> $GITHUB_ENV
+        echo "SECRET=test-secret-key-for-ci" >> $GITHUB_ENV
+    
+    - name: Run database migrations
+      run: |
+        python -m alembic upgrade head
+    
     - name: Run application tests with coverage
       run: |
         pytest tests/ -v --cov=. --cov-report=xml --cov-report=term --cov-config=pytest.ini
+    
+    - name: Cleanup
+      if: always()
+      run: |
+        docker-compose down -v
     
     - name: Upload application coverage report
       uses: actions/upload-artifact@v4
