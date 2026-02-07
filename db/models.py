@@ -164,3 +164,61 @@ class Connection(Base):
     
     def __repr__(self):
         return f"<Connection(id={self.id}, connection_id={self.connection_id}, status={self.status}, my_did={self.my_did}, their_did={self.their_did})>"
+
+
+class EscrowModel(Base):
+    """Model for storing multisig escrow operations and configurations"""
+    
+    __tablename__ = "escrow_operations"
+    
+    id = Column(BigInteger, primary_key=True, autoincrement=True, index=True, comment="Autoincrement primary key")
+    
+    # Blockchain and network identifiers
+    blockchain = Column(String(50), nullable=False, index=True, comment="Blockchain name (tron, eth, etc.)")
+    network = Column(String(50), nullable=False, index=True, comment="Network name (mainnet, testnet, etc.)")
+    
+    # Escrow type
+    escrow_type = Column(String(20), nullable=False, comment="Escrow type (multisig, contract)")
+    
+    # Escrow address - the address to which permissions apply
+    escrow_address = Column(String(255), nullable=False, comment="Escrow address in blockchain")
+    
+    # Participant addresses for easy searching
+    participant1_address = Column(String(255), nullable=False, index=True, comment="First participant address")
+    participant2_address = Column(String(255), nullable=False, index=True, comment="Second participant address")
+    
+    # MultisigConfig stored as JSONB
+    multisig_config = Column(JSONB, nullable=False, comment="MultisigConfig configuration (JSONB)")
+    
+    # Address roles mapping - {"address": "role"} where role is "participant" or "arbiter"
+    address_roles = Column(JSONB, nullable=False, comment="Mapping of addresses to roles (participant, arbiter)")
+    
+    # Arbiter address (escrow_address is initially set to arbiter address)
+    arbiter_address = Column(String(255), nullable=True, comment="Arbiter address (can be changed by participants)")
+    
+    # Escrow status
+    status = Column(
+        String(50),
+        nullable=False,
+        default='pending',
+        server_default='pending',
+        index=True,
+        comment="Escrow status (pending, active, inactive)"
+    )
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="Last update timestamp (UTC)")
+    
+    # Indexes and constraints
+    __table_args__ = (
+        # GIN index on multisig_config for efficient JSONB queries
+        Index('ix_escrow_multisig_config', 'multisig_config', postgresql_using='gin'),
+        # Unique constraint on blockchain, network, and escrow_address
+        Index('uq_escrow_blockchain_network_address', 'blockchain', 'network', 'escrow_address', unique=True),
+        # Composite index for finding escrow by participants
+        Index('ix_escrow_participants', 'blockchain', 'network', 'participant1_address', 'participant2_address'),
+    )
+    
+    def __repr__(self):
+        return f"<EscrowModel(id={self.id}, blockchain={self.blockchain}, network={self.network}, escrow_address={self.escrow_address}, type={self.escrow_type})>"

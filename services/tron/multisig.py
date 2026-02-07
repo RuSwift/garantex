@@ -9,6 +9,7 @@ import hashlib
 from ecdsa import SigningKey, VerifyingKey, SECP256k1
 from ecdsa.util import sigdecode_der, sigencode_der
 import base58
+from pydantic import BaseModel, validator, Field
 
 
 class SignatureStatus(Enum):
@@ -18,8 +19,7 @@ class SignatureStatus(Enum):
     INVALID = "invalid"
 
 
-@dataclass
-class MultisigConfig:
+class MultisigConfig(BaseModel):
     """
     Configuration for N/M multisig wallet
     
@@ -31,53 +31,25 @@ class MultisigConfig:
         threshold_weight: Optional weight threshold for weighted multisig
         owner_weights: Optional weights for each owner
     """
-    required_signatures: int  # N
-    total_owners: int  # M
-    owner_addresses: List[str]
-    owner_pubkeys: Optional[List[str]] = None
-    threshold_weight: Optional[int] = None
-    owner_weights: Optional[List[int]] = None
+    required_signatures: int = Field(..., description="N - minimum number of required signatures")
+    total_owners: int = Field(..., description="M - total number of wallet owners")
+    owner_addresses: List[str] = Field(..., description="List of TRON owner addresses (base58 format)")
+    owner_pubkeys: Optional[List[str]] = Field(None, description="Optional list of owner public keys (hex strings)")
+    threshold_weight: Optional[int] = Field(None, description="Optional weight threshold for weighted multisig")
+    owner_weights: Optional[List[int]] = Field(None, description="Optional weights for each owner")
     
-    def __post_init__(self):
-        """Validate configuration"""
-        if self.required_signatures < 1:
-            raise ValueError("Required signatures (N) must be at least 1")
-        
-        if self.total_owners < self.required_signatures:
-            raise ValueError(
-                f"Total owners (M={self.total_owners}) must be >= "
-                f"required signatures (N={self.required_signatures})"
-            )
-        
-        if len(self.owner_addresses) != self.total_owners:
-            raise ValueError(
-                f"Number of addresses ({len(self.owner_addresses)}) "
-                f"must equal total owners (M={self.total_owners})"
-            )
-        
-        # Check for duplicate addresses
-        if len(set(self.owner_addresses)) != len(self.owner_addresses):
-            raise ValueError("Owner addresses must be unique")
-        
-        # Validate TRON addresses
-        for addr in self.owner_addresses:
-            if not self._is_valid_tron_address(addr):
-                raise ValueError(f"Invalid TRON address: {addr}")
-        
-        # Validate weighted multisig if configured
-        if self.threshold_weight is not None or self.owner_weights is not None:
-            if self.threshold_weight is None or self.owner_weights is None:
-                raise ValueError("Both threshold_weight and owner_weights must be set for weighted multisig")
-            
-            if len(self.owner_weights) != self.total_owners:
-                raise ValueError("Number of weights must equal total owners")
-            
-            if self.threshold_weight < 1:
-                raise ValueError("Threshold weight must be at least 1")
-            
-            total_weight = sum(self.owner_weights)
-            if self.threshold_weight > total_weight:
-                raise ValueError(f"Threshold weight ({self.threshold_weight}) cannot exceed total weight ({total_weight})")
+    class Config:
+        """Pydantic config"""
+        json_schema_extra = {
+            "example": {
+                "required_signatures": 2,
+                "total_owners": 3,
+                "owner_addresses": ["TAddr1...", "TAddr2...", "TAddr3..."],
+                "owner_pubkeys": None,
+                "threshold_weight": None,
+                "owner_weights": None
+            }
+        }
     
     @staticmethod
     def _is_valid_tron_address(address: str) -> bool:
@@ -92,6 +64,69 @@ class MultisigConfig:
             return True
         except Exception:
             return False
+    
+    @validator('required_signatures')
+    def validate_required_signatures(cls, v):
+        """Validate required signatures"""
+        if v < 1:
+            raise ValueError("Required signatures (N) must be at least 1")
+        return v
+    
+    @validator('total_owners')
+    def validate_total_owners(cls, v, values):
+        """Validate total owners"""
+        if 'required_signatures' in values and v < values['required_signatures']:
+            raise ValueError(
+                f"Total owners (M={v}) must be >= "
+                f"required signatures (N={values['required_signatures']})"
+            )
+        return v
+    
+    @validator('owner_addresses')
+    def validate_owner_addresses(cls, v, values):
+        """Validate owner addresses"""
+        if 'total_owners' in values and len(v) != values['total_owners']:
+            raise ValueError(
+                f"Number of addresses ({len(v)}) "
+                f"must equal total owners (M={values['total_owners']})"
+            )
+        
+        # Check for duplicate addresses
+        if len(set(v)) != len(v):
+            raise ValueError("Owner addresses must be unique")
+        
+        # Validate TRON addresses
+        for addr in v:
+            if not cls._is_valid_tron_address(addr):
+                raise ValueError(f"Invalid TRON address: {addr}")
+        
+        return v
+    
+    @validator('owner_weights')
+    def validate_weighted_multisig(cls, v, values):
+        """Validate weighted multisig configuration"""
+        threshold_weight = values.get('threshold_weight')
+        
+        # Check that both or neither are set
+        if (threshold_weight is not None) != (v is not None):
+            raise ValueError("Both threshold_weight and owner_weights must be set for weighted multisig")
+        
+        if v is not None:
+            total_owners = values.get('total_owners')
+            if total_owners and len(v) != total_owners:
+                raise ValueError("Number of weights must equal total owners")
+            
+            if threshold_weight is not None:
+                if threshold_weight < 1:
+                    raise ValueError("Threshold weight must be at least 1")
+                
+                total_weight = sum(v)
+                if threshold_weight > total_weight:
+                    raise ValueError(
+                        f"Threshold weight ({threshold_weight}) cannot exceed total weight ({total_weight})"
+                    )
+        
+        return v
 
 
 @dataclass
