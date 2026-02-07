@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from routers import auth
 from routers import tron_multisig
 from routers.wallet_users import profile_router
+from routers.advertisements import marketplace_router, my_ads_router
 from dependencies import UserDepends
 from settings import Settings
 from db import init_db
@@ -39,6 +40,8 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(tron_multisig.router)
 app.include_router(profile_router)
+app.include_router(marketplace_router)
+app.include_router(my_ads_router)
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -258,64 +258,93 @@
                                     <input 
                                         type="text" 
                                         placeholder="Поиск агентов..." 
-                                        v-model="searchTerm"
+                                        v-model="marketplaceSearchTerm"
+                                        @input="searchMarketplace"
                                         class="pl-10 pr-4 py-2 border rounded-xl w-64 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all bg-white"
                                     />
                                 </div>
+                                <button 
+                                    @click="searchMarketplace"
+                                    :disabled="isLoadingMarketplace"
+                                    class="px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                                >
+                                    <span v-if="!isLoadingMarketplace">Поиск</span>
+                                    <span v-else>Загрузка...</span>
+                                </button>
                             </div>
                         </div>
 
-                        <!-- Agent Cards -->
-                        <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                            <div v-for="agent in filteredAgents" :key="agent.id" 
+                        <!-- Loading State -->
+                        <div v-if="isLoadingMarketplace" class="text-center py-12">
+                            <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                            <p class="mt-4 text-gray-500">Загрузка объявлений...</p>
+                        </div>
+
+                        <!-- Empty State -->
+                        <div v-else-if="marketplaceAds.length === 0" class="bg-white rounded-2xl border p-12 text-center">
+                            <div class="w-20 h-20 bg-gray-100 rounded-full mx-auto mb-6 flex items-center justify-center">
+                                <svg class="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                </svg>
+                            </div>
+                            <h3 class="text-xl font-bold text-gray-900 mb-2">Объявления не найдены</h3>
+                            <p class="text-gray-500">Попробуйте изменить параметры поиска</p>
+                        </div>
+
+                        <!-- Advertisement Cards -->
+                        <div v-else class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                            <div v-for="ad in marketplaceAds" :key="ad.id" 
                                 class="bg-white rounded-2xl border hover:shadow-xl transition-all group overflow-hidden flex flex-col">
                                 <div class="p-6 flex-1">
                                     <div class="flex justify-between items-start mb-4">
                                         <div class="flex items-center gap-3">
                                             <div class="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
-                                                [[ agent.name.charAt(0) ]]
+                                                [[ ad.name.charAt(0) ]]
                                             </div>
                                             <div>
-                                                <h3 class="font-bold text-lg text-gray-900 leading-none">[[ agent.name ]]</h3>
+                                                <h3 class="font-bold text-lg text-gray-900 leading-none">[[ ad.name ]]</h3>
                                                 <div class="flex items-center gap-1 mt-1">
                                                     <svg class="w-3.5 h-3.5 text-amber-400 fill-amber-400" viewBox="0 0 24 24">
                                                         <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
                                                     </svg>
-                                                    <span class="text-sm font-semibold">[[ agent.rating ]]</span>
-                                                    <span class="text-xs text-gray-400">([[ agent.deals ]]+ сделок)</span>
+                                                    <span class="text-sm font-semibold">[[ ad.rating || '0.0' ]]</span>
+                                                    <span class="text-xs text-gray-400">([[ ad.deals_count ]]+ сделок)</span>
                                                 </div>
                                             </div>
                                         </div>
-                                        <div class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold uppercase tracking-tight">
+                                        <div v-if="ad.is_verified" class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold uppercase tracking-tight">
                                             Проверен
+                                        </div>
+                                        <div v-else class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold uppercase tracking-tight">
+                                            Не проверен
                                         </div>
                                     </div>
 
                                     <p class="text-gray-600 text-sm mb-6 min-h-[60px]">
-                                        [[ agent.description ]]
+                                        [[ ad.description ]]
                                     </p>
 
                                     <div class="grid grid-cols-2 gap-4 border-t pt-4">
                                         <div>
                                             <p class="text-xs text-gray-400 uppercase font-semibold">Комиссия</p>
-                                            <p class="text-lg font-bold text-blue-600">[[ agent.fee ]]%</p>
+                                            <p class="text-lg font-bold text-blue-600">[[ ad.fee ]]%</p>
                                         </div>
                                         <div>
                                             <p class="text-xs text-gray-400 uppercase font-semibold">Валюта</p>
-                                            <p class="text-lg font-bold text-gray-900">[[ agent.currency ]]</p>
+                                            <p class="text-lg font-bold text-gray-900">[[ ad.currency ]]</p>
                                         </div>
                                         <div class="col-span-2">
                                             <p class="text-xs text-gray-400 uppercase font-semibold">Лимиты (USDT)</p>
                                             <p class="text-sm font-medium text-gray-700">
-                                                [[ agent.minLimit.toLocaleString() ]] - [[ agent.maxLimit.toLocaleString() ]]
+                                                [[ parseInt(ad.min_limit).toLocaleString() ]] - [[ parseInt(ad.max_limit).toLocaleString() ]]
                                             </p>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div class="p-4 bg-gray-50 border-t flex items-center justify-between group-hover:bg-blue-600 transition-colors">
-                                    <span class="text-xs font-medium text-gray-500 group-hover:text-blue-100 transition-colors">
-                                        Доступен 24/7
+                                    <span :class="['text-xs font-medium transition-colors', ad.is_active ? 'text-green-600 group-hover:text-green-100' : 'text-gray-500 group-hover:text-gray-300']">
+                                        [[ ad.is_active ? 'Активно' : 'Неактивно' ]]
                                     </span>
                                     <button class="flex items-center gap-2 bg-white text-blue-600 px-4 py-2 rounded-lg font-bold text-sm shadow-sm group-hover:shadow-md transition-all">
                                         Создать сделку
@@ -325,6 +354,27 @@
                                     </button>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Pagination -->
+                        <div v-if="marketplaceTotal > marketplacePageSize" class="mt-8 flex justify-center items-center gap-4">
+                            <button 
+                                @click="marketplacePage = Math.max(1, marketplacePage - 1); searchMarketplace()"
+                                :disabled="marketplacePage === 1 || isLoadingMarketplace"
+                                class="px-4 py-2 border rounded-xl hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Назад
+                            </button>
+                            <span class="text-gray-600">
+                                Страница [[ marketplacePage ]] из [[ Math.ceil(marketplaceTotal / marketplacePageSize) ]]
+                            </span>
+                            <button 
+                                @click="marketplacePage++; searchMarketplace()"
+                                :disabled="marketplacePage >= Math.ceil(marketplaceTotal / marketplacePageSize) || isLoadingMarketplace"
+                                class="px-4 py-2 border rounded-xl hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Вперед
+                            </button>
                         </div>
                     </div>
 
@@ -513,7 +563,10 @@
                                 <h2 class="text-3xl font-bold text-gray-900">Мои объявления</h2>
                                 <p class="text-gray-500 mt-1">Управление вашими предложениями</p>
                             </div>
-                            <button class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors flex items-center gap-2">
+                            <button 
+                                @click="openAdForm()"
+                                class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors flex items-center gap-2"
+                            >
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
                                 </svg>
@@ -521,18 +574,300 @@
                             </button>
                         </div>
 
-                        <div class="bg-white rounded-2xl border p-12 text-center">
+                        <!-- Loading State -->
+                        <div v-if="isLoadingMyAds" class="text-center py-12">
+                            <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                            <p class="mt-4 text-gray-500">Загрузка объявлений...</p>
+                        </div>
+
+                        <!-- Empty State -->
+                        <div v-else-if="myAds.length === 0" class="bg-white rounded-2xl border p-12 text-center">
                             <div class="w-20 h-20 bg-gray-100 rounded-full mx-auto mb-6 flex items-center justify-center">
                                 <svg class="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                                 </svg>
                             </div>
                             <h3 class="text-xl font-bold text-gray-900 mb-2">Пока нет объявлений</h3>
-                            <p class="text-gray-500">Создайте свое первое объявление для начала работы</p>
+                            <p class="text-gray-500 mb-6">Создайте свое первое объявление для начала работы</p>
+                            <button 
+                                @click="openAdForm()"
+                                class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors inline-flex items-center gap-2"
+                            >
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                Создать объявление
+                            </button>
+                        </div>
+
+                        <!-- My Advertisements List -->
+                        <div v-else class="space-y-6">
+                            <div v-for="ad in myAds" :key="ad.id" 
+                                class="bg-white rounded-2xl border hover:shadow-lg transition-all overflow-hidden">
+                                <div class="p-6">
+                                    <div class="flex justify-between items-start mb-4">
+                                        <div class="flex items-center gap-4 flex-1">
+                                            <div class="w-16 h-16 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xl">
+                                                [[ ad.name.charAt(0) ]]
+                                            </div>
+                                            <div class="flex-1">
+                                                <div class="flex items-center gap-3 mb-2">
+                                                    <h3 class="font-bold text-xl text-gray-900">[[ ad.name ]]</h3>
+                                                    <span :class="['px-3 py-1 rounded-full text-xs font-bold uppercase', 
+                                                                 ad.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700']">
+                                                        [[ ad.is_active ? 'Активно' : 'Неактивно' ]]
+                                                    </span>
+                                                    <span v-if="ad.is_verified" class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold uppercase">
+                                                        Проверено
+                                                    </span>
+                                                </div>
+                                                <p class="text-gray-600 text-sm mb-3">[[ ad.description ]]</p>
+                                                <div class="flex items-center gap-1">
+                                                    <svg class="w-4 h-4 text-amber-400 fill-amber-400" viewBox="0 0 24 24">
+                                                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                                    </svg>
+                                                    <span class="text-sm font-semibold">[[ ad.rating || '0.0' ]]</span>
+                                                    <span class="text-xs text-gray-400 ml-2">([[ ad.deals_count ]] сделок)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 p-4 bg-gray-50 rounded-xl">
+                                        <div>
+                                            <p class="text-xs text-gray-400 uppercase font-semibold mb-1">Комиссия</p>
+                                            <p class="text-lg font-bold text-blue-600">[[ ad.fee ]]%</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-gray-400 uppercase font-semibold mb-1">Валюта</p>
+                                            <p class="text-lg font-bold text-gray-900">[[ ad.currency ]]</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-gray-400 uppercase font-semibold mb-1">Мин. лимит</p>
+                                            <p class="text-sm font-medium text-gray-700">[[ parseInt(ad.min_limit).toLocaleString() ]] USDT</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-gray-400 uppercase font-semibold mb-1">Макс. лимит</p>
+                                            <p class="text-sm font-medium text-gray-700">[[ parseInt(ad.max_limit).toLocaleString() ]] USDT</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex items-center justify-between pt-4 border-t">
+                                        <span class="text-xs text-gray-500">
+                                            Создано: [[ formatDate(ad.created_at) ]]
+                                        </span>
+                                        <div class="flex items-center gap-2">
+                                            <button 
+                                                @click="toggleAdStatus(ad.id, ad.is_active)"
+                                                :disabled="isTogglingAd === ad.id"
+                                                :class="['px-4 py-2 rounded-lg font-semibold text-sm transition-colors',
+                                                         ad.is_active 
+                                                             ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' 
+                                                             : 'bg-green-100 text-green-700 hover:bg-green-200']"
+                                            >
+                                                <span v-if="isTogglingAd !== ad.id">
+                                                    [[ ad.is_active ? 'Деактивировать' : 'Активировать' ]]
+                                                </span>
+                                                <span v-else>Обработка...</span>
+                                            </button>
+                                            <button 
+                                                @click="openAdForm(ad)"
+                                                class="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-semibold text-sm hover:bg-blue-200 transition-colors"
+                                            >
+                                                Редактировать
+                                            </button>
+                                            <button 
+                                                @click="deleteAd(ad.id)"
+                                                :disabled="isDeletingAd === ad.id"
+                                                class="px-4 py-2 bg-red-100 text-red-700 rounded-lg font-semibold text-sm hover:bg-red-200 transition-colors disabled:opacity-50"
+                                            >
+                                                <span v-if="isDeletingAd !== ad.id">Удалить</span>
+                                                <span v-else>Удаление...</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Pagination -->
+                        <div v-if="myAdsTotal > myAdsPageSize" class="mt-8 flex justify-center items-center gap-4">
+                            <button 
+                                @click="myAdsPage = Math.max(1, myAdsPage - 1); loadMyAds()"
+                                :disabled="myAdsPage === 1 || isLoadingMyAds"
+                                class="px-4 py-2 border rounded-xl hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Назад
+                            </button>
+                            <span class="text-gray-600">
+                                Страница [[ myAdsPage ]] из [[ Math.ceil(myAdsTotal / myAdsPageSize) ]]
+                            </span>
+                            <button 
+                                @click="myAdsPage++; loadMyAds()"
+                                :disabled="myAdsPage >= Math.ceil(myAdsTotal / myAdsPageSize) || isLoadingMyAds"
+                                class="px-4 py-2 border rounded-xl hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Вперед
+                            </button>
                         </div>
                     </div>
                 </div>
             </main>
+        </div>
+
+        <!-- Advertisement Form Modal -->
+        <div v-if="showAdForm" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeAdForm">
+            <div class="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <div class="p-6 border-b flex items-center justify-between sticky top-0 bg-white">
+                    <h3 class="text-2xl font-bold text-gray-900">
+                        [[ editingAd ? 'Редактировать объявление' : 'Создать объявление' ]]
+                    </h3>
+                    <button 
+                        @click="closeAdForm"
+                        class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                        <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <form @submit.prevent="saveAd" class="p-6 space-y-6">
+                    <!-- Name -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            Название объявления *
+                        </label>
+                        <input 
+                            type="text" 
+                            v-model="adForm.name"
+                            required
+                            maxlength="255"
+                            class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Например: GlobalPay Express"
+                        />
+                    </div>
+
+                    <!-- Description -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            Описание *
+                        </label>
+                        <textarea 
+                            v-model="adForm.description"
+                            required
+                            rows="4"
+                            class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Подробное описание вашего предложения..."
+                        ></textarea>
+                    </div>
+
+                    <!-- Fee and Currency -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Комиссия (%) *
+                            </label>
+                            <input 
+                                type="text" 
+                                v-model="adForm.fee"
+                                required
+                                pattern="[0-9]+(\.[0-9]+)?"
+                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="2.5"
+                            />
+                            <p class="text-xs text-gray-500 mt-1">От 0 до 100</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Валюта *
+                            </label>
+                            <select 
+                                v-model="adForm.currency"
+                                required
+                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="">Выберите валюту</option>
+                                <option value="USD">USD</option>
+                                <option value="EUR">EUR</option>
+                                <option value="RUB">RUB</option>
+                                <option value="GBP">GBP</option>
+                                <option value="CNY">CNY</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Limits -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Минимальный лимит (USDT) *
+                            </label>
+                            <input 
+                                type="number" 
+                                v-model.number="adForm.min_limit"
+                                required
+                                min="0"
+                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="100"
+                            />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Максимальный лимит (USDT) *
+                            </label>
+                            <input 
+                                type="number" 
+                                v-model.number="adForm.max_limit"
+                                required
+                                min="0"
+                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="10000"
+                            />
+                        </div>
+                    </div>
+
+                    <!-- Active Status (only for editing) -->
+                    <div v-if="editingAd">
+                        <label class="flex items-center gap-3">
+                            <input 
+                                type="checkbox" 
+                                v-model="adForm.is_active"
+                                class="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span class="text-sm font-semibold text-gray-700">Объявление активно</span>
+                        </label>
+                    </div>
+
+                    <!-- Error/Success messages -->
+                    <div v-if="adFormMessage" class="p-4 rounded-xl" :class="{
+                        'bg-green-50 text-green-700': adFormMessageType === 'success',
+                        'bg-red-50 text-red-700': adFormMessageType === 'error'
+                    }">
+                        [[ adFormMessage ]]
+                    </div>
+
+                    <!-- Buttons -->
+                    <div class="flex gap-3 pt-4 border-t">
+                        <button 
+                            type="submit"
+                            :disabled="isSavingAd"
+                            class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            <span v-if="!isSavingAd">[[ editingAd ? 'Сохранить изменения' : 'Создать объявление' ]]</span>
+                            <span v-else>Сохранение...</span>
+                        </button>
+                        <button 
+                            type="button"
+                            @click="closeAdForm"
+                            :disabled="isSavingAd"
+                            class="px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-semibold transition-colors disabled:opacity-50"
+                        >
+                            Отмена
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -555,6 +890,36 @@
                 isSavingProfile: false,
                 profileMessage: '',
                 profileMessageType: 'success',
+                // Marketplace
+                marketplaceAds: [],
+                marketplaceSearchTerm: '',
+                marketplacePage: 1,
+                marketplacePageSize: 20,
+                marketplaceTotal: 0,
+                isLoadingMarketplace: false,
+                // My Ads
+                myAds: [],
+                myAdsPage: 1,
+                myAdsPageSize: 20,
+                myAdsTotal: 0,
+                isLoadingMyAds: false,
+                isTogglingAd: null,
+                isDeletingAd: null,
+                // Advertisement Form
+                showAdForm: false,
+                editingAd: null,
+                isSavingAd: false,
+                adFormMessage: '',
+                adFormMessageType: 'success',
+                adForm: {
+                    name: '',
+                    description: '',
+                    fee: '0.0',
+                    min_limit: 0,
+                    max_limit: 0,
+                    currency: '',
+                    is_active: true
+                },
                 menuItems: [
                     {
                         id: 'marketplace',
@@ -572,52 +937,6 @@
                         icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>'
                     }
                 ],
-                agents: [
-                    {
-                        id: 1,
-                        name: 'GlobalPay Express',
-                        rating: 4.9,
-                        deals: 1250,
-                        fee: 2.5,
-                        minLimit: 500,
-                        maxLimit: 50000,
-                        currency: 'USD',
-                        description: 'Специализация на оплате обучения и бизнес-счетов по всему миру. Мгновенная обработка после эскроу USDT.'
-                    },
-                    {
-                        id: 2,
-                        name: 'EuroBridge Finance',
-                        rating: 4.7,
-                        deals: 840,
-                        fee: 1.8,
-                        minLimit: 1000,
-                        maxLimit: 100000,
-                        currency: 'EUR',
-                        description: 'Европейские корпоративные переводы. Гарантированный расчет в тот же день для проверенных клиентов.'
-                    },
-                    {
-                        id: 3,
-                        name: 'AsiaNode Swift',
-                        rating: 4.8,
-                        deals: 2100,
-                        fee: 3.0,
-                        minLimit: 100,
-                        maxLimit: 15000,
-                        currency: 'USD',
-                        description: 'Переводы малого и среднего размера в Китай и ЮВА. Высокий процент успешных личных переводов.'
-                    },
-                    {
-                        id: 4,
-                        name: 'RuSwift Gateway',
-                        rating: 4.6,
-                        deals: 650,
-                        fee: 2.2,
-                        minLimit: 300,
-                        maxLimit: 25000,
-                        currency: 'RUB',
-                        description: 'Специализация на переводах в Россию и страны СНГ. Быстрое прохождение через SWIFT.'
-                    }
-                ],
                 recentTransactions: [
                     { id: 1, date: '2026-02-05', type: 'buy', amount: 2500, currency: 'USD', status: 'completed' },
                     { id: 2, date: '2026-02-03', type: 'buy', amount: 1200, currency: 'EUR', status: 'pending' },
@@ -625,15 +944,6 @@
                 ]
             },
             computed: {
-                filteredAgents() {
-                    if (!this.searchTerm) return this.agents;
-                    const term = this.searchTerm.toLowerCase();
-                    return this.agents.filter(agent => 
-                        agent.name.toLowerCase().includes(term) ||
-                        agent.description.toLowerCase().includes(term) ||
-                        agent.currency.toLowerCase().includes(term)
-                    );
-                }
             },
             mounted() {
                 // Проверяем авторизацию при загрузке
@@ -641,6 +951,17 @@
                 // Загружаем профиль если авторизован
                 if (this.isAuthenticated) {
                     this.loadUserProfile();
+                    // Загружаем объявления маркетплейса
+                    this.searchMarketplace();
+                }
+            },
+            watch: {
+                activeView(newView) {
+                    if (newView === 'my_ads' && this.isAuthenticated) {
+                        this.loadMyAds();
+                    } else if (newView === 'marketplace' && this.isAuthenticated) {
+                        this.searchMarketplace();
+                    }
                 }
             },
             methods: {
@@ -666,6 +987,9 @@
                     
                     // Загружаем профиль пользователя
                     this.loadUserProfile();
+                    
+                    // Загружаем объявления маркетплейса
+                    this.searchMarketplace();
                 },
                 logout() {
                     console.log('Logout initiated...');
@@ -874,6 +1198,257 @@
                     if (this.$refs.avatarInput) {
                         this.$refs.avatarInput.value = '';
                     }
+                },
+                // Marketplace methods
+                async searchMarketplace() {
+                    this.isLoadingMarketplace = true;
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        const response = await fetch('/api/marketplace/search', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                            },
+                            body: JSON.stringify({
+                                query: this.marketplaceSearchTerm || null,
+                                page: this.marketplacePage,
+                                page_size: this.marketplacePageSize,
+                                is_active: true
+                            })
+                        });
+
+                        if (!response.ok) {
+                            throw new Error('Failed to search advertisements');
+                        }
+
+                        const data = await response.json();
+                        this.marketplaceAds = data.advertisements || [];
+                        this.marketplaceTotal = data.total || 0;
+                    } catch (error) {
+                        console.error('Error searching marketplace:', error);
+                        this.marketplaceAds = [];
+                        this.marketplaceTotal = 0;
+                    } finally {
+                        this.isLoadingMarketplace = false;
+                    }
+                },
+                // My Ads methods
+                async loadMyAds() {
+                    this.isLoadingMyAds = true;
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+
+                        const response = await fetch(`/api/my-ads?page=${this.myAdsPage}&page_size=${this.myAdsPageSize}`, {
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+
+                        if (!response.ok) {
+                            throw new Error('Failed to load advertisements');
+                        }
+
+                        const data = await response.json();
+                        this.myAds = data.advertisements || [];
+                        this.myAdsTotal = data.total || 0;
+                    } catch (error) {
+                        console.error('Error loading my ads:', error);
+                        this.myAds = [];
+                        this.myAdsTotal = 0;
+                    } finally {
+                        this.isLoadingMyAds = false;
+                    }
+                },
+                openAdForm(ad = null) {
+                    this.editingAd = ad;
+                    if (ad) {
+                        // Editing existing ad
+                        this.adForm = {
+                            name: ad.name,
+                            description: ad.description,
+                            fee: ad.fee,
+                            min_limit: parseInt(ad.min_limit),
+                            max_limit: parseInt(ad.max_limit),
+                            currency: ad.currency,
+                            is_active: ad.is_active
+                        };
+                    } else {
+                        // Creating new ad
+                        this.adForm = {
+                            name: '',
+                            description: '',
+                            fee: '0.0',
+                            min_limit: 0,
+                            max_limit: 0,
+                            currency: '',
+                            is_active: true
+                        };
+                    }
+                    this.adFormMessage = '';
+                    this.showAdForm = true;
+                },
+                closeAdForm() {
+                    this.showAdForm = false;
+                    this.editingAd = null;
+                    this.adFormMessage = '';
+                    this.adForm = {
+                        name: '',
+                        description: '',
+                        fee: '0.0',
+                        min_limit: 0,
+                        max_limit: 0,
+                        currency: '',
+                        is_active: true
+                    };
+                },
+                async saveAd() {
+                    this.isSavingAd = true;
+                    this.adFormMessage = '';
+
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+
+                        const url = this.editingAd 
+                            ? `/api/my-ads/${this.editingAd.id}`
+                            : '/api/my-ads';
+                        
+                        const method = this.editingAd ? 'PUT' : 'POST';
+                        
+                        const body = this.editingAd
+                            ? {
+                                name: this.adForm.name,
+                                description: this.adForm.description,
+                                fee: this.adForm.fee,
+                                min_limit: this.adForm.min_limit,
+                                max_limit: this.adForm.max_limit,
+                                currency: this.adForm.currency,
+                                is_active: this.adForm.is_active
+                            }
+                            : {
+                                name: this.adForm.name,
+                                description: this.adForm.description,
+                                fee: this.adForm.fee,
+                                min_limit: this.adForm.min_limit,
+                                max_limit: this.adForm.max_limit,
+                                currency: this.adForm.currency
+                            };
+
+                        const response = await fetch(url, {
+                            method: method,
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(body)
+                        });
+
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.detail || 'Failed to save advertisement');
+                        }
+
+                        this.adFormMessage = this.editingAd 
+                            ? 'Объявление успешно обновлено!' 
+                            : 'Объявление успешно создано!';
+                        this.adFormMessageType = 'success';
+
+                        // Reload ads
+                        await this.loadMyAds();
+                        
+                        // Close form after delay
+                        setTimeout(() => {
+                            this.closeAdForm();
+                        }, 1500);
+
+                    } catch (error) {
+                        console.error('Error saving ad:', error);
+                        this.adFormMessage = error.message || 'Ошибка при сохранении объявления';
+                        this.adFormMessageType = 'error';
+                    } finally {
+                        this.isSavingAd = false;
+                    }
+                },
+                async toggleAdStatus(adId, currentStatus) {
+                    if (this.isTogglingAd === adId) return;
+                    
+                    this.isTogglingAd = adId;
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+
+                        const response = await fetch(`/api/my-ads/${adId}/toggle-active`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+
+                        if (!response.ok) {
+                            throw new Error('Failed to toggle status');
+                        }
+
+                        // Reload ads
+                        await this.loadMyAds();
+                    } catch (error) {
+                        console.error('Error toggling ad status:', error);
+                        alert('Ошибка при изменении статуса объявления');
+                    } finally {
+                        this.isTogglingAd = null;
+                    }
+                },
+                async deleteAd(adId) {
+                    if (!confirm('Вы уверены, что хотите удалить это объявление?')) {
+                        return;
+                    }
+
+                    if (this.isDeletingAd === adId) return;
+                    
+                    this.isDeletingAd = adId;
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+
+                        const response = await fetch(`/api/my-ads/${adId}`, {
+                            method: 'DELETE',
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+
+                        if (!response.ok) {
+                            throw new Error('Failed to delete advertisement');
+                        }
+
+                        // Reload ads
+                        await this.loadMyAds();
+                    } catch (error) {
+                        console.error('Error deleting ad:', error);
+                        alert('Ошибка при удалении объявления');
+                    } finally {
+                        this.isDeletingAd = null;
+                    }
+                },
+                formatDate(dateString) {
+                    if (!dateString) return '';
+                    const date = new Date(dateString);
+                    return date.toLocaleDateString('ru-RU', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
                 }
             }
         });
