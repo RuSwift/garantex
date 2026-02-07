@@ -416,18 +416,22 @@ class TronMultisig:
         # Get signer index
         signer_index = transaction.config.owner_addresses.index(signer_address)
         
-        # Create signing key
-        private_key_bytes = bytes.fromhex(private_key_hex)
-        signing_key = SigningKey.from_string(private_key_bytes, curve=SECP256k1)
+        # Use tronpy for proper TRON signature format
+        from tronpy.keys import PrivateKey as TronPrivateKey
         
-        # Get public key
+        # Create TRON private key
+        private_key_bytes = bytes.fromhex(private_key_hex)
+        tron_key = TronPrivateKey(private_key_bytes)
+        
+        # Get public key using ecdsa directly (uncompressed format)
+        signing_key = SigningKey.from_string(private_key_bytes, curve=SECP256k1)
         verifying_key = signing_key.get_verifying_key()
         public_key_bytes = b'\x04' + verifying_key.to_string()
         public_key_hex = public_key_bytes.hex()
         
-        # Sign transaction ID (which is the hash of raw_data)
+        # Sign transaction ID with TRON format (65 bytes: r+s+v)
         tx_id_bytes = bytes.fromhex(transaction.tx_id)
-        signature_bytes = signing_key.sign_digest(tx_id_bytes, sigencode=sigencode_der)
+        signature_bytes = tron_key.sign_msg_hash(tx_id_bytes)
         signature_hex = signature_bytes.hex()
         
         # Get weight for this signer
