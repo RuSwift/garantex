@@ -13,6 +13,38 @@ from schemas.advertisements import (
 )
 from services.advertisement import AdvertisementService
 from services.wallet_user import WalletUserService
+from db.models import WalletUser
+from sqlalchemy import select
+
+
+async def _advertisement_to_response(advertisement, db):
+    """Convert Advertisement model to AdvertisementResponse with user info"""
+    # Get user info
+    result = await db.execute(
+        select(WalletUser).where(WalletUser.id == advertisement.user_id)
+    )
+    user = result.scalar_one_or_none()
+    user_is_verified = user.is_verified if user else False
+    
+    # Create response dict
+    ad_dict = {
+        "id": advertisement.id,
+        "user_id": advertisement.user_id,
+        "name": advertisement.name,
+        "description": advertisement.description,
+        "fee": advertisement.fee,
+        "min_limit": advertisement.min_limit,
+        "max_limit": advertisement.max_limit,
+        "currency": advertisement.currency,
+        "is_active": advertisement.is_active,
+        "is_verified": advertisement.is_verified,
+        "user_is_verified": user_is_verified,
+        "rating": advertisement.rating,
+        "deals_count": advertisement.deals_count,
+        "created_at": advertisement.created_at,
+        "updated_at": advertisement.updated_at,
+    }
+    return AdvertisementResponse(**ad_dict)
 
 
 # Public router for marketplace
@@ -56,8 +88,14 @@ async def search_advertisements(
             db=db
         )
         
+        # Convert to response with user info
+        ad_responses = []
+        for ad in advertisements:
+            ad_response = await _advertisement_to_response(ad, db)
+            ad_responses.append(ad_response)
+        
         return AdvertisementListResponse(
-            advertisements=[AdvertisementResponse.model_validate(ad) for ad in advertisements],
+            advertisements=ad_responses,
             total=total,
             page=search_request.page,
             page_size=search_request.page_size
@@ -94,7 +132,7 @@ async def get_advertisement(
                 detail="Advertisement not found"
             )
         
-        return AdvertisementResponse.model_validate(advertisement)
+        return await _advertisement_to_response(advertisement, db)
         
     except HTTPException:
         raise
@@ -143,8 +181,14 @@ async def get_my_advertisements(
             db=db
         )
         
+        # Convert to response with user info
+        ad_responses = []
+        for ad in advertisements:
+            ad_response = await _advertisement_to_response(ad, db)
+            ad_responses.append(ad_response)
+        
         return AdvertisementListResponse(
-            advertisements=[AdvertisementResponse.model_validate(ad) for ad in advertisements],
+            advertisements=ad_responses,
             total=total,
             page=page,
             page_size=page_size
@@ -199,7 +243,7 @@ async def create_advertisement(
             db=db
         )
         
-        return AdvertisementResponse.model_validate(advertisement)
+        return await _advertisement_to_response(advertisement, db)
         
     except ValueError as e:
         raise HTTPException(
@@ -259,7 +303,7 @@ async def update_advertisement(
             db=db
         )
         
-        return AdvertisementResponse.model_validate(advertisement)
+        return await _advertisement_to_response(advertisement, db)
         
     except ValueError as e:
         raise HTTPException(
@@ -361,7 +405,7 @@ async def toggle_advertisement_active(
             db=db
         )
         
-        return AdvertisementResponse.model_validate(advertisement)
+        return await _advertisement_to_response(advertisement, db)
         
     except ValueError as e:
         raise HTTPException(

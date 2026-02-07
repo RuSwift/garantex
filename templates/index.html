@@ -312,8 +312,16 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <div v-if="ad.is_verified" class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold uppercase tracking-tight">
+                                        <div v-if="ad.user_is_verified" 
+                                             class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold uppercase tracking-tight cursor-help relative group"
+                                             title="Агент прошел верификацию документов">
                                             Проверен
+                                            <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                                                Агент прошел верификацию документов
+                                                <div class="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                                                    <div class="border-4 border-transparent border-t-gray-900"></div>
+                                                </div>
+                                            </div>
                                         </div>
                                         <div v-else class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold uppercase tracking-tight">
                                             Не проверен
@@ -617,8 +625,16 @@
                                                                  ad.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700']">
                                                         [[ ad.is_active ? 'Активно' : 'Неактивно' ]]
                                                     </span>
-                                                    <span v-if="ad.is_verified" class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold uppercase">
+                                                    <span v-if="ad.user_is_verified" 
+                                                          class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold uppercase cursor-help relative group"
+                                                          title="Агент прошел верификацию документов">
                                                         Проверено
+                                                        <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                                                            Агент прошел верификацию документов
+                                                            <div class="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                                                                <div class="border-4 border-transparent border-t-gray-900"></div>
+                                                            </div>
+                                                        </div>
                                                     </span>
                                                 </div>
                                                 <p class="text-gray-600 text-sm mb-3">[[ ad.description ]]</p>

@@ -78,12 +78,43 @@ async def list_wallet_users(
         stmt = stmt.order_by(WalletUser.created_at.desc())
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         
-        # Execute query
-        result = await db.execute(stmt)
-        users = result.scalars().all()
+        # Execute query - handle case where is_verified column doesn't exist in DB
+        try:
+            result = await db.execute(stmt)
+            users = result.scalars().all()
+        except Exception as e:
+            # If error is related to missing column, log and re-raise with helpful message
+            error_str = str(e).lower()
+            if 'is_verified' in error_str or ('column' in error_str and 'does not exist' in error_str):
+                raise HTTPException(
+                    status_code=500,
+                    detail="Database migration required: Please run 'alembic upgrade head' to add is_verified column to wallet_users table"
+                )
+            raise
+        
+        # Convert users to response, handling missing is_verified field
+        user_items = []
+        for user in users:
+            try:
+                is_verified = user.is_verified
+            except (AttributeError, KeyError):
+                is_verified = False
+            
+            user_dict = {
+                "id": user.id,
+                "wallet_address": user.wallet_address,
+                "blockchain": user.blockchain,
+                "nickname": user.nickname,
+                "avatar": user.avatar,
+                "access_to_admin_panel": user.access_to_admin_panel,
+                "is_verified": is_verified,
+                "created_at": user.created_at,
+                "updated_at": user.updated_at,
+            }
+            user_items.append(WalletUserItem(**user_dict))
         
         return WalletUserList(
-            users=[WalletUserItem.model_validate(user) for user in users],
+            users=user_items,
             total=total,
             page=page,
             page_size=page_size
@@ -125,7 +156,24 @@ async def get_wallet_user(
                 detail=f"User with ID {user_id} not found"
             )
         
-        return WalletUserItem.model_validate(user)
+        # Handle missing is_verified field
+        try:
+            is_verified = user.is_verified
+        except (AttributeError, KeyError):
+            is_verified = False
+        
+        user_dict = {
+            "id": user.id,
+            "wallet_address": user.wallet_address,
+            "blockchain": user.blockchain,
+            "nickname": user.nickname,
+            "avatar": user.avatar,
+            "access_to_admin_panel": user.access_to_admin_panel,
+            "is_verified": is_verified,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at,
+        }
+        return WalletUserItem(**user_dict)
         
     except HTTPException:
         raise
@@ -177,7 +225,19 @@ async def create_wallet_user(
         await db.commit()
         await db.refresh(new_user)
         
-        return WalletUserItem.model_validate(new_user)
+        # Handle missing is_verified field
+        user_dict = {
+            "id": new_user.id,
+            "wallet_address": new_user.wallet_address,
+            "blockchain": new_user.blockchain,
+            "nickname": new_user.nickname,
+            "avatar": new_user.avatar,
+            "access_to_admin_panel": new_user.access_to_admin_panel,
+            "is_verified": getattr(new_user, 'is_verified', False),  # Handle missing field
+            "created_at": new_user.created_at,
+            "updated_at": new_user.updated_at,
+        }
+        return WalletUserItem(**user_dict)
         
     except HTTPException:
         raise
@@ -225,11 +285,35 @@ async def update_wallet_user(
             user.nickname = request.nickname
         if request.blockchain is not None:
             user.blockchain = request.blockchain
+        if request.is_verified is not None:
+            # Try to set is_verified field (migration might not be applied)
+            try:
+                user.is_verified = request.is_verified
+            except (AttributeError, KeyError):
+                # Field doesn't exist in database yet, skip update
+                pass
         
         await db.commit()
         await db.refresh(user)
         
-        return WalletUserItem.model_validate(user)
+        # Handle missing is_verified field
+        try:
+            is_verified = user.is_verified
+        except (AttributeError, KeyError):
+            is_verified = False
+        
+        user_dict = {
+            "id": user.id,
+            "wallet_address": user.wallet_address,
+            "blockchain": user.blockchain,
+            "nickname": user.nickname,
+            "avatar": user.avatar,
+            "access_to_admin_panel": user.access_to_admin_panel,
+            "is_verified": is_verified,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at,
+        }
+        return WalletUserItem(**user_dict)
         
     except HTTPException:
         raise
@@ -308,12 +392,19 @@ async def get_my_profile(
         if not user:
             raise HTTPException(status_code=404, detail="User profile not found")
         
+        # Handle missing is_verified field
+        try:
+            is_verified = user.is_verified
+        except (AttributeError, KeyError):
+            is_verified = False
+        
         return ProfileResponse(
             wallet_address=user.wallet_address,
             blockchain=user.blockchain,
             nickname=user.nickname,
             avatar=user.avatar,
             access_to_admin_panel=user.access_to_admin_panel,
+            is_verified=is_verified,
             created_at=user.created_at.isoformat(),
             updated_at=user.updated_at.isoformat()
         )
@@ -357,12 +448,19 @@ async def update_my_profile(
             db=db
         )
         
+        # Handle missing is_verified field
+        try:
+            is_verified = user.is_verified
+        except (AttributeError, KeyError):
+            is_verified = False
+        
         return ProfileResponse(
             wallet_address=user.wallet_address,
             blockchain=user.blockchain,
             nickname=user.nickname,
             avatar=user.avatar,
             access_to_admin_panel=user.access_to_admin_panel,
+            is_verified=is_verified,
             created_at=user.created_at.isoformat(),
             updated_at=user.updated_at.isoformat()
         )

@@ -4706,7 +4706,8 @@ Vue.component('WalletUsers', {
             userForm: {
                 wallet_address: '',
                 blockchain: 'tron',
-                nickname: ''
+                nickname: '',
+                is_verified: false
             },
             savingUser: false,
             
@@ -4802,7 +4803,8 @@ Vue.component('WalletUsers', {
             this.userForm = {
                 wallet_address: '',
                 blockchain: 'tron',
-                nickname: ''
+                nickname: '',
+                is_verified: false
             };
             this.showUserModal = true;
         },
@@ -4812,7 +4814,8 @@ Vue.component('WalletUsers', {
             this.userForm = {
                 wallet_address: user.wallet_address,
                 blockchain: user.blockchain,
-                nickname: user.nickname
+                nickname: user.nickname,
+                is_verified: user.is_verified || false
             };
             this.showUserModal = true;
         },
@@ -4823,7 +4826,8 @@ Vue.component('WalletUsers', {
             this.userForm = {
                 wallet_address: '',
                 blockchain: 'tron',
-                nickname: ''
+                nickname: '',
+                is_verified: false
             };
         },
         
@@ -4845,7 +4849,8 @@ Vue.component('WalletUsers', {
                 const body = this.editingUser
                     ? {
                         nickname: this.userForm.nickname,
-                        blockchain: this.userForm.blockchain
+                        blockchain: this.userForm.blockchain,
+                        is_verified: this.userForm.is_verified
                     }
                     : this.userForm;
                 
@@ -4994,6 +4999,7 @@ Vue.component('WalletUsers', {
                                     <th>Адрес кошелька</th>
                                     <th style="width: 100px;">Блокчейн</th>
                                     <th style="width: 200px;">Имя</th>
+                                    <th style="width: 120px;">Верифицирован</th>
                                     <th style="width: 150px;">Создан</th>
                                     <th style="width: 120px;" class="text-end">Действия</th>
                                 </tr>
@@ -5015,6 +5021,14 @@ Vue.component('WalletUsers', {
                                         </span>
                                     </td>
                                     <td>[[ user.nickname ]]</td>
+                                    <td>
+                                        <span v-if="user.is_verified" class="badge bg-success" title="Агент прошел верификацию документов">
+                                            <i class="fas fa-check-circle me-1"></i> Да
+                                        </span>
+                                        <span v-else class="badge bg-secondary" title="Агент не прошел верификацию документов">
+                                            <i class="fas fa-times-circle me-1"></i> Нет
+                                        </span>
+                                    </td>
                                     <td class="small text-muted">[[ formatDate(user.created_at) ]]</td>
                                     <td class="text-end">
                                         <div class="btn-group btn-group-sm">
@@ -5115,6 +5129,22 @@ Vue.component('WalletUsers', {
                                     placeholder="Введите имя"
                                     maxlength="100"
                                 />
+                            </div>
+                            <div class="mb-3" v-if="editingUser">
+                                <div class="form-check">
+                                    <input 
+                                        class="form-check-input" 
+                                        type="checkbox" 
+                                        v-model="userForm.is_verified"
+                                        id="is_verified_check"
+                                    />
+                                    <label class="form-check-label" for="is_verified_check">
+                                        Пользователь верифицирован (проверены документы)
+                                    </label>
+                                </div>
+                                <small class="form-text text-muted">
+                                    Отметьте, если пользователь прошел верификацию документов
+                                </small>
                             </div>
                         </div>
                         <div class="modal-footer">

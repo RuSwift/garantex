@@ -38,6 +38,7 @@ class AdvertisementResponse(AdvertisementBase):
     user_id: int = Field(..., description="Owner user ID")
     is_active: bool = Field(..., description="Whether the advertisement is active")
     is_verified: bool = Field(..., description="Whether the advertisement is verified by admin")
+    user_is_verified: bool = Field(False, description="Whether the user (owner) is verified (document verification)")
     rating: Optional[str] = Field(None, description="User rating (e.g. '4.9')")
     deals_count: int = Field(..., description="Number of completed deals")
     created_at: datetime = Field(..., description="Creation timestamp")
