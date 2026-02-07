@@ -4,6 +4,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from routers import auth
+from routers import tron_multisig
 from dependencies import UserDepends
 
 app = FastAPI(
@@ -29,6 +30,7 @@ app.add_middleware(
 
 # Подключение роутеров
 app.include_router(auth.router)
+app.include_router(tron_multisig.router)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -114,6 +116,25 @@ async def tron_auth_test(request: Request):
     """
     return templates.TemplateResponse(
         "tron-auth-test.html",
+        {
+            "request": request
+        }
+    )
+
+
+@app.get("/tron-multisig-test", response_class=HTMLResponse)
+async def tron_multisig_test(request: Request):
+    """
+    Тестовая страница для TRON Multisig
+    
+    Демонстрирует работу мультиподписного кошелька 2/3:
+    - Создание конфигурации N/M
+    - Подпись через TronLink
+    - Автоматическая подпись остальными участниками
+    - Валидация и финализация транзакции
+    """
+    return templates.TemplateResponse(
+        "tron-multisig-test.html",
         {
             "request": request
         }

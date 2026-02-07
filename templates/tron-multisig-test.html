@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRON Multisig Test</title>
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/font-awesome.min.css" rel="stylesheet">
+    <link href="/static/css/web3-auth.css" rel="stylesheet">
+    <link href="/static/css/web3-auth-mobile.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        .test-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .info-box {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .step {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #0d6efd;
+        }
+        .step.completed {
+            border-left-color: #198754;
+            background: #f0f9ff;
+        }
+        .log-area {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+        }
+        .log-entry.success {
+            color: #4ec9b0;
+        }
+        .log-entry.error {
+            color: #f48771;
+        }
+        .log-entry.info {
+            color: #569cd6;
+        }
+        .wallet-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .wallet-connected {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+    </style>
+</head>
+<body>
+    <div id="app" class="test-container">
+        <div class="info-box">
+            <h1><i class="fas fa-vial"></i> TRON Multisig Test Page</h1>
+            <p class="lead">Тестирование мультиподписного кошелька 2/3</p>
+            <hr>
+            <div class="alert alert-info">
+                <strong><i class="fas fa-info-circle"></i> Как это работает:</strong>
+                <ol class="mb-0">
+                    <li>Подключите TRON кошелек (TronLink, TrustWallet, или WalletConnect)</li>
+                    <li>Создается конфигурация 2/3 (нужно 2 подписи из 3 владельцев)</li>
+                    <li>Вы подписываете транзакцию через ваш кошелек</li>
+                    <li>Сервер автоматически добавляет вторую подпись</li>
+                    <li>Транзакция готова к отправке в сеть</li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Step 0: Connect Wallet (Universal) -->
+        <div class="wallet-section" :class="{ 'wallet-connected': walletConnected }">
+            <h4><i class="fas fa-wallet"></i> Шаг 0: Подключение кошелька</h4>
+            <div v-if="!walletConnected">
+                <p style="opacity: 0.9; margin-bottom: 15px;">
+                    Подключите любой TRON кошелек для продолжения
+                </p>
+                <tron-auth 
+                    @authenticated="onWalletConnected"
+                    style="margin-top: 10px;"
+                ></tron-auth>
+            </div>
+            <div v-else>
+                <div class="alert alert-light mb-0">
+                    <strong>✓ Кошелек подключен</strong><br>
+                    <code style="color: #333;">[[ walletAddress ]]</code>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 1: Initialize Config -->
+        <div class="step" :class="{ completed: configInitialized }" v-if="walletConnected">
+            <h4><i class="fas fa-cog"></i> Шаг 1: Инициализация конфигурации</h4>
+            <div v-if="!configInitialized">
+                <p>Создать тестовую конфигурацию мультиподписи 2/3</p>
+                <button class="btn btn-primary" @click="initConfig" :disabled="loading">
+                    <i class="fas fa-play"></i> Инициализировать
+                </button>
+            </div>
+            <div v-else class="alert alert-success mb-0">
+                <strong>✓ Multisig кошелек создан</strong>
+                <ul class="mb-0 mt-2">
+                    <li><strong>Адрес multisig кошелька:</strong> <code>[[ config.multisig_address ]]</code></li>
+                    <li><strong>Требуется подписей:</strong> [[config.required_signatures]]/[[config.total_owners]]</li>
+                    <li><strong>Владельцы:</strong>
+                        <ul>
+                            <li v-for="(addr, index) in config.owner_addresses" :key="index">
+                                <code>[[ addr ]]</code>
+                                <span v-if="addr === config.user_address" class="badge bg-primary">Вы</span>
+                                <span v-else class="badge bg-secondary">Авто-подпись</span>
+                            </li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Step 2: TRON Multisig Component -->
+        <div class="step" :class="{ completed: transactionSigned }" v-if="configInitialized && walletConnected">
+            <h4><i class="fas fa-signature"></i> Шаг 2: Подписание транзакции</h4>
+            <p class="text-muted">Ваш кошелек: <code>[[ walletAddress ]]</code></p>
+            <p class="text-muted"><strong>Multisig кошелек:</strong> <code>[[ config.multisig_address ]]</code></p>
+            <tron-multisig 
+                :external-address="walletAddress"
+                :multisig-address="config.multisig_address"
+                :skip-connection="true"
+                :show-full-form="true"
+                backend-url="/api/multisig"
+                @transaction-signed="onTransactionSigned"
+                @error="onError">
+            </tron-multisig>
+        </div>
+
+        <!-- Step 3: Transaction Status -->
+        <div class="step" :class="{ completed: transactionReady }" v-if="currentTransaction">
+            <h4><i class="fas fa-check-circle"></i> Шаг 3: Статус транзакции</h4>
+            <div class="alert" :class="transactionReady ? 'alert-success' : 'alert-info'">
+                <h5>[[transactionReady ? '✓ Транзакция готова!' : '⏳ Ожидание подписей...']]</h5>
+                <p><strong>TX ID:</strong> <code>[[ currentTransaction.txId ]]</code></p>
+                <p><strong>Подписей:</strong> 
+                    <span class="badge bg-primary fs-6">
+                        [[ currentTransaction.signaturesCount ]] / [[ currentTransaction.requiredSignatures ]]
+                    </span>
+                </p>
+                <div v-if="transactionReady">
+                    <hr>
+                    <button class="btn btn-success" @click="finalizeTransaction">
+                        <i class="fas fa-paper-plane"></i> Финализировать транзакцию
+                    </button>
+                    <p class="text-muted small mt-2 mb-0">
+                        <i class="fas fa-info-circle"></i> 
+                        В реальном сценарии здесь будет отправка в TRON сеть
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Finalized Transaction -->
+        <div class="step completed" v-if="finalizedTransaction">
+            <h4><i class="fas fa-trophy"></i> Готово! Транзакция финализирована</h4>
+            <div class="alert alert-success">
+                <p><strong>Подписанная транзакция готова к broadcast:</strong></p>
+                <pre class="bg-light p-3"><code>[[ JSON.stringify(finalizedTransaction, null, 2) ]]</code></pre>
+            </div>
+        </div>
+
+        <!-- Logs -->
+        <div class="info-box">
+            <h4><i class="fas fa-terminal"></i> Логи</h4>
+            <div class="log-area" ref="logArea">
+                <div v-for="(log, index) in logs" :key="index" class="log-entry" :class="log.type">
+                    <span class="text-muted">[[ log.time ]]</span> [[ log.message ]]
+                </div>
+            </div>
+            <button class="btn btn-sm btn-secondary mt-2" @click="clearLogs">
+                <i class="fas fa-trash"></i> Очистить логи
+            </button>
+            <button class="btn btn-sm btn-warning mt-2 ms-2" @click="resetTest">
+                <i class="fas fa-redo"></i> Сбросить тест
+            </button>
+        </div>
+    </div>
+
+    <script src="/static/js/vue.min.js"></script>
+    <script src="/static/js/components.js"></script>
+    <script src="/static/js/tron-multisig-vue.js"></script>
+    
+    <script>
+        new Vue({
+            el: '#app',
+            delimiters: ['[[', ']]'],
+            data: {
+                // Wallet connection
+                walletConnected: false,
+                walletAddress: null,
+                
+                // Multisig workflow
+                loading: false,
+                configInitialized: false,
+                transactionSigned: false,
+                transactionReady: false,
+                config: null,
+                currentTransaction: null,
+                finalizedTransaction: null,
+                logs: []
+            },
+            methods: {
+                async initConfig() {
+                    this.loading = true;
+                    this.log('Инициализация конфигурации...', 'info');
+                    
+                    try {
+                        const response = await fetch('/api/multisig/test/config');
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            this.config = data.config;
+                            this.configInitialized = true;
+                            this.log('✓ Конфигурация создана: ' + data.message, 'success');
+                        } else {
+                            throw new Error(data.message || 'Failed to create config');
+                        }
+                    } catch (error) {
+                        this.log('✗ Ошибка: ' + error.message, 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                
+                onWalletConnected(address, token) {
+                    this.walletAddress = address;
+                    this.walletConnected = true;
+                    this.log('✓ Кошелек подключен: ' + address, 'success');
+                    this.log('Теперь можно инициализировать конфигурацию', 'info');
+                },
+                
+                onTransactionSigned(tx) {
+                    this.currentTransaction = tx;
+                    this.transactionSigned = true;
+                    this.transactionReady = tx.isReady;
+                    
+                    this.log('✓ Транзакция подписана!', 'success');
+                    this.log('  TX ID: ' + tx.txId, 'info');
+                    this.log('  Подписей: ' + tx.signaturesCount + '/' + tx.requiredSignatures, 'info');
+                    
+                    if (tx.isReady) {
+                        this.log('✓ Транзакция готова к отправке!', 'success');
+                    }
+                },
+                
+                onError(error) {
+                    this.log('✗ Ошибка: ' + error.message, 'error');
+                },
+                
+                async finalizeTransaction() {
+                    if (!this.currentTransaction) return;
+                    
+                    this.log('Финализация транзакции...', 'info');
+                    
+                    try {
+                        const response = await fetch(
+                            '/api/multisig/transaction/' + this.currentTransaction.txId + '/finalize',
+                            { method: 'POST' }
+                        );
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            this.finalizedTransaction = data.signed_transaction;
+                            this.log('✓ Транзакция финализирована!', 'success');
+                            this.log('  Готова к broadcast в TRON сеть', 'success');
+                        } else {
+                            throw new Error(data.detail || 'Finalization failed');
+                        }
+                    } catch (error) {
+                        this.log('✗ Ошибка финализации: ' + error.message, 'error');
+                    }
+                },
+                
+                async resetTest() {
+                    if (!confirm('Сбросить все тестовые данные?')) return;
+                    
+                    try {
+                        await fetch('/api/multisig/test/reset');
+                        
+                        this.configInitialized = false;
+                        this.transactionSigned = false;
+                        this.transactionReady = false;
+                        this.config = null;
+                        this.currentTransaction = null;
+                        this.finalizedTransaction = null;
+                        
+                        this.log('✓ Тест сброшен', 'info');
+                        
+                        // Reload page
+                        setTimeout(() => {
+                            location.reload();
+                        }, 1000);
+                    } catch (error) {
+                        this.log('✗ Ошибка сброса: ' + error.message, 'error');
+                    }
+                },
+                
+                log(message, type = 'info') {
+                    const time = new Date().toLocaleTimeString('ru-RU');
+                    this.logs.push({ time, message, type });
+                    
+                    // Auto-scroll to bottom
+                    this.$nextTick(() => {
+                        if (this.$refs.logArea) {
+                            this.$refs.logArea.scrollTop = this.$refs.logArea.scrollHeight;
+                        }
+                    });
+                },
+                
+                clearLogs() {
+                    this.logs = [];
+                }
+            },
+            mounted() {
+                this.log('Тестовая страница загружена', 'info');
+                this.log('TronLink должен быть установлен и подключен к Shasta Testnet', 'info');
+            }
+        });
+    </script>
+</body>
+</html>
+
