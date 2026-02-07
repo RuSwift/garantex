@@ -82,6 +82,26 @@ class WalletUserService:
         return user
     
     @staticmethod
+    async def get_by_nickname(
+        nickname: str,
+        db: AsyncSession
+    ) -> Optional[WalletUser]:
+        """
+        Get wallet user by nickname
+        
+        Args:
+            nickname: Nickname to search for
+            db: Database session
+            
+        Returns:
+            WalletUser if found, None otherwise
+        """
+        result = await db.execute(
+            select(WalletUser).where(WalletUser.nickname == nickname)
+        )
+        return result.scalar_one_or_none()
+    
+    @staticmethod
     async def update_nickname(
         wallet_address: str,
         new_nickname: str,
@@ -112,11 +132,90 @@ class WalletUserService:
         if len(new_nickname) > 100:
             raise ValueError("Nickname cannot exceed 100 characters")
         
+        # Check if nickname is already taken by another user
+        existing_user = await WalletUserService.get_by_nickname(new_nickname.strip(), db)
+        if existing_user and existing_user.wallet_address != wallet_address:
+            raise ValueError(f"Nickname '{new_nickname}' is already taken by another user")
+        
         # Update nickname
         await db.execute(
             update(WalletUser)
             .where(WalletUser.wallet_address == wallet_address)
             .values(nickname=new_nickname.strip())
+        )
+        await db.commit()
+        await db.refresh(user)
+        
+        return user
+    
+    @staticmethod
+    async def update_profile(
+        wallet_address: str,
+        nickname: Optional[str] = None,
+        avatar: Optional[str] = None,
+        db: AsyncSession = None
+    ) -> WalletUser:
+        """
+        Update user's profile (nickname and/or avatar)
+        
+        Args:
+            wallet_address: User's wallet address
+            nickname: New nickname (optional, pass empty string to skip)
+            avatar: New avatar in base64 format (optional, pass empty string to clear)
+            db: Database session
+            
+        Returns:
+            Updated WalletUser
+            
+        Raises:
+            ValueError: If user not found or validation fails
+        """
+        user = await WalletUserService.get_by_wallet_address(wallet_address, db)
+        if not user:
+            raise ValueError("User not found")
+        
+        update_values = {}
+        
+        # Update nickname if provided and not empty
+        if nickname is not None and nickname.strip():
+            nickname = nickname.strip()
+            
+            # Validate nickname length
+            if len(nickname) > 100:
+                raise ValueError("Nickname cannot exceed 100 characters")
+            
+            # Check if nickname is already taken by another user
+            existing_user = await WalletUserService.get_by_nickname(nickname, db)
+            if existing_user and existing_user.wallet_address != wallet_address:
+                raise ValueError(f"Nickname '{nickname}' is already taken")
+            
+            update_values['nickname'] = nickname
+        
+        # Update avatar if provided (empty string clears avatar)
+        if avatar is not None:
+            # Allow empty string to clear avatar
+            if avatar == "":
+                update_values['avatar'] = None
+            else:
+                # Validate avatar format (should be data:image/...)
+                if not avatar.startswith('data:image/'):
+                    raise ValueError("Avatar must be in base64 format starting with 'data:image/'")
+                
+                # Limit avatar size (e.g., 1MB base64)
+                if len(avatar) > 1_500_000:  # ~1MB base64
+                    raise ValueError("Avatar size is too large (max 1MB)")
+                
+                update_values['avatar'] = avatar
+        
+        # Check that at least one field is being updated
+        if not update_values:
+            raise ValueError("At least one field (nickname or avatar) must be provided")
+        
+        # Apply updates
+        await db.execute(
+            update(WalletUser)
+            .where(WalletUser.wallet_address == wallet_address)
+            .values(**update_values)
         )
         await db.commit()
         await db.refresh(user)

@@ -332,15 +332,121 @@
                     <div v-if="activeView === 'profile'" class="p-8 max-w-4xl mx-auto">
                         <h2 class="text-3xl font-bold text-gray-900 mb-8">Личный кабинет</h2>
                         
+                        <!-- Форма редактирования профиля -->
+                        <div class="bg-white rounded-2xl border p-8 mb-6">
+                            <h3 class="text-xl font-bold text-gray-900 mb-6">Редактировать профиль</h3>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <!-- Nickname -->
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                        Никнейм
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        v-model="editNickname"
+                                        class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="Введите никнейм"
+                                        maxlength="100"
+                                    />
+                                    <p class="text-xs text-gray-500 mt-1">Максимум 100 символов</p>
+                                </div>
+                                
+                                <!-- Avatar Upload -->
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                        Аватар
+                                    </label>
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center relative group">
+                                            <img 
+                                                v-if="previewAvatar || (userProfile && userProfile.avatar)" 
+                                                :src="previewAvatar || userProfile.avatar" 
+                                                class="w-full h-full object-cover"
+                                            />
+                                            <svg v-else class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                            </svg>
+                                            <!-- Кнопка очистки аватара -->
+                                            <button 
+                                                v-if="previewAvatar || (userProfile && userProfile.avatar)"
+                                                @click.stop="clearAvatar"
+                                                type="button"
+                                                class="absolute top-0 right-0 w-5 h-5 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white shadow-lg transition-all opacity-0 group-hover:opacity-100"
+                                                title="Удалить аватар"
+                                            >
+                                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        <div>
+                                            <input 
+                                                type="file" 
+                                                @change="handleAvatarUpload"
+                                                accept="image/*"
+                                                ref="avatarInput"
+                                                class="hidden"
+                                            />
+                                            <button 
+                                                @click="$refs.avatarInput.click()"
+                                                class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-semibold transition-colors"
+                                            >
+                                                Выбрать файл
+                                            </button>
+                                            <p class="text-xs text-gray-500 mt-1">PNG, JPG до 1MB</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Buttons -->
+                            <div class="flex gap-3 mt-6">
+                                <button 
+                                    @click="saveProfile"
+                                    :disabled="isSavingProfile"
+                                    class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <span v-if="!isSavingProfile">Сохранить</span>
+                                    <span v-else>Сохранение...</span>
+                                </button>
+                                <button 
+                                    @click="cancelEdit"
+                                    class="px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-semibold transition-colors"
+                                >
+                                    Отмена
+                                </button>
+                            </div>
+                            
+                            <!-- Error/Success messages -->
+                            <div v-if="profileMessage" class="mt-4 p-4 rounded-xl" :class="{
+                                'bg-green-50 text-green-700': profileMessageType === 'success',
+                                'bg-red-50 text-red-700': profileMessageType === 'error'
+                            }">
+                                [[ profileMessage ]]
+                            </div>
+                        </div>
+                        
                         <div class="bg-white rounded-2xl border p-8 mb-6">
                             <div class="flex items-center gap-6 mb-8">
                                 <div class="w-24 h-24 rounded-full bg-gradient-to-br from-blue-400 to-indigo-600 flex items-center justify-center text-white font-bold text-3xl">
                                     [[ walletAddress.substring(0, 2) ]]
                                 </div>
-                                <div>
-                                    <h3 class="text-2xl font-bold text-gray-900">[[ shortenAddress(walletAddress) ]]</h3>
+                                <div class="flex-1">
+                                    <div class="flex items-center gap-3">
+                                        <h3 class="text-xl font-bold text-gray-900 break-all flex-1">[[ walletAddress ]]</h3>
+                                        <button 
+                                            @click="copyAddress"
+                                            class="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+                                            title="Копировать адрес"
+                                        >
+                                            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
                                     <p class="text-gray-500 mt-1">TRON Address</p>
-                                    <div class="mt-3 flex gap-2">
+                                    <div class="mt-3 flex gap-2 flex-wrap">
                                         <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">
                                             ✓ Верифицирован
                                         </span>
@@ -441,6 +547,14 @@
                 activeView: 'marketplace',
                 balance: '4,250.00',
                 searchTerm: '',
+                // Profile editing
+                editNickname: '',
+                previewAvatar: null,
+                editAvatar: null,
+                userProfile: null,
+                isSavingProfile: false,
+                profileMessage: '',
+                profileMessageType: 'success',
                 menuItems: [
                     {
                         id: 'marketplace',
@@ -524,6 +638,10 @@
             mounted() {
                 // Проверяем авторизацию при загрузке
                 this.checkAuth();
+                // Загружаем профиль если авторизован
+                if (this.isAuthenticated) {
+                    this.loadUserProfile();
+                }
             },
             methods: {
                 checkAuth() {
@@ -545,6 +663,9 @@
                     // Сохраняем в localStorage
                     localStorage.setItem('access_token', token);
                     localStorage.setItem('wallet_address', address);
+                    
+                    // Загружаем профиль пользователя
+                    this.loadUserProfile();
                 },
                 logout() {
                     console.log('Logout initiated...');
@@ -564,6 +685,195 @@
                 shortenAddress(address) {
                     if (!address) return '';
                     return address.substring(0, 6) + '...' + address.substring(address.length - 4);
+                },
+                copyAddress() {
+                    if (!this.walletAddress) return;
+                    
+                    // Копируем адрес в буфер обмена
+                    navigator.clipboard.writeText(this.walletAddress).then(() => {
+                        // Показываем уведомление об успешном копировании
+                        alert('Адрес скопирован в буфер обмена!');
+                    }).catch(err => {
+                        console.error('Ошибка копирования:', err);
+                        // Fallback для старых браузеров
+                        const textarea = document.createElement('textarea');
+                        textarea.value = this.walletAddress;
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        alert('Адрес скопирован в буфер обмена!');
+                    });
+                },
+                async loadUserProfile() {
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) return;
+                        
+                        const response = await fetch('/api/profile/me', {
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            this.userProfile = await response.json();
+                            this.editNickname = this.userProfile.nickname;
+                        } else {
+                            console.error('Failed to load profile:', response.status);
+                        }
+                    } catch (error) {
+                        console.error('Error loading profile:', error);
+                    }
+                },
+                handleAvatarUpload(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    
+                    // Проверка размера (1MB)
+                    if (file.size > 1024 * 1024) {
+                        alert('Файл слишком большой. Максимум 1MB');
+                        return;
+                    }
+                    
+                    // Проверка типа
+                    if (!file.type.startsWith('image/')) {
+                        alert('Можно загружать только изображения');
+                        return;
+                    }
+                    
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            // Сжимаем изображение если нужно
+                            const canvas = document.createElement('canvas');
+                            let width = img.width;
+                            let height = img.height;
+                            
+                            // Максимальный размер 300x300
+                            const maxSize = 300;
+                            if (width > maxSize || height > maxSize) {
+                                if (width > height) {
+                                    height = (height / width) * maxSize;
+                                    width = maxSize;
+                                } else {
+                                    width = (width / height) * maxSize;
+                                    height = maxSize;
+                                }
+                            }
+                            
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, width, height);
+                            
+                            // Конвертируем в base64
+                            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                            this.previewAvatar = dataUrl;
+                            this.editAvatar = dataUrl;
+                        };
+                        img.src = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                },
+                clearAvatar() {
+                    console.log('clearAvatar called');
+                    
+                    // Устанавливаем пустую строку для удаления аватара
+                    this.previewAvatar = null;
+                    this.editAvatar = '';  // Пустая строка означает удаление
+                    
+                    // Очищаем input file
+                    if (this.$refs.avatarInput) {
+                        this.$refs.avatarInput.value = '';
+                    }
+                    
+                    // Показываем сообщение
+                    this.profileMessage = 'Аватар будет удален после нажатия "Сохранить"';
+                    this.profileMessageType = 'success';
+                    
+                    // Скрываем сообщение через 2 секунды
+                    setTimeout(() => {
+                        if (this.profileMessage === 'Аватар будет удален после нажатия "Сохранить"') {
+                            this.profileMessage = '';
+                        }
+                    }, 2000);
+                },
+                async saveProfile() {
+                    this.isSavingProfile = true;
+                    this.profileMessage = '';
+                    
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+                        
+                        const updateData = {};
+                        
+                        // Добавляем nickname если изменился
+                        if (this.editNickname && this.userProfile && this.editNickname.trim() !== this.userProfile.nickname) {
+                            updateData.nickname = this.editNickname.trim();
+                        }
+                        
+                        // Добавляем avatar если изменился или нужно удалить
+                        // editAvatar может быть: null (не трогать), "" (удалить), "data:..." (обновить)
+                        if (this.editAvatar !== null) {
+                            updateData.avatar = this.editAvatar; // Может быть "" для удаления
+                        }
+                        
+                        // Проверяем, что есть хотя бы одно изменение
+                        if (Object.keys(updateData).length === 0) {
+                            this.profileMessage = 'Нет изменений для сохранения';
+                            this.profileMessageType = 'error';
+                            return;
+                        }
+                        
+                        const response = await fetch('/api/profile/me', {
+                            method: 'PUT',
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(updateData)
+                        });
+                        
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.detail || 'Failed to update profile');
+                        }
+                        
+                        this.userProfile = await response.json();
+                        this.profileMessage = 'Профиль успешно обновлен!';
+                        this.profileMessageType = 'success';
+                        this.editAvatar = null;
+                        this.previewAvatar = null;
+                        
+                        // Скрыть сообщение через 3 секунды
+                        setTimeout(() => {
+                            this.profileMessage = '';
+                        }, 3000);
+                        
+                    } catch (error) {
+                        console.error('Error saving profile:', error);
+                        this.profileMessage = error.message;
+                        this.profileMessageType = 'error';
+                    } finally {
+                        this.isSavingProfile = false;
+                    }
+                },
+                cancelEdit() {
+                    if (this.userProfile) {
+                        this.editNickname = this.userProfile.nickname;
+                    }
+                    this.previewAvatar = null;
+                    this.editAvatar = null;
+                    this.profileMessage = '';
+                    // Очищаем input file
+                    if (this.$refs.avatarInput) {
+                        this.$refs.avatarInput.value = '';
+                    }
                 }
             }
         });

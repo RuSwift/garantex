@@ -1,21 +1,31 @@
 """
 Router for WalletUser management API
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from dependencies import RequireAdminDepends, DbDepends
-from schemas.node import (
+from routers.auth import get_current_tron_user, get_current_user
+from schemas.node import ChangeResponse
+from schemas.users import (
     WalletUserItem, 
     WalletUserList, 
     CreateWalletUserRequest,
     UpdateWalletUserRequest,
-    ChangeResponse
+    UpdateProfileRequest,
+    ProfileResponse
 )
 from db.models import WalletUser
+from services.wallet_user import WalletUserService
 from sqlalchemy import select, func, or_
 
 router = APIRouter(
     prefix="/api/admin/wallet-users",
     tags=["wallet-users"]
+)
+
+# Public router for user profile management
+profile_router = APIRouter(
+    prefix="/api/profile",
+    tags=["profile"]
 )
 
 
@@ -275,5 +285,96 @@ async def delete_wallet_user(
         raise HTTPException(
             status_code=500,
             detail=f"Error deleting wallet user: {str(e)}"
+        )
+
+
+# === PUBLIC PROFILE ENDPOINTS ===
+
+@profile_router.get("/me", response_model=ProfileResponse)
+async def get_my_profile(
+    current_user = Depends(get_current_tron_user),
+    db: DbDepends = None
+):
+    """
+    Get profile of the current authenticated user
+    
+    Returns:
+        User profile information
+    """
+    try:
+        wallet_address = current_user.wallet_address
+        user = await WalletUserService.get_by_wallet_address(wallet_address, db)
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User profile not found")
+        
+        return ProfileResponse(
+            wallet_address=user.wallet_address,
+            blockchain=user.blockchain,
+            nickname=user.nickname,
+            avatar=user.avatar,
+            access_to_admin_panel=user.access_to_admin_panel,
+            created_at=user.created_at.isoformat(),
+            updated_at=user.updated_at.isoformat()
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching profile: {str(e)}"
+        )
+
+
+@profile_router.put("/me", response_model=ProfileResponse)
+async def update_my_profile(
+    request: UpdateProfileRequest,
+    current_user = Depends(get_current_tron_user),
+    db: DbDepends = None
+):
+    """
+    Update profile of the current authenticated user
+    
+    Can update nickname and/or avatar.
+    Nicknames must be unique across all users.
+    Avatar should be in base64 data URI format (data:image/...)
+    
+    Args:
+        request: Profile update request
+        
+    Returns:
+        Updated user profile
+    """
+    try:
+        wallet_address = current_user.wallet_address
+        
+        # Update profile using service method
+        user = await WalletUserService.update_profile(
+            wallet_address=wallet_address,
+            nickname=request.nickname,
+            avatar=request.avatar,
+            db=db
+        )
+        
+        return ProfileResponse(
+            wallet_address=user.wallet_address,
+            blockchain=user.blockchain,
+            nickname=user.nickname,
+            avatar=user.avatar,
+            access_to_admin_panel=user.access_to_admin_panel,
+            created_at=user.created_at.isoformat(),
+            updated_at=user.updated_at.isoformat()
+        )
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating profile: {str(e)}"
         )
 
