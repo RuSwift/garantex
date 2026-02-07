@@ -7,6 +7,7 @@ import asyncio
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import create_engine, text
+from sqlalchemy.pool import NullPool
 from httpx import AsyncClient, ASGITransport
 
 from db import Base, get_db
@@ -18,16 +19,13 @@ from settings import DatabaseSettings, Settings
 TEST_DB_NAME = "garantex_test"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def event_loop():
     """
-    Создает event loop для всей сессии тестов
-    Необходимо для async фикстур с scope="session"
+    Создает новый event loop для каждого теста
+    Это предотвращает проблемы с "Task got Future attached to a different loop"
     """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
+    loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     yield loop
     loop.close()
@@ -116,16 +114,17 @@ def create_test_database(test_db_settings):
     engine.dispose()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 async def db_engine(test_db_settings):
     """
     Создает async engine для тестовой БД
-    Используется на протяжении всей сессии тестов
+    Создается для каждого теста с отключенным пулом соединений
     """
     engine = create_async_engine(
         test_db_settings.async_url,
         echo=False,
-        pool_pre_ping=True
+        pool_pre_ping=True,
+        poolclass=NullPool  # Отключаем пул соединений для тестов
     )
     yield engine
     await engine.dispose()
@@ -144,7 +143,11 @@ async def test_db(db_engine) -> AsyncGenerator[AsyncSession, None]:
     )
     
     async with TestSessionLocal() as session:
-        yield session
+        try:
+            yield session
+        finally:
+            # Гарантируем что сессия закрыта
+            await session.close()
     
     # Очищаем все таблицы после каждого теста
     async with db_engine.begin() as conn:
@@ -158,24 +161,28 @@ async def test_db(db_engine) -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.fixture
-async def test_client(test_db) -> AsyncGenerator[AsyncClient, None]:
+async def test_client(test_db, set_test_secret) -> AsyncGenerator[AsyncClient, None]:
     """
     Создает тестовый HTTP клиент с переопределенной БД
+    Зависит от set_test_secret чтобы SECRET был установлен до создания Settings
     """
     async def override_get_db():
         yield test_db
     
     from dependencies.settings import get_settings
     async def override_get_settings():
+        # Создаем новый объект Settings для каждого запроса
+        # чтобы он читал актуальные environment variables
         return Settings()
     
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_settings] = override_get_settings
     
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        yield client
-    
-    app.dependency_overrides.clear()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
 
 
 # Дополнительные фикстуры для тестов
