@@ -3565,7 +3565,14 @@ Vue.component('TronAuth', {
          * Remove token from cookie
          */
         removeToken() {
+            // Remove from cookies
             document.cookie = 'tron_auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+            
+            // Remove from localStorage (used on main page)
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('wallet_address');
+            
+            console.log('TronAuth: Tokens removed from cookies and localStorage');
         },
         
         /**
@@ -3890,6 +3897,39 @@ Vue.component('TronAuth', {
          * Check if user is already authenticated
          */
         async checkExistingAuth() {
+            // Check localStorage first (used on main page)
+            const localToken = localStorage.getItem('access_token');
+            const localWalletAddress = localStorage.getItem('wallet_address');
+            
+            if (localToken && localWalletAddress) {
+                try {
+                    const response = await fetch(`${this.apiBase}/auth/tron/me`, {
+                        headers: {
+                            'Authorization': `Bearer ${localToken}`
+                        }
+                    });
+
+                    if (response.ok) {
+                        const userInfo = await response.json();
+                        this.walletAddress = userInfo.wallet_address;
+                        this.isAuthenticated = true;
+                        console.log('TronAuth: Restored session from localStorage');
+                        return;
+                    } else {
+                        // Token is invalid, clear localStorage
+                        console.log('TronAuth: Invalid token in localStorage, clearing...');
+                        localStorage.removeItem('access_token');
+                        localStorage.removeItem('wallet_address');
+                    }
+                } catch (error) {
+                    console.error('Error checking auth from localStorage:', error);
+                    // Clear invalid tokens
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('wallet_address');
+                }
+            }
+            
+            // Fallback to cookies check (for backward compatibility)
             const cookies = document.cookie.split(';');
             const tokenCookie = cookies.find(c => c.trim().startsWith('tron_auth_token='));
             
@@ -3919,10 +3959,16 @@ Vue.component('TronAuth', {
                     const address = window.tronWeb.defaultAddress?.base58;
                     if (address && address !== false) {
                         this.walletAddress = address;
+                        // Don't set isAuthenticated = true, just store the address
                     }
                 } catch (error) {
                     console.error('Error checking TronWeb:', error);
                 }
+            }
+            
+            // Ensure component is in clean state if no valid auth found
+            if (!this.isAuthenticated) {
+                this.walletAddress = null;
             }
         }
     },

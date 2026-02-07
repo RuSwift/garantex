@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Garantex | Decentralized P2P Platform</title>
+    <title>{{ app_name }} | Decentralized P2P Platform</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
@@ -120,12 +120,25 @@
         .web3-auth-container .not-connected {
             margin: 0 !important;
         }
+        
+        /* Скрываем блоки после авторизации */
+        .web3-auth-container .user-info,
+        .web3-auth-container .sign-section,
+        .web3-auth-container #disconnect-btn {
+            display: none !important;
+        }
+        
+        /* Скрываем элементы для мобильных устройств */
+        .web3-auth-mobile .mobile-user-card,
+        .web3-auth-mobile .mobile-section {
+            display: none !important;
+        }
     </style>
 </head>
 <body class="bg-slate-50">
     <div id="app" v-cloak>
         <!-- Страница авторизации (если не авторизован) -->
-        <div v-if="!isAuthenticated" class="min-h-screen gradient-bg flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        <div v-show="!isAuthenticated" class="min-h-screen gradient-bg flex flex-col items-center justify-center p-4 relative overflow-hidden">
             <!-- Background glow effects -->
             <div class="absolute top-0 left-0 w-96 h-96 bg-blue-600 rounded-full blur-[128px] opacity-20 -translate-x-1/2 -translate-y-1/2"></div>
             <div class="absolute bottom-0 right-0 w-96 h-96 bg-indigo-600 rounded-full blur-[128px] opacity-20 translate-x-1/2 translate-y-1/2"></div>
@@ -138,14 +151,13 @@
                     </svg>
                 </div>
                 
-                <h1 class="text-4xl font-bold text-white mb-4">Garantex</h1>
+                <h1 class="text-4xl font-bold text-white mb-4">{{ app_name }}</h1>
                 <p class="text-slate-400 mb-10 text-lg leading-relaxed">
-                    Децентрализованная P2P платформа для обмена криптовалют. 
-                    Подключите кошелек TRON для входа.
+                    {{ app_description }}
                 </p>
                 
                 <!-- TronAuth Component -->
-                <tron-auth @authenticated="handleAuthSuccess"></tron-auth>
+                <tron-auth ref="tronAuth" @authenticated="handleAuthSuccess"></tron-auth>
                 
                 <p class="mt-8 text-slate-500 text-sm italic">
                     Безопасная авторизация через TronLink, TrustWallet или WalletConnect
@@ -154,7 +166,7 @@
         </div>
 
         <!-- Главный интерфейс (после авторизации) -->
-        <div v-else class="flex bg-slate-50 min-h-screen">
+        <div v-show="isAuthenticated" class="flex bg-slate-50 min-h-screen">
             <!-- Sidebar -->
             <div class="w-64 bg-white border-r h-screen sticky top-0 flex flex-col slide-in">
                 <!-- Logo -->
@@ -163,9 +175,9 @@
                         <div class="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center text-white text-sm">
                             G
                         </div>
-                        Garantex
+                        {{ app_name }}
                     </h1>
-                    <p class="text-xs text-gray-400 mt-1 uppercase tracking-widest font-semibold">P2P Platform</p>
+                    <p class="text-xs text-gray-400 mt-1 uppercase tracking-widest font-semibold">{{ app_tagline }}</p>
                 </div>
 
                 <!-- Navigation -->
@@ -535,10 +547,19 @@
                     localStorage.setItem('wallet_address', address);
                 },
                 logout() {
+                    console.log('Logout initiated...');
+                    
+                    // Вызываем disconnect в компоненте TronAuth для полной очистки
+                    // Компонент всегда доступен благодаря v-show вместо v-if
+                    if (this.$refs.tronAuth) {
+                        this.$refs.tronAuth.disconnect();
+                    }
+                    
+                    // Сбрасываем состояние родительского компонента
                     this.isAuthenticated = false;
                     this.walletAddress = '';
-                    localStorage.removeItem('access_token');
-                    localStorage.removeItem('wallet_address');
+                    
+                    console.log('Logout complete');
                 },
                 shortenAddress(address) {
                     if (!address) return '';

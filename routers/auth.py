@@ -5,8 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
 from services.web3_auth import web3_auth
 from services.tron_auth import tron_auth
+from services.wallet_user import WalletUserService
+from db import get_db
 
 router = APIRouter(prefix="/auth", tags=["Авторизация"])
 
@@ -67,14 +70,14 @@ async def get_nonce(request: NonceRequest):
 
 
 @router.post("/verify", response_model=AuthResponse)
-async def verify_signature(request: VerifyRequest):
+async def verify_signature(request: VerifyRequest, db: AsyncSession = Depends(get_db)):
     """
     Проверить подпись и получить JWT токен
     
     После успешной проверки подписи возвращается JWT токен,
     который можно использовать для авторизации в защищенных эндпоинтах.
     """
-    wallet_address = request.wallet_address.strip()
+    wallet_address = request.wallet_address.strip().lower()
     
     # Валидация адреса
     if not wallet_address.startswith("0x") or len(wallet_address) != 42:
@@ -97,10 +100,33 @@ async def verify_signature(request: VerifyRequest):
                 detail="Invalid signature"
             )
         
+        # Создаем или получаем пользователя в БД
+        user = await WalletUserService.get_by_wallet_address(wallet_address, db)
+        
+        if not user:
+            # Создаем нового пользователя при первой авторизации
+            # Генерируем nickname из адреса (первые 6 символов)
+            nickname = f"User_{wallet_address[:8]}"
+            
+            try:
+                user = await WalletUserService.create_user(
+                    wallet_address=wallet_address,
+                    blockchain="ethereum",
+                    nickname=nickname,
+                    db=db
+                )
+                print(f"✅ Created new Ethereum user: {wallet_address} (nickname: {nickname})")
+            except ValueError as e:
+                # Пользователь уже существует (race condition)
+                print(f"⚠️ User creation failed (already exists): {e}")
+                user = await WalletUserService.get_by_wallet_address(wallet_address, db)
+        else:
+            print(f"✅ Existing Ethereum user logged in: {wallet_address}")
+        
         # Генерируем JWT токен
         token = web3_auth.generate_jwt_token(wallet_address)
         
-        return AuthResponse(token=token, wallet_address=wallet_address.lower())
+        return AuthResponse(token=token, wallet_address=wallet_address)
         
     except HTTPException:
         raise
@@ -183,7 +209,7 @@ async def get_tron_nonce(request: NonceRequest):
 
 
 @router.post("/tron/verify", response_model=AuthResponse)
-async def verify_tron_signature(request: VerifyRequest):
+async def verify_tron_signature(request: VerifyRequest, db: AsyncSession = Depends(get_db)):
     """
     Проверить TRON подпись и получить JWT токен
     
@@ -212,6 +238,29 @@ async def verify_tron_signature(request: VerifyRequest):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid signature"
             )
+        
+        # Создаем или получаем пользователя в БД
+        user = await WalletUserService.get_by_wallet_address(wallet_address, db)
+        
+        if not user:
+            # Создаем нового пользователя при первой авторизации
+            # Генерируем nickname из адреса (первые 6 символов)
+            nickname = f"User_{wallet_address[:6]}"
+            
+            try:
+                user = await WalletUserService.create_user(
+                    wallet_address=wallet_address,
+                    blockchain="tron",
+                    nickname=nickname,
+                    db=db
+                )
+                print(f"✅ Created new TRON user: {wallet_address} (nickname: {nickname})")
+            except ValueError as e:
+                # Пользователь уже существует (race condition)
+                print(f"⚠️ User creation failed (already exists): {e}")
+                user = await WalletUserService.get_by_wallet_address(wallet_address, db)
+        else:
+            print(f"✅ Existing TRON user logged in: {wallet_address}")
         
         # Генерируем JWT токен
         token = tron_auth.generate_jwt_token(wallet_address)

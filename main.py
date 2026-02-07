@@ -6,6 +6,12 @@ from fastapi.templating import Jinja2Templates
 from routers import auth
 from routers import tron_multisig
 from dependencies import UserDepends
+from settings import Settings
+from db import init_db
+
+# Инициализация настроек и базы данных
+settings = Settings()
+init_db(settings.database)
 
 app = FastAPI(
     title="Garantex API",
@@ -47,7 +53,10 @@ async def root(
         {
             "request": request,
             "user": user_info,
-            "is_authenticated": user_info is not None
+            "is_authenticated": user_info is not None,
+            "app_name": "Гильдия",
+            "app_description": "Децентрализованная платформа для проведения трансгран-платежей. Подключите кошелек TRON для входа.",
+            "app_tagline": "DEX Platform"
         }
     )
 
