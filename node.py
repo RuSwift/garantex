@@ -534,8 +534,8 @@ async def set_admin_password(
     """
     Set or update admin password
     
-    Если админ еще не настроен - endpoint публичный (для первичной настройки)
-    Если админ уже настроен - требуется авторизация
+    Если нода еще не инициализирована - endpoint публичный (для первичной настройки)
+    Если нода уже инициализирована - требуется авторизация
     
     Args:
         request: Password configuration
@@ -548,11 +548,11 @@ async def set_admin_password(
     """
     from services.admin import AdminService
     
-    # Проверяем, настроен ли админ
-    is_configured = await AdminService.is_admin_configured(db)
+    # Проверяем, инициализирована ли нода
+    node_initialized = await NodeService.is_node_initialized(db)
     
-    # Если админ уже настроен, требуем авторизацию
-    if is_configured and not admin_cookie:
+    # Если нода уже инициализирована, требуем авторизацию
+    if node_initialized and not admin_cookie:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Admin authentication required"
@@ -788,10 +788,13 @@ async def get_tron_addresses(
 async def add_tron_address(
     request: AddTronAddressRequest,
     db: DbDepends,
-    admin: RequireAdminDepends
+    admin: AdminDepends = None
 ):
     """
     Add new TRON address to whitelist
+    
+    Если нода еще не инициализирована - endpoint публичный (для первичной настройки)
+    Если нода уже инициализирована - требуется авторизация
     
     Args:
         request: Add TRON address request
@@ -801,7 +804,18 @@ async def add_tron_address(
         Success status
     """
     from services.admin import AdminService
+    
     try:
+        # Проверяем, инициализирована ли нода
+        node_initialized = await NodeService.is_node_initialized(db)
+        
+        # Если нода уже инициализирована, требуем авторизацию
+        if node_initialized and not admin:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Admin authentication required"
+            )
+        
         await AdminService.add_tron_address(
             request.tron_address,
             db,
@@ -813,6 +827,8 @@ async def add_tron_address(
             message="TRON address added successfully"
         )
         
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(
             status_code=400,
@@ -978,7 +994,7 @@ async def toggle_tron_address(
 async def set_service_endpoint(
     request: SetServiceEndpointRequest,
     db: DbDepends,
-    admin: RequireAdminDepends
+    admin: AdminDepends = None
 ):
     """
     Set service endpoint for the node
@@ -989,8 +1005,24 @@ async def set_service_endpoint(
         
     Returns:
         Success status
+        
+    Note:
+        If node is not initialized yet, this endpoint is accessible without authentication.
+        Once node is initialized, authentication is required.
     """
+    from services.admin import AdminService
+    
     try:
+        # Проверяем, инициализирована ли нода
+        node_initialized = await NodeService.is_node_initialized(db)
+        
+        # Если нода уже инициализирована, требуем авторизацию
+        if node_initialized and not admin:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Admin authentication required"
+            )
+        
         success = await NodeService.set_service_endpoint(
             db,
             request.service_endpoint
@@ -1007,6 +1039,8 @@ async def set_service_endpoint(
             message="Service endpoint configured successfully"
         )
             
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
