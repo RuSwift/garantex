@@ -1,343 +1,551 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web3 Authentication - Metamask</title>
+    <title>Garantex | Decentralized P2P Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- TRON Auth CSS -->
+    <link href="/static/css/web3-auth.css" rel="stylesheet" />
+    <link href="/static/css/web3-auth-mobile.css" rel="stylesheet" />
+    
+    <!-- TronWeb library -->
+    <script src="https://cdn.jsdelivr.net/npm/tronweb@5.3.2/dist/TronWeb.js"></script>
+    
+    <!-- WalletConnect library (for mobile support) -->
+    <script src="https://cdn.jsdelivr.net/npm/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js"></script>
+    
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
+            font-family: 'Inter', sans-serif;
         }
-
-        .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            padding: 40px;
-            max-width: 500px;
+        [v-cloak] { 
+            display: none; 
+        }
+        
+        /* Smooth animations */
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .slide-in {
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(-20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        /* Gradient background */
+        .gradient-bg {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        }
+        
+        /* Glass effect */
+        .glass {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Pulse animation for status badge */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 1; }
+            100% { transform: scale(1.3); opacity: 0; }
+        }
+        
+        .pulse-ring::before {
+            content: '';
+            position: absolute;
             width: 100%;
-            text-align: center;
+            height: 100%;
+            background: inherit;
+            border-radius: inherit;
+            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
-
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 28px;
+        
+        /* Компактные стили для компонента TRON Auth на главной странице */
+        .web3-auth-container {
+            min-height: auto !important;
+            background: transparent !important;
+            padding: 0 !important;
         }
-
-        .subtitle {
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 14px;
+        
+        .web3-auth-container .container {
+            padding: 24px !important;
+            max-width: 100% !important;
+            background: transparent !important;
+            box-shadow: none !important;
         }
-
-        .status {
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            font-size: 14px;
+        
+        .web3-auth-container h1 {
+            display: none !important;
         }
-
-        .status.error {
-            background: #fee;
-            color: #c33;
-            border: 1px solid #fcc;
+        
+        .web3-auth-container .subtitle {
+            display: none !important;
         }
-
-        .status.info {
-            background: #e3f2fd;
-            color: #1976d2;
-            border: 1px solid #90caf9;
+        
+        .web3-auth-container .status {
+            padding: 12px 16px !important;
+            margin-bottom: 16px !important;
+            font-size: 13px !important;
+            border-radius: 12px !important;
         }
-
-        .status.success {
-            background: #e8f5e9;
-            color: #388e3c;
-            border: 1px solid #81c784;
+        
+        .web3-auth-container button {
+            padding: 14px 24px !important;
+            font-size: 15px !important;
+            border-radius: 14px !important;
+            font-weight: 600 !important;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            transition: all 0.3s ease !important;
         }
-
-        button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-            width: 100%;
-            margin-bottom: 15px;
+        
+        .web3-auth-container button:hover:not(:disabled) {
+            transform: translateY(-1px) !important;
+            box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4) !important;
         }
-
-        button:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        button.secondary {
-            background: #f5f5f5;
-            color: #333;
-        }
-
-        button.secondary:hover:not(:disabled) {
-            background: #e0e0e0;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-        }
-
-        .user-info {
-            background: #f9f9f9;
-            border-radius: 10px;
-            padding: 20px;
-            margin-top: 20px;
-            text-align: left;
-        }
-
-        .user-info h3 {
-            color: #333;
-            margin-bottom: 15px;
-            font-size: 18px;
-        }
-
-        .user-info p {
-            color: #666;
-            margin-bottom: 10px;
-            font-size: 14px;
-            word-break: break-all;
-        }
-
-        .user-info strong {
-            color: #333;
-        }
-
-        .sign-section {
-            background: #f9f9f9;
-            border-radius: 10px;
-            padding: 20px;
-            margin-top: 20px;
-            text-align: left;
-        }
-
-        .sign-section h3 {
-            color: #333;
-            margin-bottom: 15px;
-            font-size: 18px;
-        }
-
-        .sign-section label {
-            display: block;
-            color: #666;
-            margin-bottom: 8px;
-            font-size: 14px;
-            font-weight: 500;
-        }
-
-        .sign-section textarea {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 14px;
-            font-family: inherit;
-            resize: vertical;
-            min-height: 100px;
-            margin-bottom: 15px;
-        }
-
-        .sign-section textarea:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .signature-result {
-            background: #fff;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 15px;
-            word-break: break-all;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            color: #333;
-        }
-
-        .signature-result strong {
-            display: block;
-            margin-bottom: 8px;
-            color: #667eea;
-            font-size: 14px;
-        }
-
-        .network-section {
-            background: #f9f9f9;
-            border-radius: 10px;
-            padding: 20px;
-            margin-top: 20px;
-            text-align: left;
-        }
-
-        .network-section h3 {
-            color: #333;
-            margin-bottom: 15px;
-            font-size: 18px;
-        }
-
-        .network-info {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-
-        .network-name {
-            font-weight: 600;
-            color: #333;
-        }
-
-        .network-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
-            background: #667eea;
-            color: white;
-        }
-
-        .network-badge.unsupported {
-            background: #f44336;
-        }
-
-        .network-selector {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .network-btn {
-            padding: 12px 20px;
-            background: white;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-align: left;
-            font-size: 14px;
-        }
-
-        .network-btn:hover {
-            border-color: #667eea;
-            background: #f5f5ff;
-        }
-
-        .network-btn.active {
-            border-color: #667eea;
-            background: #e8e5ff;
-            font-weight: 600;
-        }
-
-        .network-btn .network-name {
-            display: block;
-            color: #333;
-            margin-bottom: 4px;
-        }
-
-        .network-btn .network-chain-id {
-            font-size: 12px;
-            color: #666;
-        }
-
-        .hidden {
-            display: none;
-        }
-
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
-            margin-right: 10px;
-            vertical-align: middle;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        
+        .web3-auth-container .not-connected {
+            margin: 0 !important;
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1>🔐 Web3 Authentication</h1>
-        <p class="subtitle">Connect with Metamask to authenticate</p>
-
-        <div id="status" class="status hidden"></div>
-
-        <div id="not-connected">
-            <button id="connect-btn">
-                Connect Metamask
-            </button>
-            <p style="color: #999; font-size: 12px; margin-top: 20px;">
-                Make sure you have Metamask installed and unlocked
-            </p>
+<body class="bg-slate-50">
+    <div id="app" v-cloak>
+        <!-- Страница авторизации (если не авторизован) -->
+        <div v-if="!isAuthenticated" class="min-h-screen gradient-bg flex flex-col items-center justify-center p-4 relative overflow-hidden">
+            <!-- Background glow effects -->
+            <div class="absolute top-0 left-0 w-96 h-96 bg-blue-600 rounded-full blur-[128px] opacity-20 -translate-x-1/2 -translate-y-1/2"></div>
+            <div class="absolute bottom-0 right-0 w-96 h-96 bg-indigo-600 rounded-full blur-[128px] opacity-20 translate-x-1/2 translate-y-1/2"></div>
+            
+            <div class="max-w-md w-full glass rounded-[2.5rem] p-12 relative z-10 text-center shadow-2xl fade-in">
+                <!-- Logo -->
+                <div class="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-3xl mx-auto mb-8 flex items-center justify-center text-white shadow-xl shadow-blue-900/40">
+                    <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                    </svg>
+                </div>
+                
+                <h1 class="text-4xl font-bold text-white mb-4">Garantex</h1>
+                <p class="text-slate-400 mb-10 text-lg leading-relaxed">
+                    Децентрализованная P2P платформа для обмена криптовалют. 
+                    Подключите кошелек TRON для входа.
+                </p>
+                
+                <!-- TronAuth Component -->
+                <tron-auth @authenticated="handleAuthSuccess"></tron-auth>
+                
+                <p class="mt-8 text-slate-500 text-sm italic">
+                    Безопасная авторизация через TronLink, TrustWallet или WalletConnect
+                </p>
+            </div>
         </div>
 
-        <div id="connected" class="hidden">
-            <button id="disconnect-btn" class="secondary">
-                Disconnect
-            </button>
-            <div class="user-info">
-                <h3>Authenticated</h3>
-                <p><strong>Wallet Address:</strong> <span id="wallet-address"></span></p>
-                <p><strong>Status:</strong> <span id="auth-status">Authenticated</span></p>
-            </div>
+        <!-- Главный интерфейс (после авторизации) -->
+        <div v-else class="flex bg-slate-50 min-h-screen">
+            <!-- Sidebar -->
+            <div class="w-64 bg-white border-r h-screen sticky top-0 flex flex-col slide-in">
+                <!-- Logo -->
+                <div class="p-6 border-b">
+                    <h1 class="text-2xl font-bold text-blue-600 flex items-center gap-2">
+                        <div class="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center text-white text-sm">
+                            G
+                        </div>
+                        Garantex
+                    </h1>
+                    <p class="text-xs text-gray-400 mt-1 uppercase tracking-widest font-semibold">P2P Platform</p>
+                </div>
 
-            <div class="network-section">
-                <h3>🌐 Network</h3>
-                <div class="network-info">
-                    <span class="network-name">Current: <span id="current-network-name">-</span></span>
-                    <span class="network-badge" id="network-badge">Chain ID: <span id="current-chain-id">-</span></span>
-                </div>
-                <div class="network-selector" id="network-selector">
-                    <!-- Network buttons will be generated here -->
-                </div>
-            </div>
+                <!-- Navigation -->
+                <nav class="flex-1 mt-6 px-4 space-y-2">
+                    <button 
+                        v-for="item in menuItems" 
+                        :key="item.id"
+                        @click="activeView = item.id"
+                        :class="[
+                            'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all',
+                            activeView === item.id 
+                                ? 'bg-blue-50 text-blue-600 font-semibold shadow-sm' 
+                                : 'text-gray-500 hover:bg-gray-50'
+                        ]"
+                    >
+                        <span v-html="item.icon"></span>
+                        [[ item.label ]]
+                    </button>
+                </nav>
 
-            <div class="sign-section">
-                <h3>✍️ Sign Message</h3>
-                <label for="message-input">Enter text to sign:</label>
-                <textarea id="message-input" placeholder="Type any message you want to sign with your wallet..."></textarea>
-                <button id="sign-btn">
-                    Sign with MetaMask
-                </button>
-                <div id="signature-result" class="signature-result hidden">
-                    <strong>Signature:</strong>
-                    <div id="signature-value"></div>
+                <!-- User Info -->
+                <div class="p-4 border-t bg-gray-50">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-indigo-600 flex items-center justify-center text-white font-bold text-xs">
+                            [[ walletAddress.substring(0, 2) ]]
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-semibold truncate">Connected</p>
+                            <p class="text-xs text-gray-500 truncate">[[ shortenAddress(walletAddress) ]]</p>
+                        </div>
+                    </div>
                 </div>
             </div>
+            
+            <!-- Main Content -->
+            <main class="flex-1 overflow-y-auto">
+                <!-- Header -->
+                <header class="h-16 bg-white border-b px-8 flex items-center justify-between sticky top-0 z-30">
+                    <div class="flex items-center gap-4">
+                        <div class="px-3 py-1 bg-green-50 text-green-600 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 border border-green-100">
+                            <span class="w-2 h-2 bg-green-500 rounded-full relative pulse-ring"></span>
+                            TRON Mainnet
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-6">
+                        <div class="flex flex-col items-end">
+                            <span class="text-xs text-gray-400 font-bold uppercase tracking-tighter">Ваш баланс</span>
+                            <span class="font-bold text-gray-900">[[ balance ]] <span class="text-blue-500">USDT</span></span>
+                        </div>
+                        <button 
+                            @click="logout"
+                            class="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                            title="Выйти"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Content Area -->
+                <div class="fade-in">
+                    <!-- Marketplace View -->
+                    <div v-if="activeView === 'marketplace'" class="p-8 max-w-7xl mx-auto">
+                        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                            <div>
+                                <h2 class="text-3xl font-bold text-gray-900">Маркетплейс</h2>
+                                <p class="text-gray-500 mt-1">Выберите проверенного агента для SWIFT переводов</p>
+                            </div>
+                            
+                            <div class="flex items-center gap-3">
+                                <div class="relative">
+                                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                    </svg>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Поиск агентов..." 
+                                        v-model="searchTerm"
+                                        class="pl-10 pr-4 py-2 border rounded-xl w-64 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all bg-white"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Agent Cards -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                            <div v-for="agent in filteredAgents" :key="agent.id" 
+                                class="bg-white rounded-2xl border hover:shadow-xl transition-all group overflow-hidden flex flex-col">
+                                <div class="p-6 flex-1">
+                                    <div class="flex justify-between items-start mb-4">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
+                                                [[ agent.name.charAt(0) ]]
+                                            </div>
+                                            <div>
+                                                <h3 class="font-bold text-lg text-gray-900 leading-none">[[ agent.name ]]</h3>
+                                                <div class="flex items-center gap-1 mt-1">
+                                                    <svg class="w-3.5 h-3.5 text-amber-400 fill-amber-400" viewBox="0 0 24 24">
+                                                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                                    </svg>
+                                                    <span class="text-sm font-semibold">[[ agent.rating ]]</span>
+                                                    <span class="text-xs text-gray-400">([[ agent.deals ]]+ сделок)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold uppercase tracking-tight">
+                                            Проверен
+                                        </div>
+                                    </div>
+
+                                    <p class="text-gray-600 text-sm mb-6 min-h-[60px]">
+                                        [[ agent.description ]]
+                                    </p>
+
+                                    <div class="grid grid-cols-2 gap-4 border-t pt-4">
+                                        <div>
+                                            <p class="text-xs text-gray-400 uppercase font-semibold">Комиссия</p>
+                                            <p class="text-lg font-bold text-blue-600">[[ agent.fee ]]%</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-gray-400 uppercase font-semibold">Валюта</p>
+                                            <p class="text-lg font-bold text-gray-900">[[ agent.currency ]]</p>
+                                        </div>
+                                        <div class="col-span-2">
+                                            <p class="text-xs text-gray-400 uppercase font-semibold">Лимиты (USDT)</p>
+                                            <p class="text-sm font-medium text-gray-700">
+                                                [[ agent.minLimit.toLocaleString() ]] - [[ agent.maxLimit.toLocaleString() ]]
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="p-4 bg-gray-50 border-t flex items-center justify-between group-hover:bg-blue-600 transition-colors">
+                                    <span class="text-xs font-medium text-gray-500 group-hover:text-blue-100 transition-colors">
+                                        Доступен 24/7
+                                    </span>
+                                    <button class="flex items-center gap-2 bg-white text-blue-600 px-4 py-2 rounded-lg font-bold text-sm shadow-sm group-hover:shadow-md transition-all">
+                                        Создать сделку
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Profile View -->
+                    <div v-if="activeView === 'profile'" class="p-8 max-w-4xl mx-auto">
+                        <h2 class="text-3xl font-bold text-gray-900 mb-8">Личный кабинет</h2>
+                        
+                        <div class="bg-white rounded-2xl border p-8 mb-6">
+                            <div class="flex items-center gap-6 mb-8">
+                                <div class="w-24 h-24 rounded-full bg-gradient-to-br from-blue-400 to-indigo-600 flex items-center justify-center text-white font-bold text-3xl">
+                                    [[ walletAddress.substring(0, 2) ]]
+                                </div>
+                                <div>
+                                    <h3 class="text-2xl font-bold text-gray-900">[[ shortenAddress(walletAddress) ]]</h3>
+                                    <p class="text-gray-500 mt-1">TRON Address</p>
+                                    <div class="mt-3 flex gap-2">
+                                        <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">
+                                            ✓ Верифицирован
+                                        </span>
+                                        <span class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">
+                                            Репутация: 4.9
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6">
+                                    <p class="text-gray-600 text-sm mb-2">Баланс USDT</p>
+                                    <p class="text-3xl font-bold text-blue-600">[[ balance ]]</p>
+                                </div>
+                                <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6">
+                                    <p class="text-gray-600 text-sm mb-2">Завершено сделок</p>
+                                    <p class="text-3xl font-bold text-green-600">42</p>
+                                </div>
+                                <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-6">
+                                    <p class="text-gray-600 text-sm mb-2">Рейтинг</p>
+                                    <p class="text-3xl font-bold text-purple-600">4.9 ★</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Transactions -->
+                        <div class="bg-white rounded-2xl border p-8">
+                            <h3 class="text-xl font-bold text-gray-900 mb-6">Последние транзакции</h3>
+                            <div class="space-y-4">
+                                <div v-for="tx in recentTransactions" :key="tx.id" 
+                                    class="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
+                                    <div class="flex items-center gap-4">
+                                        <div :class="['w-10 h-10 rounded-full flex items-center justify-center', 
+                                                     tx.type === 'buy' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600']">
+                                            <svg v-if="tx.type === 'buy'" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                                            </svg>
+                                            <svg v-else class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                                <path d="M12 22L2 17l10-5 10 5-10 5zM2 7l10-5 10 5M2 12l10-5 10 5"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="font-semibold text-gray-900">[[ tx.type === 'buy' ? 'Покупка' : 'Продажа' ]] [[ tx.currency ]]</p>
+                                            <p class="text-sm text-gray-500">[[ tx.date ]]</p>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="font-bold text-gray-900">[[ tx.amount.toLocaleString() ]] USDT</p>
+                                        <span :class="['text-xs font-semibold px-2 py-1 rounded-full',
+                                                      tx.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700']">
+                                            [[ tx.status === 'completed' ? 'Завершено' : 'В обработке' ]]
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- My Ads View -->
+                    <div v-if="activeView === 'my_ads'" class="p-8 max-w-7xl mx-auto">
+                        <div class="flex justify-between items-center mb-8">
+                            <div>
+                                <h2 class="text-3xl font-bold text-gray-900">Мои объявления</h2>
+                                <p class="text-gray-500 mt-1">Управление вашими предложениями</p>
+                            </div>
+                            <button class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors flex items-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                Создать объявление
+                            </button>
+                        </div>
+
+                        <div class="bg-white rounded-2xl border p-12 text-center">
+                            <div class="w-20 h-20 bg-gray-100 rounded-full mx-auto mb-6 flex items-center justify-center">
+                                <svg class="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                            </div>
+                            <h3 class="text-xl font-bold text-gray-900 mb-2">Пока нет объявлений</h3>
+                            <p class="text-gray-500">Создайте свое первое объявление для начала работы</p>
+                        </div>
+                    </div>
+                </div>
+            </main>
         </div>
     </div>
 
-    <script src="/static/metamask-auth.js"></script>
+    <script src="/static/js/components.js"></script>
+    <script>
+        new Vue({
+            el: '#app',
+            delimiters: ['[[', ']]'],
+            data: {
+                isAuthenticated: false,
+                walletAddress: '',
+                activeView: 'marketplace',
+                balance: '4,250.00',
+                searchTerm: '',
+                menuItems: [
+                    {
+                        id: 'marketplace',
+                        label: 'Маркетплейс',
+                        icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>'
+                    },
+                    {
+                        id: 'my_ads',
+                        label: 'Мои объявления',
+                        icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>'
+                    },
+                    {
+                        id: 'profile',
+                        label: 'Профиль',
+                        icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>'
+                    }
+                ],
+                agents: [
+                    {
+                        id: 1,
+                        name: 'GlobalPay Express',
+                        rating: 4.9,
+                        deals: 1250,
+                        fee: 2.5,
+                        minLimit: 500,
+                        maxLimit: 50000,
+                        currency: 'USD',
+                        description: 'Специализация на оплате обучения и бизнес-счетов по всему миру. Мгновенная обработка после эскроу USDT.'
+                    },
+                    {
+                        id: 2,
+                        name: 'EuroBridge Finance',
+                        rating: 4.7,
+                        deals: 840,
+                        fee: 1.8,
+                        minLimit: 1000,
+                        maxLimit: 100000,
+                        currency: 'EUR',
+                        description: 'Европейские корпоративные переводы. Гарантированный расчет в тот же день для проверенных клиентов.'
+                    },
+                    {
+                        id: 3,
+                        name: 'AsiaNode Swift',
+                        rating: 4.8,
+                        deals: 2100,
+                        fee: 3.0,
+                        minLimit: 100,
+                        maxLimit: 15000,
+                        currency: 'USD',
+                        description: 'Переводы малого и среднего размера в Китай и ЮВА. Высокий процент успешных личных переводов.'
+                    },
+                    {
+                        id: 4,
+                        name: 'RuSwift Gateway',
+                        rating: 4.6,
+                        deals: 650,
+                        fee: 2.2,
+                        minLimit: 300,
+                        maxLimit: 25000,
+                        currency: 'RUB',
+                        description: 'Специализация на переводах в Россию и страны СНГ. Быстрое прохождение через SWIFT.'
+                    }
+                ],
+                recentTransactions: [
+                    { id: 1, date: '2026-02-05', type: 'buy', amount: 2500, currency: 'USD', status: 'completed' },
+                    { id: 2, date: '2026-02-03', type: 'buy', amount: 1200, currency: 'EUR', status: 'pending' },
+                    { id: 3, date: '2026-01-28', type: 'sell', amount: 3500, currency: 'USD', status: 'completed' },
+                ]
+            },
+            computed: {
+                filteredAgents() {
+                    if (!this.searchTerm) return this.agents;
+                    const term = this.searchTerm.toLowerCase();
+                    return this.agents.filter(agent => 
+                        agent.name.toLowerCase().includes(term) ||
+                        agent.description.toLowerCase().includes(term) ||
+                        agent.currency.toLowerCase().includes(term)
+                    );
+                }
+            },
+            mounted() {
+                // Проверяем авторизацию при загрузке
+                this.checkAuth();
+            },
+            methods: {
+                checkAuth() {
+                    // Проверяем наличие токена в localStorage
+                    const token = localStorage.getItem('access_token');
+                    const walletAddress = localStorage.getItem('wallet_address');
+                    
+                    if (token && walletAddress) {
+                        this.isAuthenticated = true;
+                        this.walletAddress = walletAddress;
+                    }
+                },
+                handleAuthSuccess(address, token) {
+                    // Обработчик успешной авторизации от компонента TronAuth
+                    console.log('Authentication successful:', address);
+                    this.walletAddress = address;
+                    this.isAuthenticated = true;
+                    
+                    // Сохраняем в localStorage
+                    localStorage.setItem('access_token', token);
+                    localStorage.setItem('wallet_address', address);
+                },
+                logout() {
+                    this.isAuthenticated = false;
+                    this.walletAddress = '';
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('wallet_address');
+                },
+                shortenAddress(address) {
+                    if (!address) return '';
+                    return address.substring(0, 6) + '...' + address.substring(address.length - 4);
+                }
+            }
+        });
+    </script>
 </body>
 </html>
-

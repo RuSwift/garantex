@@ -84,6 +84,7 @@ class WalletUser(Base):
     wallet_address = Column(String(255), unique=True, nullable=False, index=True, comment="Wallet address (TRON: 34 chars, ETH: 42 chars)")
     blockchain = Column(String(20), nullable=False, index=True, comment="Blockchain type: tron, ethereum, bitcoin, etc.")
     nickname = Column(String(100), nullable=False, comment="User display name")
+    access_to_admin_panel = Column(Boolean, default=False, nullable=False, comment="Access to admin panel")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     

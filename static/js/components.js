@@ -3330,6 +3330,27 @@ Vue.component('TronAuth', {
         },
         
         /**
+         * Detect browser type
+         */
+        detectBrowser() {
+            const userAgent = navigator.userAgent;
+            
+            if (userAgent.indexOf("Edg") > -1) {
+                return "Edge";
+            } else if (userAgent.indexOf("Chrome") > -1) {
+                return "Chrome";
+            } else if (userAgent.indexOf("Safari") > -1) {
+                return "Safari";
+            } else if (userAgent.indexOf("Firefox") > -1) {
+                return "Firefox";
+            } else if (userAgent.indexOf("MSIE") > -1 || userAgent.indexOf("Trident") > -1) {
+                return "IE";
+            }
+            
+            return "Unknown";
+        },
+        
+        /**
          * Check TronWeb with retry logic (для асинхронной инжекции от TrustWallet)
          */
         checkTronWebWithRetry() {
@@ -3387,7 +3408,14 @@ Vue.component('TronAuth', {
                 this.isTronWebAvailable = true; // Разрешаем подключение через WC
             } else {
                 console.log('TronWeb not found');
-                this.showStatus('Установите TronLink или TrustWallet', 'info');
+                const browser = this.detectBrowser();
+                let statusMsg = 'Установите TronLink или TrustWallet';
+                
+                if (browser === 'Edge' || browser === 'IE') {
+                    statusMsg = 'Для Microsoft Edge: Установите расширение TronLink из Microsoft Store. После установки обновите страницу (F5).';
+                }
+                
+                this.showStatus(statusMsg, 'info');
             }
             
             console.log('isTronWebAvailable:', this.isTronWebAvailable);
@@ -3424,13 +3452,71 @@ Vue.component('TronAuth', {
          */
         async signMessage(message, address) {
             try {
-                const signature = await window.tronWeb.trx.sign(message);
-                return signature;
+                console.log('Signing message:', message);
+                console.log('With address:', address);
+                
+                // Для совместимости с разными браузерами (особенно Edge)
+                // используем разные методы подписи в зависимости от доступного API
+                
+                let signature;
+                
+                // Метод 1: Попытка использовать tronWeb.trx.signMessageV2 (более новый API)
+                if (typeof window.tronWeb.trx.signMessageV2 === 'function') {
+                    try {
+                        console.log('Trying signMessageV2...');
+                        signature = await window.tronWeb.trx.signMessageV2(message);
+                        console.log('signMessageV2 success:', signature);
+                        return signature;
+                    } catch (e) {
+                        console.log('signMessageV2 failed:', e);
+                    }
+                }
+                
+                // Метод 2: Использование tronWeb.trx.sign (стандартный метод)
+                if (typeof window.tronWeb.trx.sign === 'function') {
+                    try {
+                        console.log('Trying trx.sign...');
+                        // Конвертируем сообщение в UTF-8 строку для корректной подписи
+                        const messageStr = typeof message === 'string' ? message : JSON.stringify(message);
+                        signature = await window.tronWeb.trx.sign(messageStr);
+                        console.log('trx.sign success:', signature);
+                        return signature;
+                    } catch (e) {
+                        console.log('trx.sign failed:', e);
+                        throw e;
+                    }
+                }
+                
+                // Метод 3: Через tronLink API (для расширения TronLink)
+                if (window.tronLink && typeof window.tronLink.request === 'function') {
+                    try {
+                        console.log('Trying tronLink.request...');
+                        const messageHex = window.tronWeb.toHex(message);
+                        signature = await window.tronLink.request({
+                            method: 'tron_signMessage',
+                            params: {
+                                message: messageHex,
+                                address: address
+                            }
+                        });
+                        console.log('tronLink.request success:', signature);
+                        return signature;
+                    } catch (e) {
+                        console.log('tronLink.request failed:', e);
+                        throw e;
+                    }
+                }
+                
+                throw new Error('Не удалось найти метод для подписи сообщения');
+                
             } catch (error) {
+                console.error('Sign message error:', error);
                 if (error.message && error.message.includes('Confirmation declined')) {
                     this.showStatus('Подпись сообщения отклонена.', 'error');
+                } else if (error.message && error.message.includes('Invalid transaction')) {
+                    this.showStatus('Ошибка подписи. Попробуйте обновить страницу и разблокировать кошелек.', 'error');
                 } else {
-                    this.showStatus(`Ошибка подписи: ${error.message}`, 'error');
+                    this.showStatus(`Ошибка подписи: ${error.message || 'undefined'}`, 'error');
                 }
                 throw error;
             }
@@ -3585,6 +3671,25 @@ Vue.component('TronAuth', {
                 
             } catch (error) {
                 console.error('Connection error:', error);
+                
+                // Более детальная обработка ошибок для разных браузеров
+                let errorMessage = 'Ошибка подключения';
+                
+                if (error.message) {
+                    if (error.message.includes('User rejected')) {
+                        errorMessage = 'Подключение отклонено пользователем';
+                    } else if (error.message.includes('Invalid transaction')) {
+                        errorMessage = 'Ошибка транзакции. Убедитесь, что TronLink разблокирован и обновите страницу';
+                    } else if (error.message.includes('Confirmation declined')) {
+                        errorMessage = 'Подпись отклонена';
+                    } else if (error.message.includes('timeout')) {
+                        errorMessage = 'Время ожидания истекло. Попробуйте снова';
+                    } else {
+                        errorMessage = `Ошибка: ${error.message}`;
+                    }
+                }
+                
+                this.showStatus(errorMessage, 'error');
                 this.walletAddress = null;
                 this.isAuthenticated = false;
             } finally {
