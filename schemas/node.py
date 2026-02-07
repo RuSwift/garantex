@@ -127,3 +127,38 @@ class TestServiceEndpointResponse(BaseModel):
     status_code: Optional[int] = Field(None, description="HTTP status code received")
     message: str = Field(..., description="Test result message")
     response_time_ms: Optional[float] = Field(None, description="Response time in milliseconds")
+
+
+# ====================
+# Admin Authentication Schemas
+# ====================
+
+class AdminLoginRequest(BaseModel):
+    """Request for admin password authentication"""
+    username: str = Field(..., description="Admin username")
+    password: str = Field(..., description="Admin password")
+
+
+class AdminLoginResponse(BaseModel):
+    """Response for admin authentication"""
+    success: bool = Field(..., description="Login success status")
+    token: Optional[str] = Field(None, description="JWT token for authentication")
+    message: Optional[str] = Field(None, description="Status message")
+
+
+class AdminTronNonceRequest(BaseModel):
+    """Request for TRON nonce"""
+    tron_address: str = Field(..., description="TRON wallet address")
+
+
+class AdminTronNonceResponse(BaseModel):
+    """Response with nonce for TRON signing"""
+    nonce: str = Field(..., description="Nonce to sign")
+    message: str = Field(..., description="Message to sign")
+
+
+class AdminTronVerifyRequest(BaseModel):
+    """Request to verify TRON signature"""
+    tron_address: str = Field(..., description="TRON wallet address")
+    signature: str = Field(..., description="Signed message")
+    message: str = Field(..., description="Original message")

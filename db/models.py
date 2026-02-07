@@ -75,6 +75,22 @@ class AdminTronAddress(Base):
         return f"<AdminTronAddress(id={self.id}, address={self.tron_address}, label={self.label})>"
 
 
+class WalletUser(Base):
+    """Model for storing wallet user profiles (non-admin users)"""
+    
+    __tablename__ = "wallet_users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_address = Column(String(255), unique=True, nullable=False, index=True, comment="Wallet address (TRON: 34 chars, ETH: 42 chars)")
+    blockchain = Column(String(20), nullable=False, index=True, comment="Blockchain type: tron, ethereum, bitcoin, etc.")
+    nickname = Column(String(100), nullable=False, comment="User display name")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<WalletUser(id={self.id}, wallet={self.wallet_address}, nickname={self.nickname}, blockchain={self.blockchain})>"
+
+
 class Storage(Base):
     """Model for storing JSON payloads with space-based organization"""
     

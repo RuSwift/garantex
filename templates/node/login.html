@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Admin Login - Node Panel</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet" onerror="this.onerror=null; this.href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css'" />
+    <!-- Font Awesome -->
+    <link href="/static/css/font-awesome.min.css" rel="stylesheet" onerror="this.onerror=null; this.href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'" />
+    
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-container {
+            max-width: 450px;
+            width: 100%;
+            padding: 20px;
+        }
+        .login-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        .login-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .login-header h2 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .login-header p {
+            margin: 5px 0 0 0;
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        .login-body {
+            padding: 30px;
+        }
+        .nav-tabs {
+            border-bottom: 2px solid #e9ecef;
+        }
+        .nav-tabs .nav-link {
+            border: none;
+            color: #6c757d;
+            padding: 10px 20px;
+            font-weight: 500;
+        }
+        .nav-tabs .nav-link.active {
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+            background: transparent;
+        }
+        .form-label {
+            font-weight: 500;
+            color: #495057;
+            margin-bottom: 8px;
+        }
+        .form-control {
+            border-radius: 8px;
+            padding: 12px 15px;
+            border: 1px solid #ced4da;
+        }
+        .form-control:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+        .btn-login {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            padding: 12px;
+            font-weight: 500;
+            width: 100%;
+            transition: transform 0.2s;
+        }
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn-login:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .alert {
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .tron-info {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #6c757d;
+        }
+        .spinner-border-sm {
+            width: 1rem;
+            height: 1rem;
+            border-width: 0.15em;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <h2><i class="fas fa-shield-alt"></i> Admin Panel</h2>
+                <p>Authenticate to access node management</p>
+            </div>
+            <div class="login-body">
+                <!-- Alerts -->
+                <div id="alert-container"></div>
+                
+                <!-- Tabs -->
+                <ul class="nav nav-tabs mb-4" id="loginTabs" role="tablist">
+                    <li class="nav-item" role="presentation" id="password-tab-li">
+                        <button class="nav-link active" id="password-tab" data-bs-toggle="tab" 
+                                data-bs-target="#password" type="button" role="tab">
+                            <i class="fas fa-key"></i> Password
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation" id="tron-tab-li">
+                        <button class="nav-link" id="tron-tab" data-bs-toggle="tab" 
+                                data-bs-target="#tron" type="button" role="tab">
+                            <i class="fab fa-trello"></i> TRON Wallet
+                        </button>
+                    </li>
+                </ul>
+                
+                <!-- Tab Content -->
+                <div class="tab-content" id="loginTabContent">
+                    <!-- Password Login -->
+                    <div class="tab-pane fade show active" id="password" role="tabpanel">
+                        <form id="password-form" onsubmit="loginWithPassword(event)">
+                            <div class="mb-3">
+                                <label for="username" class="form-label">Username</label>
+                                <input type="text" class="form-control" id="username" name="username"
+                                       placeholder="Enter username" required autocomplete="username">
+                            </div>
+                            <div class="mb-3">
+                                <label for="admin-password" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="admin-password" name="password"
+                                       placeholder="Enter password" required autocomplete="current-password">
+                            </div>
+                            <button type="submit" class="btn btn-login" id="password-btn">
+                                <i class="fas fa-sign-in-alt"></i> Login
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <!-- TRON Wallet Login -->
+                    <div class="tab-pane fade" id="tron" role="tabpanel">
+                        <div class="tron-info">
+                            <i class="fas fa-info-circle"></i>
+                            Connect your TRON wallet to authenticate. Only whitelisted addresses can access the admin panel.
+                        </div>
+                        <button type="button" class="btn btn-login" id="tron-btn" onclick="loginWithTron()">
+                            <i class="fas fa-wallet"></i> Connect TRON Wallet
+                        </button>
+                        <div id="tron-status" class="mt-3 text-center" style="display: none;">
+                            <small class="text-muted">
+                                <span id="tron-status-text"></span>
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scripts -->
+    <script src="/static/js/bootstrap.bundle.min.js" onerror="this.onerror=null; this.src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js'"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    
+    <!-- TronWeb for TRON authentication -->
+    <script src="https://cdn.jsdelivr.net/npm/tronweb@5.3.0/dist/TronWeb.js"></script>
+    
+    <script>
+        // Show alert message
+        function showAlert(message, type = 'danger') {
+            const alertHtml = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            document.getElementById('alert-container').innerHTML = alertHtml;
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => {
+                const alert = document.querySelector('.alert');
+                if (alert) {
+                    const bsAlert = new bootstrap.Alert(alert);
+                    bsAlert.close();
+                }
+            }, 5000);
+        }
+        
+        // Check authentication methods on load
+        async function checkAuthMethods() {
+            try {
+                const response = await axios.get('/api/node/is-admin-configured');
+                const { has_password, tron_addresses_count } = response.data;
+                
+                // Hide tabs if methods are not configured
+                if (!has_password) {
+                    document.getElementById('password-tab-li').style.display = 'none';
+                }
+                if (tron_addresses_count === 0) {
+                    document.getElementById('tron-tab-li').style.display = 'none';
+                }
+                
+                // Switch to available tab if current is hidden
+                if (!has_password && tron_addresses_count > 0) {
+                    document.getElementById('tron-tab').click();
+                }
+            } catch (error) {
+                console.error('Error checking auth methods:', error);
+            }
+        }
+        
+        // Password login
+        async function loginWithPassword(event) {
+            event.preventDefault();
+            
+            const form = event.target;
+            const usernameInput = form.querySelector('#username');
+            const passwordInput = form.querySelector('#admin-password');
+            const btn = document.getElementById('password-btn');
+            
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value;
+            
+            // Validate inputs
+            if (!username) {
+                showAlert('Please enter username');
+                return;
+            }
+            if (!password) {
+                showAlert('Please enter password');
+                return;
+            }
+            
+            // Disable button
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Authenticating...';
+            
+            try {
+                const requestData = {
+                    username: username,
+                    password: password
+                };
+                
+                console.log('Sending login request:', {
+                    username: username,
+                    passwordLength: password.length,
+                    hasPassword: !!password
+                });
+                console.log('Request data keys:', Object.keys(requestData));
+                
+                const response = await axios.post('/api/admin/login', requestData, {
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                console.log('Login response:', response.data);
+                
+                if (response.data.success) {
+                    // Set cookie
+                    document.cookie = `admin_token=${response.data.token}; path=/; max-age=${24 * 60 * 60}`;
+                    
+                    showAlert('Login successful! Redirecting...', 'success');
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 1000);
+                } else {
+                    showAlert(response.data.message || 'Invalid credentials');
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                let message = 'Login failed. Please try again.';
+                if (error.response && error.response.data && error.response.data.detail) {
+                    message = error.response.data.detail;
+                }
+                showAlert(message);
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
+            }
+        }
+        
+        // TRON wallet login
+        async function loginWithTron() {
+            const btn = document.getElementById('tron-btn');
+            const statusDiv = document.getElementById('tron-status');
+            const statusText = document.getElementById('tron-status-text');
+            
+            // Check if TronLink is installed
+            if (!window.tronWeb || !window.tronWeb.defaultAddress.base58) {
+                showAlert('TronLink wallet not found. Please install TronLink extension.');
+                return;
+            }
+            
+            // Disable button
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Connecting...';
+            statusDiv.style.display = 'block';
+            statusText.textContent = 'Connecting to TronLink...';
+            
+            try {
+                // Get wallet address
+                const tronAddress = window.tronWeb.defaultAddress.base58;
+                
+                if (!tronAddress) {
+                    throw new Error('No TRON address found. Please unlock TronLink.');
+                }
+                
+                statusText.textContent = `Address: ${tronAddress.substring(0, 8)}...${tronAddress.substring(tronAddress.length - 6)}`;
+                
+                // Request nonce
+                const nonceResponse = await axios.post('/api/admin/tron/nonce', {
+                    tron_address: tronAddress
+                });
+                
+                const { nonce, message } = nonceResponse.data;
+                statusText.textContent = 'Please sign the message in TronLink...';
+                
+                // Sign message using signMessageV2 for text messages
+                const signature = await window.tronWeb.trx.signMessageV2(message);
+                
+                console.log('Signature:', signature);
+                console.log('Message:', message);
+                console.log('Address:', tronAddress);
+                
+                statusText.textContent = 'Verifying signature...';
+                
+                // Verify signature
+                const verifyResponse = await axios.post('/api/admin/tron/verify', {
+                    tron_address: tronAddress,
+                    signature: signature,
+                    message: message
+                });
+                
+                if (verifyResponse.data.success) {
+                    // Set cookie
+                    document.cookie = `admin_token=${verifyResponse.data.token}; path=/; max-age=${24 * 60 * 60}`;
+                    
+                    showAlert('Login successful! Redirecting...', 'success');
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 1000);
+                } else {
+                    showAlert(verifyResponse.data.message || 'Authentication failed');
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-wallet"></i> Connect TRON Wallet';
+                    statusDiv.style.display = 'none';
+                }
+            } catch (error) {
+                let message = 'TRON authentication failed. ';
+                if (error.response && error.response.data && error.response.data.detail) {
+                    message += error.response.data.detail;
+                } else if (error.message) {
+                    message += error.message;
+                } else {
+                    message += 'Please try again.';
+                }
+                showAlert(message);
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-wallet"></i> Connect TRON Wallet';
+                statusDiv.style.display = 'none';
+            }
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuthMethods();
+        });
+    </script>
+</body>
+</html>
+

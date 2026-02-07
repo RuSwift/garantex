@@ -123,8 +123,8 @@ class NodeService:
         Raises:
             ValueError: Если мнемоническая фраза невалидна или нода уже инициализирована
         """
-        # Проверяем, не инициализирована ли уже нода
-        if await NodeService.is_node_initialized(db):
+        # Проверяем, не существует ли уже ключ
+        if await NodeService.has_key(db):
             raise ValueError("Нода инициализируется только один раз")
         
         # Валидируем мнемоническую фразу
@@ -185,8 +185,8 @@ class NodeService:
         Raises:
             ValueError: Если PEM данные невалидны или нода уже инициализирована
         """
-        # Проверяем, не инициализирована ли уже нода
-        if await NodeService.is_node_initialized(db):
+        # Проверяем, не существует ли уже ключ
+        if await NodeService.has_key(db):
             raise ValueError("Нода инициализируется только один раз")
         
         # Проверяем что PEM содержит маркеры приватного ключа
@@ -279,20 +279,68 @@ class NodeService:
         return None
     
     @staticmethod
-    async def is_node_initialized(db: AsyncSession) -> bool:
+    async def has_key(db: AsyncSession) -> bool:
         """
-        Проверяет, инициализирована ли нода
+        Проверяет, существует ли ключ ноды
         
         Args:
             db: Database session
             
         Returns:
-            True если нода инициализирована, False иначе
+            True если ключ существует, False иначе
         """
         result = await db.execute(
             select(NodeSettings).where(NodeSettings.is_active == True)
         )
-        return result.scalar_one_or_none() is not None
+        node_settings = result.scalar_one_or_none()
+        
+        if not node_settings:
+            return False
+        
+        return bool(
+            node_settings.encrypted_mnemonic or 
+            node_settings.encrypted_pem
+        )
+    
+    @staticmethod
+    async def is_node_initialized(db: AsyncSession) -> bool:
+        """
+        Проверяет, инициализирована ли нода
+        
+        Нода считается проинициализированной если выполнены ВСЕ условия:
+        1. Задан ключ (encrypted_mnemonic или encrypted_pem)
+        2. Настроен админ (пароль или TRON адреса)
+        3. Задан service_endpoint
+        
+        Args:
+            db: Database session
+            
+        Returns:
+            True если нода полностью инициализирована, False иначе
+        """
+        from services.admin import AdminService
+        
+        # 1. Проверяем наличие ключа
+        has_key = await NodeService.has_key(db)
+        if not has_key:
+            return False
+        
+        # 2. Проверяем настройку админа
+        is_admin_configured = await AdminService.is_admin_configured(db)
+        if not is_admin_configured:
+            return False
+        
+        # 3. Проверяем service endpoint
+        result = await db.execute(
+            select(NodeSettings).where(NodeSettings.is_active == True)
+        )
+        node_settings = result.scalar_one_or_none()
+        has_service_endpoint = bool(node_settings and node_settings.service_endpoint)
+        if not has_service_endpoint:
+            return False
+        
+        # Все условия выполнены
+        return True
     
     @staticmethod
     async def set_service_endpoint(

@@ -6,18 +6,23 @@ from fastapi.templating import Jinja2Templates
 
 from routers import auth
 from routers import didcomm
-from dependencies import UserDepends, SettingsDepends, PrivKeyDepends, DbDepends
+from dependencies import UserDepends, AdminDepends, SettingsDepends, PrivKeyDepends, DbDepends
 from schemas.node import (
     NodeInitRequest, NodeInitPemRequest, NodeInitResponse,
     SetPasswordRequest, ChangePasswordRequest, AdminInfoResponse, AdminConfiguredResponse,
     TronAddressList, TronAddressItem, AddTronAddressRequest, UpdateTronAddressRequest,
     ToggleTronAddressRequest, ChangeResponse,
     SetServiceEndpointRequest, ServiceEndpointResponse, 
-    TestServiceEndpointRequest, TestServiceEndpointResponse
+    TestServiceEndpointRequest, TestServiceEndpointResponse,
+    AdminLoginRequest, AdminLoginResponse,
+    AdminTronNonceRequest, AdminTronNonceResponse, AdminTronVerifyRequest
 )
 from didcomm.did import create_peer_did_from_keypair
 from services.node import NodeService
 from services.admin import AdminService
+from tron_auth import tron_auth
+import jwt
+from datetime import datetime, timedelta
 
 
 app = FastAPI(
@@ -67,12 +72,29 @@ app.include_router(didcomm.router)
 async def root(
     request: Request,
     user_info: UserDepends,
+    admin_info: AdminDepends,
     settings: SettingsDepends,
     db: DbDepends,
 ):
     """
     Главная страница с админ-панелью
+    
+    Требует авторизации админа для доступа к панели управления нодой
     """
+    
+    # Проверяем инициализацию ноды из базы данных
+    is_node_initialized = await NodeService.is_node_initialized(db)
+    
+    # Если нода проинициализирована, требуем авторизацию админа
+    if is_node_initialized:
+        if not admin_info:
+            # Пользователь не авторизован как админ - показываем страницу входа
+            return templates.TemplateResponse(
+                "node/login.html",
+                {
+                    "request": request
+                }
+            )
     
     # Боковое меню
     side_menu = [
@@ -112,15 +134,13 @@ async def root(
         }
     ]
     
-    # Проверяем инициализацию ноды из базы данных
-    is_node_initialized = await NodeService.is_node_initialized(db)
-    
     return templates.TemplateResponse(
         "panel.html",
         {
             "request": request,
             "app_name": "Self-Hosted Node",
             "user": user_info,
+            "admin": admin_info,
             "side_menu": side_menu,
             "selected_menu": "dashboard",
             "current_page": "Dashboard",
@@ -137,6 +157,203 @@ async def health_check():
     return {
         "status": "ok",
         "utc": datetime.now(timezone.utc).isoformat()
+    }
+
+
+# ====================
+# Admin Authentication Endpoints
+# ====================
+
+@app.post("/api/admin/login", response_model=AdminLoginResponse)
+async def admin_login(
+    request: AdminLoginRequest,
+    db: DbDepends,
+    settings: SettingsDepends
+):
+    """
+    Admin login with username and password
+    
+    Args:
+        request: Login credentials
+        db: Database session
+        settings: Application settings
+        
+    Returns:
+        JWT token for authenticated admin
+    """
+    try:
+        # Verify credentials
+        admin = await AdminService.verify_password_auth(
+            request.username,
+            request.password,
+            db
+        )
+        
+        if not admin:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password"
+            )
+        
+        # Generate JWT token
+        payload = {
+            "admin": True,
+            "username": admin.username,
+            "exp": datetime.utcnow() + timedelta(hours=24),
+            "iat": datetime.utcnow()
+        }
+        
+        token = jwt.encode(
+            payload,
+            settings.secret.get_secret_value(),
+            algorithm="HS256"
+        )
+        
+        return AdminLoginResponse(
+            success=True,
+            token=token,
+            message="Login successful"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Login error: {str(e)}"
+        )
+
+
+@app.post("/api/admin/tron/nonce", response_model=AdminTronNonceResponse)
+async def admin_tron_nonce(
+    request: AdminTronNonceRequest,
+    db: DbDepends
+):
+    """
+    Get nonce for TRON wallet authentication
+    
+    Args:
+        request: TRON address
+        db: Database session
+        
+    Returns:
+        Nonce and message to sign
+    """
+    try:
+        # Check if TRON address is whitelisted
+        is_whitelisted = await AdminService.verify_tron_auth(
+            request.tron_address,
+            db
+        )
+        
+        if not is_whitelisted:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="TRON address not authorized for admin access"
+            )
+        
+        # Generate nonce
+        nonce = tron_auth.generate_nonce(request.tron_address)
+        message = f"Please sign this message to authenticate:\n\nNonce: {nonce}"
+        
+        return AdminTronNonceResponse(
+            nonce=nonce,
+            message=message
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating nonce: {str(e)}"
+        )
+
+
+@app.post("/api/admin/tron/verify", response_model=AdminLoginResponse)
+async def admin_tron_verify(
+    request: AdminTronVerifyRequest,
+    db: DbDepends,
+    settings: SettingsDepends
+):
+    """
+    Verify TRON signature and authenticate admin
+    
+    Args:
+        request: TRON address, signature, and message
+        db: Database session
+        settings: Application settings
+        
+    Returns:
+        JWT token for authenticated admin
+    """
+    try:
+        # Check if TRON address is whitelisted
+        is_whitelisted = await AdminService.verify_tron_auth(
+            request.tron_address,
+            db
+        )
+        
+        if not is_whitelisted:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="TRON address not authorized for admin access"
+            )
+        
+        # Verify signature
+        is_valid = tron_auth.verify_signature(
+            request.tron_address,
+            request.signature,
+            request.message
+        )
+        
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid signature"
+            )
+        
+        # Generate JWT token
+        payload = {
+            "admin": True,
+            "tron_address": request.tron_address,
+            "blockchain": "tron",
+            "exp": datetime.utcnow() + timedelta(hours=24),
+            "iat": datetime.utcnow()
+        }
+        
+        token = jwt.encode(
+            payload,
+            settings.secret.get_secret_value(),
+            algorithm="HS256"
+        )
+        
+        return AdminLoginResponse(
+            success=True,
+            token=token,
+            message="Authentication successful"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Verification error: {str(e)}"
+        )
+
+
+@app.post("/api/admin/logout")
+async def admin_logout():
+    """
+    Admin logout endpoint
+    
+    Note: JWT tokens are stateless, so logout is handled client-side by removing the token.
+    This endpoint exists for consistency and future stateful token management.
+    """
+    return {
+        "success": True,
+        "message": "Logged out successfully"
     }
 
 
@@ -249,9 +466,9 @@ async def get_key_info(
     """
     Получить информацию о ключе ноды, включая DID и DIDDoc
     """
-    # Проверяем инициализацию ноды из базы данных
-    is_initialized = await NodeService.is_node_initialized(db)
-    if not is_initialized:
+    # Проверяем наличие ключа ноды
+    has_key = await NodeService.has_key(db)
+    if not has_key:
         raise HTTPException(status_code=404, detail="Нода не инициализирована")
     
     if priv_key is None:
@@ -319,6 +536,7 @@ async def set_admin_password(
     Returns:
         Success status
     """
+    from services.admin import AdminService
     try:
         await AdminService.set_password(
             request.username,
@@ -353,6 +571,7 @@ async def check_admin_configured(db: DbDepends):
     """
     from sqlalchemy import select, func
     from db.models import AdminTronAddress
+    from services.admin import AdminService
     
     is_configured = await AdminService.is_admin_configured(db)
     admin = await AdminService.get_admin(db)
@@ -385,6 +604,7 @@ async def get_admin_info(db: DbDepends):
     """
     from sqlalchemy import select, func
     from db.models import AdminUser, AdminTronAddress
+    from services.admin import AdminService
     
     try:
         admin = await AdminService.get_admin(db)
@@ -434,6 +654,7 @@ async def change_admin_password(
     Returns:
         Success status
     """
+    from services.admin import AdminService
     try:
         await AdminService.change_password(
             request.old_password,
@@ -471,6 +692,7 @@ async def remove_admin_password(db: DbDepends):
     Returns:
         Success status
     """
+    from services.admin import AdminService
     try:
         await AdminService.remove_password(db)
         
@@ -508,6 +730,7 @@ async def get_tron_addresses(
     Returns:
         List of TRON addresses
     """
+    from services.admin import AdminService
     try:
         addresses = await AdminService.get_tron_addresses(db, active_only=active_only)
         
@@ -547,6 +770,7 @@ async def add_tron_address(
     Returns:
         Success status
     """
+    from services.admin import AdminService
     try:
         await AdminService.add_tron_address(
             request.tron_address,
@@ -588,6 +812,7 @@ async def update_tron_address(
     Returns:
         Success status
     """
+    from services.admin import AdminService
     try:
         await AdminService.update_tron_address(
             tron_id,
@@ -630,6 +855,7 @@ async def delete_tron_address(
     Returns:
         Success status
     """
+    from services.admin import AdminService
     try:
         await AdminService.delete_tron_address(tron_id, db)
         
@@ -669,8 +895,31 @@ async def toggle_tron_address(
     Returns:
         Success status
     """
+    from services.admin import AdminService
     try:
-        await AdminService.toggle_tron_address(tron_id, request.is_active, db)
+        await AdminService.toggle_tron_address(
+            tron_id,
+            request.is_active,
+            db
+        )
+        
+        return ChangeResponse(
+            success=True,
+            message=f"TRON address {'activated' if request.is_active else 'deactivated'} successfully"
+        )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400 if "not found" not in str(e).lower() else 404,
+            detail=str(e)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error toggling TRON address: {str(e)}"
+        )
         
         status = "activated" if request.is_active else "deactivated"
         return ChangeResponse(
@@ -851,18 +1100,12 @@ async def get_node_did_document(
     
     This endpoint is the service endpoint advertised in the DID Document.
     It allows other nodes to discover the node's public keys and capabilities.
+    Works even if node is not fully initialized (admin/service_endpoint not configured).
     
     Returns:
         DID Document in JSON format
     """
-    # Check if node is initialized
-    is_initialized = await NodeService.is_node_initialized(db)
-    if not is_initialized:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Node not initialized"
-        )
-    
+    # Check if node key exists
     if priv_key is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -904,6 +1147,7 @@ async def receive_didcomm_message(
     This endpoint is the service endpoint advertised in the DID Document.
     It accepts packed DIDComm messages, unpacks them, routes to appropriate
     protocol handlers, and returns any response.
+    Works even if node is not fully initialized (admin/service_endpoint not configured).
     
     Args:
         message: Packed DIDComm message (can include sender_public_key and sender_key_type)
@@ -917,14 +1161,7 @@ async def receive_didcomm_message(
     from routers.utils import extract_protocol_name
     from services.protocols import get_protocol_handler
     
-    # Check if node is initialized
-    is_initialized = await NodeService.is_node_initialized(db)
-    if not is_initialized:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Node not initialized"
-        )
-    
+    # Check if node key exists
     if priv_key is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -120,7 +120,8 @@ class TronAuth:
             message = f"Please sign this message to authenticate:\n\nNonce: {nonce}"
         
         try:
-            # TRON использует префикс для подписи сообщений
+            # signMessageV2 в TronLink автоматически добавляет TRON-префикс
+            # Формат: "\x19TRON Signed Message:\n" + len(message) + message
             tron_prefix = "\x19TRON Signed Message:\n"
             full_message = tron_prefix + str(len(message)) + message
             
@@ -133,6 +134,13 @@ class TronAuth:
             
             # Конвертируем hex подпись в байты
             signature_bytes = bytes.fromhex(signature)
+            
+            # Отладочный вывод
+            print(f"Verifying TRON signature:")
+            print(f"  Address: {wallet_address}")
+            print(f"  Message: {message}")
+            print(f"  Full message: {full_message}")
+            print(f"  Signature length: {len(signature_bytes)}")
             
             # Проверяем подпись через tronpy
             # TronWeb на фронте подписывает сообщение, мы должны восстановить адрес

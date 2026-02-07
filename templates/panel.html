@@ -302,9 +302,23 @@
         });
         
         // Logout function
-        function logout() {
-            // Remove auth token cookie
+        async function logout() {
+            try {
+                // Call logout endpoint
+                await fetch('/api/admin/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+            
+            // Remove auth tokens cookies
             document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+            document.cookie = 'admin_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+            
             // Redirect to home
             window.location.href = '/';
         }
