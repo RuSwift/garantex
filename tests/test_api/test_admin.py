@@ -1,63 +1,12 @@
 """
 Тесты для новой архитектуры админа: один админ + множество TRON адресов
+Использует PostgreSQL из docker-compose через централизованные фикстуры conftest.py
 """
 import pytest
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import select
-from db import get_db
 from db.models import AdminUser, AdminTronAddress, NodeSettings
-from node import app
-from settings import Settings
 
-# Тестовая БД
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
-
-@pytest.fixture
-async def test_db():
-    """Создает тестовую БД"""
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    
-    async with engine.begin() as conn:
-        await conn.run_sync(AdminUser.__table__.create)
-        await conn.run_sync(AdminTronAddress.__table__.create)
-        await conn.run_sync(NodeSettings.__table__.create)
-    
-    TestSessionLocal = async_sessionmaker(
-        engine,
-        class_=AsyncSession,
-        expire_on_commit=False
-    )
-    
-    async with TestSessionLocal() as session:
-        yield session
-    
-    async with engine.begin() as conn:
-        await conn.run_sync(AdminUser.__table__.drop)
-        await conn.run_sync(AdminTronAddress.__table__.drop)
-        await conn.run_sync(NodeSettings.__table__.drop)
-    
-    await engine.dispose()
-
-
-@pytest.fixture
-async def test_client(test_db):
-    """Создает тестовый HTTP клиент"""
-    async def override_get_db():
-        yield test_db
-    
-    from dependencies.settings import get_settings
-    async def override_get_settings():
-        return Settings()
-    
-    app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_settings] = override_get_settings
-    
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        yield client
-    
-    app.dependency_overrides.clear()
+# Фикстуры test_db и test_client импортируются из tests/conftest.py
 
 
 class TestPasswordManagement:

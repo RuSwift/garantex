@@ -33,16 +33,7 @@ class MockConnection:
         self.established_at = established_at
 
 
-@pytest.fixture(scope="session", autouse=True)
-def mock_db_session_local():
-    """Mock SessionLocal to be initialized for all tests"""
-    # Store original value
-    original_session_local = db.SessionLocal
-    # Set mock
-    db.SessionLocal = Mock()
-    yield
-    # Restore
-    db.SessionLocal = original_session_local
+# mock_db_session_local фикстура импортируется из tests/test_protocols/conftest.py
 
 
 @pytest.fixture(autouse=True)

@@ -1,87 +1,14 @@
 """
 Тесты для API инициализации ноды
+Использует PostgreSQL из docker-compose через централизованные фикстуры conftest.py
 """
 import pytest
-import os
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import select
-from db import Base, get_db
 from db.models import NodeSettings
-from node import app
-from settings import Settings
 from didcomm.crypto import EthCrypto
 
-
-# Создаем тестовую БД в памяти
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
-
-@pytest.fixture
-async def test_db():
-    """Создает тестовую БД"""
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    
-    # Создаем только таблицу NodeSettings, чтобы избежать проблем с типами PostgreSQL в SQLite
-    async with engine.begin() as conn:
-        await conn.run_sync(NodeSettings.__table__.create)
-    
-    TestSessionLocal = async_sessionmaker(
-        engine,
-        class_=AsyncSession,
-        expire_on_commit=False
-    )
-    
-    async with TestSessionLocal() as session:
-        yield session
-    
-    # Очищаем БД после теста
-    async with engine.begin() as conn:
-        await conn.run_sync(NodeSettings.__table__.drop)
-    
-    await engine.dispose()
-
-
-@pytest.fixture
-async def test_client(test_db):
-    """Создает тестовый HTTP клиент с переопределенной БД"""
-    async def override_get_db():
-        yield test_db
-    
-    # Переопределяем get_settings чтобы он читал актуальный env
-    from dependencies.settings import get_settings
-    async def override_get_settings():
-        return Settings()
-    
-    app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_settings] = override_get_settings
-    
-    # Используем ASGITransport для httpx >= 0.24
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        yield client
-    
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def valid_mnemonic():
-    """Генерирует валидную мнемоническую фразу"""
-    from mnemonic import Mnemonic
-    mnemo = Mnemonic("english")
-    return mnemo.generate(strength=128)
-
-
-@pytest.fixture
-def test_secret():
-    """Секретный ключ для тестов"""
-    return "test-secret-key-for-encryption-12345678"
-
-
-@pytest.fixture
-def set_test_secret(test_secret, monkeypatch):
-    """Устанавливает тестовый секретный ключ в окружение"""
-    monkeypatch.setenv("SECRET", test_secret)
-    return test_secret
+# Фикстуры test_db, test_client, valid_mnemonic, test_secret, set_test_secret 
+# импортируются из tests/conftest.py
 
 
 class TestNodeInitialization:
