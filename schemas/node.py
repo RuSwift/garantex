@@ -162,3 +162,49 @@ class AdminTronVerifyRequest(BaseModel):
     tron_address: str = Field(..., description="TRON wallet address")
     signature: str = Field(..., description="Signed message")
     message: str = Field(..., description="Original message")
+
+
+# ====================
+# WalletUser Schemas
+# ====================
+
+class WalletUserItem(BaseModel):
+    """Single wallet user"""
+    id: int = Field(..., description="User ID")
+    wallet_address: str = Field(..., description="Wallet address")
+    blockchain: str = Field(..., description="Blockchain type (tron, ethereum, bitcoin, etc.)")
+    nickname: str = Field(..., description="User display name")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Update timestamp")
+    
+    class Config:
+        from_attributes = True
+
+
+class WalletUserList(BaseModel):
+    """List of wallet users with pagination"""
+    users: List[WalletUserItem] = Field(..., description="List of users")
+    total: int = Field(..., description="Total number of users")
+    page: int = Field(..., description="Current page")
+    page_size: int = Field(..., description="Page size")
+
+
+class CreateWalletUserRequest(BaseModel):
+    """Request to create wallet user"""
+    wallet_address: str = Field(..., description="Wallet address")
+    blockchain: str = Field(..., description="Blockchain type (tron, ethereum, etc.)")
+    nickname: str = Field(..., description="User display name")
+
+
+class UpdateWalletUserRequest(BaseModel):
+    """Request to update wallet user"""
+    nickname: Optional[str] = Field(None, description="New display name")
+    blockchain: Optional[str] = Field(None, description="New blockchain type")
+
+
+class WalletUserSearchRequest(BaseModel):
+    """Request to search wallet users"""
+    query: Optional[str] = Field(None, description="Search query (wallet address or nickname)")
+    blockchain: Optional[str] = Field(None, description="Filter by blockchain")
+    page: int = Field(1, ge=1, description="Page number")
+    page_size: int = Field(20, ge=1, le=100, description="Page size")

@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 
 from routers import auth
 from routers import didcomm
+from routers import wallet_users
 from dependencies import UserDepends, AdminDepends, RequireAdminDepends, SettingsDepends, PrivKeyDepends, DbDepends
 from schemas.node import (
     NodeInitRequest, NodeInitPemRequest, NodeInitResponse,
@@ -66,6 +67,7 @@ app.add_middleware(
 # Подключение роутеров
 app.include_router(auth.router)
 app.include_router(didcomm.router)
+app.include_router(wallet_users.router)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -108,6 +110,14 @@ async def root(
                     "label": "Дашборд",
                     "sub": [],
                     "page": "Dashboard"
+                },
+                {
+                    "id": "wallet-users",
+                    "href": "/wallet-users",
+                    "icon_class": "fas fa-users",
+                    "label": "Пользователи",
+                    "sub": [],
+                    "page": "WalletUsers"
                 }
             ]
         },

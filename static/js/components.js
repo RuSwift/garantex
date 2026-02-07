@@ -114,7 +114,10 @@ Vue.component('Profile', {
             endpointVerified: false,
             endpointTestResult: null,
             savingEndpoint: false,
-            endpointStatus: { message: '', type: '', visible: false }
+            endpointStatus: { message: '', type: '', visible: false },
+            // Direct GET request
+            testingDirectGet: false,
+            directGetResult: null
         };
     },
     mounted() {
@@ -194,6 +197,7 @@ Vue.component('Profile', {
             this.serviceEndpoint = this.keyInfo.service_endpoint || this.getDefaultEndpoint();
             this.endpointVerified = false;
             this.endpointTestResult = null;
+            this.directGetResult = null;
             this.hideEndpointStatus();
         },
         cancelEditingEndpoint() {
@@ -201,6 +205,7 @@ Vue.component('Profile', {
             this.serviceEndpoint = '';
             this.endpointVerified = false;
             this.endpointTestResult = null;
+            this.directGetResult = null;
             this.hideEndpointStatus();
         },
         async testServiceEndpoint() {
@@ -249,6 +254,142 @@ Vue.component('Profile', {
                 this.endpointVerified = false;
             } finally {
                 this.testingEndpoint = false;
+            }
+        },
+        async testDirectGetToCurrentEndpoint() {
+            const endpoint = this.keyInfo?.service_endpoint;
+            if (!endpoint) {
+                return;
+            }
+            
+            try {
+                this.testingDirectGet = true;
+                this.directGetResult = null;
+                
+                const startTime = performance.now();
+                
+                const response = await fetch(endpoint, {
+                    method: 'GET',
+                    mode: 'cors',
+                    cache: 'no-cache',
+                    headers: {
+                        'Accept': 'application/json, text/plain, */*'
+                    }
+                });
+                
+                const endTime = performance.now();
+                const responseTime = Math.round(endTime - startTime);
+                
+                // Пытаемся прочитать тело ответа
+                let responseBody = '';
+                let responseData = null;
+                const contentType = response.headers.get('content-type');
+                
+                try {
+                    if (contentType && contentType.includes('application/json')) {
+                        responseData = await response.json();
+                        responseBody = JSON.stringify(responseData, null, 2);
+                    } else {
+                        responseBody = await response.text();
+                    }
+                } catch (e) {
+                    responseBody = '[Не удалось прочитать тело ответа]';
+                }
+                
+                this.directGetResult = {
+                    success: response.ok,
+                    status_code: response.status,
+                    status_text: response.statusText,
+                    response_time_ms: responseTime,
+                    content_type: contentType,
+                    body: responseBody,
+                    headers: Object.fromEntries(response.headers.entries())
+                };
+                
+            } catch (error) {
+                console.error('Error with direct GET request:', error);
+                this.directGetResult = {
+                    success: false,
+                    error: error.message,
+                    error_type: error.name
+                };
+            } finally {
+                this.testingDirectGet = false;
+            }
+        },
+        async testDirectGetEndpoint() {
+            if (!this.serviceEndpoint || !this.serviceEndpoint.trim()) {
+                this.showEndpointStatus('Введите URL эндпоинта', 'error');
+                return;
+            }
+            
+            try {
+                this.testingDirectGet = true;
+                this.directGetResult = null;
+                this.showEndpointStatus('Выполняется прямой GET запрос...', 'info');
+                
+                const startTime = performance.now();
+                
+                const response = await fetch(this.serviceEndpoint, {
+                    method: 'GET',
+                    mode: 'cors',
+                    cache: 'no-cache',
+                    headers: {
+                        'Accept': 'application/json, text/plain, */*'
+                    }
+                });
+                
+                const endTime = performance.now();
+                const responseTime = Math.round(endTime - startTime);
+                
+                // Пытаемся прочитать тело ответа
+                let responseBody = '';
+                let responseData = null;
+                const contentType = response.headers.get('content-type');
+                
+                try {
+                    if (contentType && contentType.includes('application/json')) {
+                        responseData = await response.json();
+                        responseBody = JSON.stringify(responseData, null, 2);
+                    } else {
+                        responseBody = await response.text();
+                    }
+                } catch (e) {
+                    responseBody = '[Не удалось прочитать тело ответа]';
+                }
+                
+                this.directGetResult = {
+                    success: response.ok,
+                    status_code: response.status,
+                    status_text: response.statusText,
+                    response_time_ms: responseTime,
+                    content_type: contentType,
+                    body: responseBody,
+                    headers: Object.fromEntries(response.headers.entries())
+                };
+                
+                if (response.ok) {
+                    this.showEndpointStatus(
+                        `✅ GET запрос успешен (HTTP ${response.status}, ${responseTime}ms)`,
+                        'success'
+                    );
+                } else {
+                    this.showEndpointStatus(
+                        `⚠️ GET запрос вернул HTTP ${response.status} ${response.statusText}`,
+                        'error'
+                    );
+                }
+                
+            } catch (error) {
+                console.error('Error with direct GET request:', error);
+                this.directGetResult = {
+                    success: false,
+                    error: error.message,
+                    error_type: error.name
+                };
+                this.showEndpointStatus('Ошибка: ' + error.message, 'error');
+            } finally {
+                this.testingDirectGet = false;
             }
         },
         async saveServiceEndpoint() {
@@ -423,6 +564,54 @@ Vue.component('Profile', {
                                 HTTP адрес для приема DIDComm сообщений
                             </small>
                         </div>
+                        
+                        <button 
+                            v-if="keyInfo.service_endpoint"
+                            class="btn btn-info mb-2" 
+                            :disabled="testingDirectGet"
+                            @click="testDirectGetToCurrentEndpoint">
+                            [[ testingDirectGet ? '🔄 Выполняется...' : '🔗 Проверить GET запросом' ]]
+                        </button>
+                        
+                        <div v-if="directGetResult && !editingEndpoint" class="card mb-3" style="border-radius: 10px;">
+                            <div class="card-header" :class="directGetResult.success ? 'bg-success text-white' : 'bg-danger text-white'">
+                                <strong>
+                                    [[ directGetResult.success ? '✅ GET запрос успешен' : '❌ GET запрос завершился с ошибкой' ]]
+                                </strong>
+                            </div>
+                            <div class="card-body">
+                                <div v-if="directGetResult.error">
+                                    <p class="mb-1"><strong>Ошибка:</strong> [[ directGetResult.error ]]</p>
+                                    <p class="mb-0" v-if="directGetResult.error_type">
+                                        <small><strong>Тип:</strong> [[ directGetResult.error_type ]]</small>
+                                    </p>
+                                </div>
+                                <div v-else>
+                                    <p class="mb-2">
+                                        <strong>HTTP Status:</strong> 
+                                        <span :class="directGetResult.status_code === 200 ? 'text-success' : 'text-warning'">
+                                            [[ directGetResult.status_code ]] [[ directGetResult.status_text ]]
+                                        </span>
+                                    </p>
+                                    <p class="mb-2">
+                                        <strong>Время ответа:</strong> [[ directGetResult.response_time_ms ]] мс
+                                    </p>
+                                    <p class="mb-2" v-if="directGetResult.content_type">
+                                        <strong>Content-Type:</strong> <code>[[ directGetResult.content_type ]]</code>
+                                    </p>
+                                    
+                                    <div class="mb-2">
+                                        <strong>Тело ответа:</strong>
+                                        <pre class="bg-light p-2 mt-1" style="border-radius: 5px; max-height: 300px; overflow: auto; font-size: 0.85rem;">[[ directGetResult.body ]]</pre>
+                                    </div>
+                                    
+                                    <details class="mt-2">
+                                        <summary style="cursor: pointer;"><strong>Заголовки ответа</strong></summary>
+                                        <pre class="bg-light p-2 mt-1" style="border-radius: 5px; max-height: 200px; overflow: auto; font-size: 0.85rem;">[[ JSON.stringify(directGetResult.headers, null, 2) ]]</pre>
+                                    </details>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <div v-else>
@@ -441,7 +630,7 @@ Vue.component('Profile', {
                                 v-model="serviceEndpoint"
                                 class="form-control"
                                 placeholder="https://domain.com/endpoint"
-                                @input="endpointVerified = false; endpointTestResult = null"
+                                @input="endpointVerified = false; endpointTestResult = null; directGetResult = null"
                             />
                             <small class="form-text text-muted" style="display: block; margin-top: 8px; font-size: 12px;">
                                 URL должен быть доступен из интернета и возвращать HTTP 200 при GET запросе
@@ -455,6 +644,13 @@ Vue.component('Profile', {
                             [[ testingEndpoint ? '🔄 Тестирование...' : '🧪 Проверить доступность' ]]
                         </button>
                         
+                        <button 
+                            class="btn btn-info me-2 mb-2" 
+                            :disabled="!serviceEndpoint || testingDirectGet"
+                            @click="testDirectGetEndpoint">
+                            [[ testingDirectGet ? '🔄 Выполняется...' : '🔗 Прямой GET запрос' ]]
+                        </button>
+                        
                         <div v-if="endpointTestResult" class="alert mb-3" :class="endpointVerified ? 'alert-success' : 'alert-danger'" style="border-radius: 10px;">
                             <strong>[[ endpointVerified ? '✅ Endpoint доступен' : '❌ Endpoint недоступен' ]]</strong>
                             <div class="mt-2">
@@ -465,6 +661,46 @@ Vue.component('Profile', {
                             </div>
                             <div v-if="endpointTestResult.response_time_ms" class="mt-1">
                                 <small><strong>Время ответа:</strong> [[ endpointTestResult.response_time_ms ]] мс</small>
+                            </div>
+                        </div>
+                        
+                        <div v-if="directGetResult" class="card mb-3" style="border-radius: 10px;">
+                            <div class="card-header" :class="directGetResult.success ? 'bg-success text-white' : 'bg-danger text-white'">
+                                <strong>
+                                    [[ directGetResult.success ? '✅ GET запрос успешен' : '❌ GET запрос завершился с ошибкой' ]]
+                                </strong>
+                            </div>
+                            <div class="card-body">
+                                <div v-if="directGetResult.error">
+                                    <p class="mb-1"><strong>Ошибка:</strong> [[ directGetResult.error ]]</p>
+                                    <p class="mb-0" v-if="directGetResult.error_type">
+                                        <small><strong>Тип:</strong> [[ directGetResult.error_type ]]</small>
+                                    </p>
+                                </div>
+                                <div v-else>
+                                    <p class="mb-2">
+                                        <strong>HTTP Status:</strong> 
+                                        <span :class="directGetResult.status_code === 200 ? 'text-success' : 'text-warning'">
+                                            [[ directGetResult.status_code ]] [[ directGetResult.status_text ]]
+                                        </span>
+                                    </p>
+                                    <p class="mb-2">
+                                        <strong>Время ответа:</strong> [[ directGetResult.response_time_ms ]] мс
+                                    </p>
+                                    <p class="mb-2" v-if="directGetResult.content_type">
+                                        <strong>Content-Type:</strong> <code>[[ directGetResult.content_type ]]</code>
+                                    </p>
+                                    
+                                    <div class="mb-2">
+                                        <strong>Тело ответа:</strong>
+                                        <pre class="bg-light p-2 mt-1" style="border-radius: 5px; max-height: 300px; overflow: auto; font-size: 0.85rem;">[[ directGetResult.body ]]</pre>
+                                    </div>
+                                    
+                                    <details class="mt-2">
+                                        <summary style="cursor: pointer;"><strong>Заголовки ответа</strong></summary>
+                                        <pre class="bg-light p-2 mt-1" style="border-radius: 5px; max-height: 200px; overflow: auto; font-size: 0.85rem;">[[ JSON.stringify(directGetResult.headers, null, 2) ]]</pre>
+                                    </details>
+                                </div>
                             </div>
                         </div>
                         
@@ -4293,6 +4529,493 @@ Vue.component('AdminAccount', {
                         <i class="fas fa-shield-alt me-2"></i>
                         <strong>Безопасность:</strong> Убедитесь, что вы находитесь в безопасном месте при изменении учетных данных.
                         После смены пароля или TRON адреса вам потребуется повторная авторизация.
+                    </div>
+                </div>
+            </div>
+        </div>
+    `
+});
+
+// WalletUsers Management Component
+Vue.component('WalletUsers', {
+    delimiters: ['[[', ']]'],
+    data() {
+        return {
+            loading: true,
+            users: [],
+            total: 0,
+            page: 1,
+            pageSize: 20,
+            searchQuery: '',
+            blockchainFilter: '',
+            
+            // Create/Edit user modal
+            showUserModal: false,
+            editingUser: null,
+            userForm: {
+                wallet_address: '',
+                blockchain: 'tron',
+                nickname: ''
+            },
+            savingUser: false,
+            
+            // Delete confirmation
+            userToDelete: null,
+            
+            statusMessage: '',
+            statusType: ''
+        };
+    },
+    computed: {
+        totalPages() {
+            return Math.ceil(this.total / this.pageSize);
+        },
+        paginationPages() {
+            const pages = [];
+            const maxVisible = 5;
+            let start = Math.max(1, this.page - Math.floor(maxVisible / 2));
+            let end = Math.min(this.totalPages, start + maxVisible - 1);
+            
+            if (end - start < maxVisible - 1) {
+                start = Math.max(1, end - maxVisible + 1);
+            }
+            
+            for (let i = start; i <= end; i++) {
+                pages.push(i);
+            }
+            return pages;
+        }
+    },
+    mounted() {
+        this.loadUsers();
+    },
+    methods: {
+        async loadUsers() {
+            this.loading = true;
+            try {
+                const params = new URLSearchParams({
+                    page: this.page,
+                    page_size: this.pageSize
+                });
+                
+                if (this.searchQuery) {
+                    params.append('query', this.searchQuery);
+                }
+                if (this.blockchainFilter) {
+                    params.append('blockchain', this.blockchainFilter);
+                }
+                
+                const response = await fetch('/api/admin/wallet-users?' + params);
+                
+                if (!response.ok) {
+                    throw new Error('Failed to load users');
+                }
+                
+                const data = await response.json();
+                this.users = data.users;
+                this.total = data.total;
+                
+            } catch (error) {
+                console.error('Error loading users:', error);
+                this.showStatus('Ошибка загрузки пользователей: ' + error.message, 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+        
+        search() {
+            this.page = 1;
+            this.loadUsers();
+        },
+        
+        filterByBlockchain(blockchain) {
+            this.blockchainFilter = blockchain;
+            this.page = 1;
+            this.loadUsers();
+        },
+        
+        clearFilters() {
+            this.searchQuery = '';
+            this.blockchainFilter = '';
+            this.page = 1;
+            this.loadUsers();
+        },
+        
+        goToPage(pageNum) {
+            this.page = pageNum;
+            this.loadUsers();
+        },
+        
+        showCreateModal() {
+            this.editingUser = null;
+            this.userForm = {
+                wallet_address: '',
+                blockchain: 'tron',
+                nickname: ''
+            };
+            this.showUserModal = true;
+        },
+        
+        showEditModal(user) {
+            this.editingUser = user;
+            this.userForm = {
+                wallet_address: user.wallet_address,
+                blockchain: user.blockchain,
+                nickname: user.nickname
+            };
+            this.showUserModal = true;
+        },
+        
+        closeUserModal() {
+            this.showUserModal = false;
+            this.editingUser = null;
+            this.userForm = {
+                wallet_address: '',
+                blockchain: 'tron',
+                nickname: ''
+            };
+        },
+        
+        async saveUser() {
+            if (!this.userForm.wallet_address || !this.userForm.blockchain || !this.userForm.nickname) {
+                this.showStatus('Заполните все поля', 'error');
+                return;
+            }
+            
+            this.savingUser = true;
+            
+            try {
+                const url = this.editingUser 
+                    ? '/api/admin/wallet-users/' + this.editingUser.id
+                    : '/api/admin/wallet-users';
+                
+                const method = this.editingUser ? 'PUT' : 'POST';
+                
+                const body = this.editingUser
+                    ? {
+                        nickname: this.userForm.nickname,
+                        blockchain: this.userForm.blockchain
+                    }
+                    : this.userForm;
+                
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to save user');
+                }
+                
+                this.showStatus(
+                    this.editingUser ? 'Пользователь обновлен' : 'Пользователь создан',
+                    'success'
+                );
+                this.closeUserModal();
+                this.loadUsers();
+                
+            } catch (error) {
+                console.error('Error saving user:', error);
+                this.showStatus('Ошибка сохранения: ' + error.message, 'error');
+            } finally {
+                this.savingUser = false;
+            }
+        },
+        
+        confirmDelete(user) {
+            this.userToDelete = user;
+        },
+        
+        cancelDelete() {
+            this.userToDelete = null;
+        },
+        
+        async deleteUser() {
+            if (!this.userToDelete) return;
+            
+            try {
+                const response = await fetch('/api/admin/wallet-users/' + this.userToDelete.id, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to delete user');
+                }
+                
+                this.showStatus('Пользователь удален', 'success');
+                this.userToDelete = null;
+                this.loadUsers();
+                
+            } catch (error) {
+                console.error('Error deleting user:', error);
+                this.showStatus('Ошибка удаления: ' + error.message, 'error');
+            }
+        },
+        
+        showStatus(message, type) {
+            this.statusMessage = message;
+            this.statusType = type;
+            setTimeout(() => {
+                this.statusMessage = '';
+                this.statusType = '';
+            }, 3000);
+        },
+        
+        formatDate(dateString) {
+            return new Date(dateString).toLocaleString('ru-RU');
+        },
+        
+        truncateAddress(address) {
+            if (!address || address.length <= 16) return address;
+            return address.substring(0, 8) + '...' + address.substring(address.length - 6);
+        }
+    },
+    
+    template: `
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="fas fa-users me-2"></i>
+                    Управление пользователями
+                </div>
+                <button class="btn btn-sm btn-primary" @click="showCreateModal">
+                    <i class="fas fa-plus me-1"></i> Добавить пользователя
+                </button>
+            </div>
+            
+            <div class="card-body">
+                <!-- Status Message -->
+                <div v-if="statusMessage" 
+                     :class="'alert alert-' + (statusType === 'error' ? 'danger' : 'success')"
+                     style="border-radius: 10px;">
+                    [[ statusMessage ]]
+                </div>
+                
+                <!-- Search and Filter -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="input-group">
+                            <input 
+                                type="text" 
+                                class="form-control" 
+                                placeholder="Поиск по адресу или имени..."
+                                v-model="searchQuery"
+                                @keyup.enter="search"
+                            />
+                            <button class="btn btn-outline-primary" @click="search">
+                                <i class="fas fa-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <select class="form-select" v-model="blockchainFilter" @change="filterByBlockchain(blockchainFilter)">
+                            <option value="">Все блокчейны</option>
+                            <option value="tron">TRON</option>
+                            <option value="ethereum">Ethereum</option>
+                            <option value="bitcoin">Bitcoin</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-outline-secondary w-100" @click="clearFilters">
+                            <i class="fas fa-times me-1"></i> Сбросить
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Loading State -->
+                <div v-if="loading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                </div>
+                
+                <!-- Users Table -->
+                <div v-else-if="users.length > 0">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th style="width: 50px;">ID</th>
+                                    <th>Адрес кошелька</th>
+                                    <th style="width: 100px;">Блокчейн</th>
+                                    <th style="width: 200px;">Имя</th>
+                                    <th style="width: 150px;">Создан</th>
+                                    <th style="width: 120px;" class="text-end">Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="user in users" :key="user.id">
+                                    <td>[[ user.id ]]</td>
+                                    <td>
+                                        <code class="small">[[ truncateAddress(user.wallet_address) ]]</code>
+                                    </td>
+                                    <td>
+                                        <span class="badge" :class="{
+                                            'bg-info': user.blockchain === 'tron',
+                                            'bg-primary': user.blockchain === 'ethereum',
+                                            'bg-warning': user.blockchain === 'bitcoin',
+                                            'bg-secondary': !['tron', 'ethereum', 'bitcoin'].includes(user.blockchain)
+                                        }">
+                                            [[ user.blockchain.toUpperCase() ]]
+                                        </span>
+                                    </td>
+                                    <td>[[ user.nickname ]]</td>
+                                    <td class="small text-muted">[[ formatDate(user.created_at) ]]</td>
+                                    <td class="text-end">
+                                        <div class="btn-group btn-group-sm">
+                                            <button 
+                                                class="btn btn-outline-primary"
+                                                @click="showEditModal(user)"
+                                                title="Редактировать"
+                                            >
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button 
+                                                class="btn btn-outline-danger"
+                                                @click="confirmDelete(user)"
+                                                title="Удалить"
+                                            >
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Pagination -->
+                    <nav v-if="totalPages > 1" class="mt-3">
+                        <ul class="pagination justify-content-center">
+                            <li class="page-item" :class="{disabled: page === 1}">
+                                <a class="page-link" @click.prevent="goToPage(page - 1)" href="#">
+                                    <i class="fas fa-chevron-left"></i>
+                                </a>
+                            </li>
+                            <li class="page-item" v-for="pageNum in paginationPages" :key="pageNum" :class="{active: page === pageNum}">
+                                <a class="page-link" @click.prevent="goToPage(pageNum)" href="#">
+                                    [[ pageNum ]]
+                                </a>
+                            </li>
+                            <li class="page-item" :class="{disabled: page === totalPages}">
+                                <a class="page-link" @click.prevent="goToPage(page + 1)" href="#">
+                                    <i class="fas fa-chevron-right"></i>
+                                </a>
+                            </li>
+                        </ul>
+                        <p class="text-center text-muted small">
+                            Показано [[ users.length ]] из [[ total ]] пользователей
+                        </p>
+                    </nav>
+                </div>
+                
+                <!-- Empty State -->
+                <div v-else class="text-center py-5 text-muted">
+                    <i class="fas fa-users fa-3x mb-3 opacity-50"></i>
+                    <p>Пользователи не найдены</p>
+                    <button class="btn btn-primary mt-2" @click="showCreateModal">
+                        <i class="fas fa-plus me-1"></i> Добавить первого пользователя
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Create/Edit User Modal -->
+            <div v-if="showUserModal" class="modal d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                [[ editingUser ? 'Редактировать пользователя' : 'Добавить пользователя' ]]
+                            </h5>
+                            <button type="button" class="btn-close" @click="closeUserModal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label class="form-label">Адрес кошелька</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control font-monospace"
+                                    v-model="userForm.wallet_address"
+                                    :disabled="!!editingUser"
+                                    placeholder="TXxx... или 0xxx..."
+                                />
+                                <small class="form-text text-muted">
+                                    [[ editingUser ? 'Адрес нельзя изменить' : 'Введите адрес кошелька пользователя' ]]
+                                </small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Блокчейн</label>
+                                <select class="form-select" v-model="userForm.blockchain">
+                                    <option value="tron">TRON</option>
+                                    <option value="ethereum">Ethereum</option>
+                                    <option value="bitcoin">Bitcoin</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Имя пользователя</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control"
+                                    v-model="userForm.nickname"
+                                    placeholder="Введите имя"
+                                    maxlength="100"
+                                />
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="closeUserModal">
+                                Отмена
+                            </button>
+                            <button 
+                                type="button" 
+                                class="btn btn-primary" 
+                                @click="saveUser"
+                                :disabled="savingUser"
+                            >
+                                [[ savingUser ? 'Сохранение...' : 'Сохранить' ]]
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Delete Confirmation Modal -->
+            <div v-if="userToDelete" class="modal d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header bg-danger text-white">
+                            <h5 class="modal-title">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                Подтверждение удаления
+                            </h5>
+                            <button type="button" class="btn-close btn-close-white" @click="cancelDelete"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p>Вы уверены, что хотите удалить пользователя?</p>
+                            <div class="card">
+                                <div class="card-body">
+                                    <p class="mb-1"><strong>Имя:</strong> [[ userToDelete.nickname ]]</p>
+                                    <p class="mb-1"><strong>Адрес:</strong> <code class="small">[[ userToDelete.wallet_address ]]</code></p>
+                                    <p class="mb-0"><strong>Блокчейн:</strong> [[ userToDelete.blockchain ]]</p>
+                                </div>
+                            </div>
+                            <div class="alert alert-warning mt-3 mb-0">
+                                <i class="fas fa-exclamation-circle me-2"></i>
+                                Это действие необратимо!
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="cancelDelete">
+                                Отмена
+                            </button>
+                            <button type="button" class="btn btn-danger" @click="deleteUser">
+                                <i class="fas fa-trash me-1"></i> Удалить
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
