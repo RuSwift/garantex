@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 
 from routers import auth
 from routers import didcomm
-from dependencies import UserDepends, AdminDepends, SettingsDepends, PrivKeyDepends, DbDepends
+from dependencies import UserDepends, AdminDepends, RequireAdminDepends, SettingsDepends, PrivKeyDepends, DbDepends
 from schemas.node import (
     NodeInitRequest, NodeInitPemRequest, NodeInitResponse,
     SetPasswordRequest, ChangePasswordRequest, AdminInfoResponse, AdminConfiguredResponse,
@@ -20,7 +20,7 @@ from schemas.node import (
 from didcomm.did import create_peer_did_from_keypair
 from services.node import NodeService
 from services.admin import AdminService
-from tron_auth import tron_auth
+from services.tron_auth import tron_auth
 import jwt
 from datetime import datetime, timedelta
 
@@ -362,7 +362,8 @@ async def admin_logout():
 async def init_node(
     request: NodeInitRequest,
     db: DbDepends,
-    settings: SettingsDepends
+    settings: SettingsDepends,
+    admin: RequireAdminDepends
 ):
     """
     Инициализирует ноду с использованием мнемонической фразы
@@ -411,7 +412,8 @@ async def init_node(
 async def init_node_from_pem(
     request: NodeInitPemRequest,
     db: DbDepends,
-    settings: SettingsDepends
+    settings: SettingsDepends,
+    admin: RequireAdminDepends
 ):
     """
     Инициализирует ноду с использованием PEM ключа
@@ -461,7 +463,8 @@ async def init_node_from_pem(
 async def get_key_info(
     settings: SettingsDepends,
     priv_key: PrivKeyDepends,
-    db: DbDepends
+    db: DbDepends,
+    admin: RequireAdminDepends
 ):
     """
     Получить информацию о ключе ноды, включая DID и DIDDoc
@@ -524,19 +527,37 @@ async def get_key_info(
 @app.post("/api/admin/set-password", response_model=ChangeResponse)
 async def set_admin_password(
     request: SetPasswordRequest,
-    db: DbDepends
+    db: DbDepends,
+    settings: SettingsDepends,
+    admin_cookie: AdminDepends
 ):
     """
     Set or update admin password
     
+    Если админ еще не настроен - endpoint публичный (для первичной настройки)
+    Если админ уже настроен - требуется авторизация
+    
     Args:
         request: Password configuration
         db: Database session
+        settings: Application settings
+        admin_cookie: Admin info from cookie (optional)
         
     Returns:
         Success status
     """
     from services.admin import AdminService
+    
+    # Проверяем, настроен ли админ
+    is_configured = await AdminService.is_admin_configured(db)
+    
+    # Если админ уже настроен, требуем авторизацию
+    if is_configured and not admin_cookie:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Admin authentication required"
+        )
+    
     try:
         await AdminService.set_password(
             request.username,
@@ -592,7 +613,10 @@ async def check_admin_configured(db: DbDepends):
 
 
 @app.get("/api/admin/info", response_model=AdminInfoResponse)
-async def get_admin_info(db: DbDepends):
+async def get_admin_info(
+    db: DbDepends,
+    admin: RequireAdminDepends
+):
     """
     Get information about the admin user
     
@@ -642,7 +666,8 @@ async def get_admin_info(db: DbDepends):
 @app.post("/api/admin/change-password", response_model=ChangeResponse)
 async def change_admin_password(
     request: ChangePasswordRequest,
-    db: DbDepends
+    db: DbDepends,
+    admin: RequireAdminDepends
 ):
     """
     Change admin password
@@ -682,7 +707,10 @@ async def change_admin_password(
 
 
 @app.delete("/api/admin/password", response_model=ChangeResponse)
-async def remove_admin_password(db: DbDepends):
+async def remove_admin_password(
+    db: DbDepends,
+    admin: RequireAdminDepends
+):
     """
     Remove admin password authentication (must have TRON addresses)
     
@@ -718,7 +746,8 @@ async def remove_admin_password(db: DbDepends):
 @app.get("/api/admin/tron-addresses", response_model=TronAddressList)
 async def get_tron_addresses(
     active_only: bool = True,
-    db: DbDepends = None
+    db: DbDepends = None,
+    admin: RequireAdminDepends = None
 ):
     """
     Get list of all TRON admin addresses
@@ -758,7 +787,8 @@ async def get_tron_addresses(
 @app.post("/api/admin/tron-addresses", response_model=ChangeResponse)
 async def add_tron_address(
     request: AddTronAddressRequest,
-    db: DbDepends
+    db: DbDepends,
+    admin: RequireAdminDepends
 ):
     """
     Add new TRON address to whitelist
@@ -799,7 +829,8 @@ async def add_tron_address(
 async def update_tron_address(
     tron_id: int,
     request: UpdateTronAddressRequest,
-    db: DbDepends
+    db: DbDepends,
+    admin: RequireAdminDepends
 ):
     """
     Update TRON address or label
@@ -843,7 +874,8 @@ async def update_tron_address(
 @app.delete("/api/admin/tron-addresses/{tron_id}", response_model=ChangeResponse)
 async def delete_tron_address(
     tron_id: int,
-    db: DbDepends
+    db: DbDepends,
+    admin: RequireAdminDepends
 ):
     """
     Delete TRON address from whitelist
@@ -882,7 +914,8 @@ async def delete_tron_address(
 async def toggle_tron_address(
     tron_id: int,
     request: ToggleTronAddressRequest,
-    db: DbDepends
+    db: DbDepends,
+    admin: RequireAdminDepends
 ):
     """
     Toggle TRON address active status
@@ -944,7 +977,8 @@ async def toggle_tron_address(
 @app.post("/api/node/set-service-endpoint", response_model=ChangeResponse)
 async def set_service_endpoint(
     request: SetServiceEndpointRequest,
-    db: DbDepends
+    db: DbDepends,
+    admin: RequireAdminDepends
 ):
     """
     Set service endpoint for the node
@@ -981,7 +1015,10 @@ async def set_service_endpoint(
 
 
 @app.get("/api/node/service-endpoint", response_model=ServiceEndpointResponse)
-async def get_service_endpoint(db: DbDepends):
+async def get_service_endpoint(
+    db: DbDepends,
+    admin: RequireAdminDepends
+):
     """
     Get current service endpoint
     

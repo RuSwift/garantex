@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import Optional
-from web3_auth import web3_auth
-from tron_auth import tron_auth
+from services.web3_auth import web3_auth
+from services.tron_auth import tron_auth
 
 router = APIRouter(prefix="/auth", tags=["Авторизация"])
 

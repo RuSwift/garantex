@@ -206,3 +206,31 @@ def set_test_secret(test_secret, monkeypatch):
     monkeypatch.setenv("SECRET", test_secret)
     return test_secret
 
+
+@pytest.fixture
+async def admin_token(test_db, test_secret):
+    """Создает админа и возвращает JWT токен для авторизации"""
+    from services.admin import AdminService
+    import jwt
+    from datetime import datetime, timedelta
+    
+    # Создаем админа с паролем
+    await AdminService.set_password("admin", "admin123", test_db)
+    
+    # Генерируем JWT токен
+    payload = {
+        "admin": True,
+        "username": "admin",
+        "exp": datetime.utcnow() + timedelta(hours=24),
+        "iat": datetime.utcnow()
+    }
+    
+    token = jwt.encode(payload, test_secret, algorithm="HS256")
+    return token
+
+
+@pytest.fixture
+async def admin_client(test_client, admin_token):
+    """HTTP клиент с админским токеном в cookies"""
+    test_client.cookies.set("admin_token", admin_token)
+    return test_client

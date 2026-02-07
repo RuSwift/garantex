@@ -8,7 +8,7 @@ try:
 except ImportError:
     from typing_extensions import Annotated
 from sqlalchemy.ext.asyncio import AsyncSession
-from web3_auth import web3_auth
+from services.web3_auth import web3_auth
 import jwt
 
 # Импортируем dependencies из модулей
