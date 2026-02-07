@@ -1,7 +1,7 @@
 """
 Database models for storing encrypted node settings
 """
-from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Boolean, Index
+from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Boolean, Index, Numeric, ForeignKey
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
@@ -87,11 +87,26 @@ class WalletUser(Base):
     avatar = Column(Text, nullable=True, comment="User avatar in base64 format (data:image/...)")
     access_to_admin_panel = Column(Boolean, default=False, nullable=False, comment="Access to admin panel")
     is_verified = Column(Boolean, default=False, nullable=False, comment="Whether the user is verified (document verification)")
+    balance_usdt = Column(Numeric(20, 8), default=0, nullable=False, comment="USDT balance")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     def __repr__(self):
         return f"<WalletUser(id={self.id}, wallet={self.wallet_address}, nickname={self.nickname}, blockchain={self.blockchain})>"
+
+
+class Billing(Base):
+    """Model for storing billing transactions (deposits and withdrawals)"""
+    
+    __tablename__ = "billing"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_user_id = Column(Integer, ForeignKey('wallet_users.id', ondelete='CASCADE'), nullable=False, index=True, comment="Reference to wallet user")
+    usdt_amount = Column(Numeric(20, 8), nullable=False, comment="USDT amount: positive for deposit, negative for withdrawal")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True, comment="Transaction timestamp")
+    
+    def __repr__(self):
+        return f"<Billing(id={self.id}, wallet_user_id={self.wallet_user_id}, usdt_amount={self.usdt_amount}, created_at={self.created_at})>"
 
 
 class Storage(Base):

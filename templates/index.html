@@ -209,14 +209,14 @@
                         :key="item.id"
                         @click="item.id === 'deals' ? openDealsChat() : (activeView = item.id)"
                         :class="[
-                            'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all',
+                            'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-left',
                             activeView === item.id 
                                 ? 'bg-blue-50 text-blue-600 font-semibold shadow-sm' 
                                 : 'text-gray-500 hover:bg-gray-50'
                         ]"
                     >
-                        <span v-html="item.icon"></span>
-                        [[ item.label ]]
+                        <span v-html="item.icon" class="flex-shrink-0"></span>
+                        <span class="flex-1">[[ item.label ]]</span>
                     </button>
                 </nav>
 
@@ -540,7 +540,9 @@
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <div class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6">
                                     <p class="text-gray-600 text-sm mb-2">Баланс USDT</p>
-                                    <p class="text-3xl font-bold text-blue-600">[[ balance ]]</p>
+                                    <p class="text-3xl font-bold text-blue-600">
+                                        [[ userProfile && userProfile.balance_usdt !== undefined ? parseFloat(userProfile.balance_usdt || 0).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : balance ]]
+                                    </p>
                                 </div>
                                 <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6">
                                     <p class="text-gray-600 text-sm mb-2">Завершено сделок</p>
@@ -556,29 +558,40 @@
                         <!-- Recent Transactions -->
                         <div class="bg-white rounded-2xl border p-8">
                             <h3 class="text-xl font-bold text-gray-900 mb-6">Последние транзакции</h3>
-                            <div class="space-y-4">
+                            <div v-if="isLoadingBillingHistory" class="text-center py-8">
+                                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                <p class="mt-2 text-gray-500 text-sm">Загрузка истории...</p>
+                            </div>
+                            <div v-else-if="recentTransactions.length === 0" class="text-center py-8 text-gray-500">
+                                <svg class="w-12 h-12 mx-auto mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                                <p class="text-sm">История транзакций пуста</p>
+                            </div>
+                            <div v-else class="space-y-4">
                                 <div v-for="tx in recentTransactions" :key="tx.id" 
                                     class="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
                                     <div class="flex items-center gap-4">
                                         <div :class="['w-10 h-10 rounded-full flex items-center justify-center', 
-                                                     tx.type === 'buy' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600']">
-                                            <svg v-if="tx.type === 'buy'" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                                                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                                                     tx.type === 'deposit' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600']">
+                                            <svg v-if="tx.type === 'deposit'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
                                             </svg>
-                                            <svg v-else class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                                                <path d="M12 22L2 17l10-5 10 5-10 5zM2 7l10-5 10 5M2 12l10-5 10 5"></path>
+                                            <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path>
                                             </svg>
                                         </div>
                                         <div>
-                                            <p class="font-semibold text-gray-900">[[ tx.type === 'buy' ? 'Покупка' : 'Продажа' ]] [[ tx.currency ]]</p>
+                                            <p class="font-semibold text-gray-900">[[ tx.type === 'deposit' ? 'Пополнение' : 'Списание' ]] баланса</p>
                                             <p class="text-sm text-gray-500">[[ tx.date ]]</p>
                                         </div>
                                     </div>
                                     <div class="text-right">
-                                        <p class="font-bold text-gray-900">[[ tx.amount.toLocaleString() ]] USDT</p>
-                                        <span :class="['text-xs font-semibold px-2 py-1 rounded-full',
-                                                      tx.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700']">
-                                            [[ tx.status === 'completed' ? 'Завершено' : 'В обработке' ]]
+                                        <p :class="['font-bold', tx.type === 'deposit' ? 'text-green-600' : 'text-red-600']">
+                                            [[ tx.type === 'deposit' ? '+' : '-' ]][[ tx.amount.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 8}) ]] USDT
+                                        </p>
+                                        <span class="text-xs font-semibold px-2 py-1 rounded-full bg-green-100 text-green-700">
+                                            Завершено
                                         </span>
                                     </div>
                                 </div>
@@ -1001,11 +1014,8 @@
                         icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>'
                     }
                 ],
-                recentTransactions: [
-                    { id: 1, date: '2026-02-05', type: 'buy', amount: 2500, currency: 'USD', status: 'completed' },
-                    { id: 2, date: '2026-02-03', type: 'buy', amount: 1200, currency: 'EUR', status: 'pending' },
-                    { id: 3, date: '2026-01-28', type: 'sell', amount: 3500, currency: 'USD', status: 'completed' },
-                ]
+                recentTransactions: [],
+                isLoadingBillingHistory: false
             },
             mounted() {
                 // Проверяем авторизацию при загрузке
@@ -1013,6 +1023,7 @@
                 // Загружаем профиль если авторизован
                 if (this.isAuthenticated) {
                     this.loadUserProfile();
+                    this.loadBillingHistory();
                     // Загружаем объявления маркетплейса
                     this.searchMarketplace();
                 }
@@ -1025,6 +1036,9 @@
                         this.searchMarketplace();
                     } else if (newView === 'deals' && this.isAuthenticated) {
                         this.openDealsChat();
+                    } else if (newView === 'profile' && this.isAuthenticated) {
+                        this.loadUserProfile();
+                        this.loadBillingHistory();
                     }
                 }
             },
@@ -1051,6 +1065,7 @@
                     
                     // Загружаем профиль пользователя
                     this.loadUserProfile();
+                    this.loadBillingHistory();
                     
                     // Загружаем объявления маркетплейса
                     this.searchMarketplace();
@@ -1107,11 +1122,52 @@
                         if (response.ok) {
                             this.userProfile = await response.json();
                             this.editNickname = this.userProfile.nickname;
+                            // Update balance from profile
+                            if (this.userProfile.balance_usdt !== undefined) {
+                                this.balance = parseFloat(this.userProfile.balance_usdt || 0).toLocaleString('ru-RU', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                });
+                            }
                         } else {
                             console.error('Failed to load profile:', response.status);
                         }
                     } catch (error) {
                         console.error('Error loading profile:', error);
+                    }
+                },
+                async loadBillingHistory() {
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) return;
+                        
+                        this.isLoadingBillingHistory = true;
+                        const response = await fetch('/api/profile/me/billing?page=1&page_size=10', {
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            const data = await response.json();
+                            // Преобразуем данные биллинга в формат для отображения
+                            this.recentTransactions = data.transactions.map(tx => ({
+                                id: tx.id,
+                                date: new Date(tx.created_at).toISOString().split('T')[0],
+                                type: tx.usdt_amount >= 0 ? 'deposit' : 'withdrawal',
+                                amount: Math.abs(tx.usdt_amount),
+                                currency: 'USDT',
+                                status: 'completed' // Все операции биллинга завершены
+                            }));
+                        } else {
+                            console.error('Failed to load billing history:', response.status);
+                            this.recentTransactions = [];
+                        }
+                    } catch (error) {
+                        console.error('Error loading billing history:', error);
+                        this.recentTransactions = [];
+                    } finally {
+                        this.isLoadingBillingHistory = false;
                     }
                 },
                 handleAvatarUpload(event) {
@@ -1233,10 +1289,20 @@
                         }
                         
                         this.userProfile = await response.json();
+                        // Update balance from profile
+                        if (this.userProfile.balance_usdt !== undefined) {
+                            this.balance = parseFloat(this.userProfile.balance_usdt || 0).toLocaleString('ru-RU', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            });
+                        }
                         this.profileMessage = 'Профиль успешно обновлен!';
                         this.profileMessageType = 'success';
                         this.editAvatar = null;
                         this.previewAvatar = null;
+                        
+                        // Обновляем историю биллинга после успешного сохранения
+                        await this.loadBillingHistory();
                         
                         // Скрыть сообщение через 3 секунды
                         setTimeout(() => {

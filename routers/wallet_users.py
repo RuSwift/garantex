@@ -13,9 +13,10 @@ from schemas.users import (
     UpdateProfileRequest,
     ProfileResponse
 )
-from db.models import WalletUser
+from schemas.billing import BillingList, BillingItem
+from db.models import WalletUser, Billing
 from services.wallet_user import WalletUserService
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, desc
 
 router = APIRouter(
     prefix="/api/admin/wallet-users",
@@ -100,6 +101,14 @@ async def list_wallet_users(
             except (AttributeError, KeyError):
                 is_verified = False
             
+            # Get balance_usdt safely
+            balance_usdt = getattr(user, 'balance_usdt', 0.0)
+            if balance_usdt is None:
+                balance_usdt = 0.0
+            else:
+                # Convert Decimal to float if needed
+                balance_usdt = float(balance_usdt)
+            
             user_dict = {
                 "id": user.id,
                 "wallet_address": user.wallet_address,
@@ -108,6 +117,7 @@ async def list_wallet_users(
                 "avatar": user.avatar,
                 "access_to_admin_panel": user.access_to_admin_panel,
                 "is_verified": is_verified,
+                "balance_usdt": balance_usdt,
                 "created_at": user.created_at,
                 "updated_at": user.updated_at,
             }
@@ -162,6 +172,14 @@ async def get_wallet_user(
         except (AttributeError, KeyError):
             is_verified = False
         
+        # Get balance_usdt safely
+        balance_usdt = getattr(user, 'balance_usdt', 0.0)
+        if balance_usdt is None:
+            balance_usdt = 0.0
+        else:
+            # Convert Decimal to float if needed
+            balance_usdt = float(balance_usdt)
+        
         user_dict = {
             "id": user.id,
             "wallet_address": user.wallet_address,
@@ -170,6 +188,7 @@ async def get_wallet_user(
             "avatar": user.avatar,
             "access_to_admin_panel": user.access_to_admin_panel,
             "is_verified": is_verified,
+            "balance_usdt": balance_usdt,
             "created_at": user.created_at,
             "updated_at": user.updated_at,
         }
@@ -226,6 +245,14 @@ async def create_wallet_user(
         await db.refresh(new_user)
         
         # Handle missing is_verified field
+        # Get balance_usdt safely
+        balance_usdt = getattr(new_user, 'balance_usdt', 0.0)
+        if balance_usdt is None:
+            balance_usdt = 0.0
+        else:
+            # Convert Decimal to float if needed
+            balance_usdt = float(balance_usdt)
+        
         user_dict = {
             "id": new_user.id,
             "wallet_address": new_user.wallet_address,
@@ -234,6 +261,7 @@ async def create_wallet_user(
             "avatar": new_user.avatar,
             "access_to_admin_panel": new_user.access_to_admin_panel,
             "is_verified": getattr(new_user, 'is_verified', False),  # Handle missing field
+            "balance_usdt": balance_usdt,
             "created_at": new_user.created_at,
             "updated_at": new_user.updated_at,
         }
@@ -292,6 +320,8 @@ async def update_wallet_user(
             except (AttributeError, KeyError):
                 # Field doesn't exist in database yet, skip update
                 pass
+        if request.access_to_admin_panel is not None:
+            user.access_to_admin_panel = request.access_to_admin_panel
         
         await db.commit()
         await db.refresh(user)
@@ -302,6 +332,14 @@ async def update_wallet_user(
         except (AttributeError, KeyError):
             is_verified = False
         
+        # Get balance_usdt safely
+        balance_usdt = getattr(user, 'balance_usdt', 0.0)
+        if balance_usdt is None:
+            balance_usdt = 0.0
+        else:
+            # Convert Decimal to float if needed
+            balance_usdt = float(balance_usdt)
+        
         user_dict = {
             "id": user.id,
             "wallet_address": user.wallet_address,
@@ -310,6 +348,7 @@ async def update_wallet_user(
             "avatar": user.avatar,
             "access_to_admin_panel": user.access_to_admin_panel,
             "is_verified": is_verified,
+            "balance_usdt": balance_usdt,
             "created_at": user.created_at,
             "updated_at": user.updated_at,
         }
@@ -398,6 +437,14 @@ async def get_my_profile(
         except (AttributeError, KeyError):
             is_verified = False
         
+        # Get balance_usdt safely
+        balance_usdt = getattr(user, 'balance_usdt', 0.0)
+        if balance_usdt is None:
+            balance_usdt = 0.0
+        else:
+            # Convert Decimal to float if needed
+            balance_usdt = float(balance_usdt)
+        
         return ProfileResponse(
             wallet_address=user.wallet_address,
             blockchain=user.blockchain,
@@ -405,6 +452,7 @@ async def get_my_profile(
             avatar=user.avatar,
             access_to_admin_panel=user.access_to_admin_panel,
             is_verified=is_verified,
+            balance_usdt=balance_usdt,
             created_at=user.created_at.isoformat(),
             updated_at=user.updated_at.isoformat()
         )
@@ -454,6 +502,14 @@ async def update_my_profile(
         except (AttributeError, KeyError):
             is_verified = False
         
+        # Get balance_usdt safely
+        balance_usdt = getattr(user, 'balance_usdt', 0.0)
+        if balance_usdt is None:
+            balance_usdt = 0.0
+        else:
+            # Convert Decimal to float if needed
+            balance_usdt = float(balance_usdt)
+        
         return ProfileResponse(
             wallet_address=user.wallet_address,
             blockchain=user.blockchain,
@@ -461,6 +517,7 @@ async def update_my_profile(
             avatar=user.avatar,
             access_to_admin_panel=user.access_to_admin_panel,
             is_verified=is_verified,
+            balance_usdt=balance_usdt,
             created_at=user.created_at.isoformat(),
             updated_at=user.updated_at.isoformat()
         )
@@ -474,5 +531,74 @@ async def update_my_profile(
         raise HTTPException(
             status_code=500,
             detail=f"Error updating profile: {str(e)}"
+        )
+
+
+@profile_router.get("/me/billing", response_model=BillingList)
+async def get_my_billing_history(
+    page: int = 1,
+    page_size: int = 20,
+    current_user = Depends(get_current_tron_user),
+    db: DbDepends = None
+):
+    """
+    Get billing transaction history for the current authenticated user
+    
+    Args:
+        page: Page number (starting from 1)
+        page_size: Number of items per page
+        current_user: Current authenticated user
+        db: Database session
+        
+    Returns:
+        List of billing transactions with pagination info
+    """
+    try:
+        wallet_address = current_user.wallet_address
+        user = await WalletUserService.get_by_wallet_address(wallet_address, db)
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User profile not found")
+        
+        # Build query
+        stmt = select(Billing).where(Billing.wallet_user_id == user.id)
+        count_stmt = select(func.count(Billing.id)).where(Billing.wallet_user_id == user.id)
+        
+        # Get total count
+        total_result = await db.execute(count_stmt)
+        total = total_result.scalar()
+        
+        # Apply pagination and ordering
+        stmt = stmt.order_by(desc(Billing.created_at))
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        
+        # Execute query
+        result = await db.execute(stmt)
+        transactions = result.scalars().all()
+        
+        # Convert to response
+        transaction_items = [
+            BillingItem(
+                id=t.id,
+                wallet_user_id=t.wallet_user_id,
+                usdt_amount=float(t.usdt_amount),
+                created_at=t.created_at
+            )
+            for t in transactions
+        ]
+        
+        return BillingList(
+            transactions=transaction_items,
+            total=total,
+            page=page,
+            page_size=page_size
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching billing history: {str(e)}"
         )
 

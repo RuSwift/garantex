@@ -15,6 +15,7 @@ class WalletUserItem(BaseModel):
     avatar: Optional[str] = Field(None, description="User avatar in base64 format")
     access_to_admin_panel: bool = Field(False, description="Access to admin panel")
     is_verified: bool = Field(False, description="Whether the user is verified (document verification)")
+    balance_usdt: float = Field(0.0, description="USDT balance")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Update timestamp")
     
@@ -42,6 +43,7 @@ class UpdateWalletUserRequest(BaseModel):
     nickname: Optional[str] = Field(None, description="New display name")
     blockchain: Optional[str] = Field(None, description="New blockchain type")
     is_verified: Optional[bool] = Field(None, description="Whether the user is verified")
+    access_to_admin_panel: Optional[bool] = Field(None, description="Access to admin panel")
 
 
 class WalletUserSearchRequest(BaseModel):
@@ -66,6 +68,7 @@ class ProfileResponse(BaseModel):
     avatar: Optional[str] = Field(None, description="User avatar in base64 format")
     access_to_admin_panel: bool = Field(..., description="Access to admin panel")
     is_verified: bool = Field(False, description="Whether the user is verified (document verification)")
+    balance_usdt: float = Field(0.0, description="USDT balance")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Update timestamp")
     

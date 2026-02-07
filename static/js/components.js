@@ -4707,12 +4707,30 @@ Vue.component('WalletUsers', {
                 wallet_address: '',
                 blockchain: 'tron',
                 nickname: '',
-                is_verified: false
+                is_verified: false,
+                access_to_admin_panel: false
             },
             savingUser: false,
             
             // Delete confirmation
             userToDelete: null,
+            
+            // Billing modal
+            showBillingModal: false,
+            billingUser: null,
+            billingForm: {
+                amount: '',
+                isDeposit: true
+            },
+            savingBilling: false,
+            
+            // Billing history modal
+            showBillingHistoryModal: false,
+            billingHistoryUser: null,
+            billingHistory: [],
+            billingHistoryLoading: false,
+            billingHistoryPage: 1,
+            billingHistoryTotal: 0,
             
             statusMessage: '',
             statusType: ''
@@ -4804,7 +4822,8 @@ Vue.component('WalletUsers', {
                 wallet_address: '',
                 blockchain: 'tron',
                 nickname: '',
-                is_verified: false
+                is_verified: false,
+                access_to_admin_panel: false
             };
             this.showUserModal = true;
         },
@@ -4815,9 +4834,160 @@ Vue.component('WalletUsers', {
                 wallet_address: user.wallet_address,
                 blockchain: user.blockchain,
                 nickname: user.nickname,
-                is_verified: user.is_verified || false
+                is_verified: user.is_verified || false,
+                access_to_admin_panel: user.access_to_admin_panel || false
             };
             this.showUserModal = true;
+        },
+        
+        showBillingModalForUser(user) {
+            this.billingUser = user;
+            this.billingForm = {
+                amount: '',
+                isDeposit: true
+            };
+            this.showBillingModal = true;
+        },
+        
+        closeBillingModal() {
+            this.showBillingModal = false;
+            this.billingUser = null;
+            this.billingForm = {
+                amount: '',
+                isDeposit: true
+            };
+        },
+        
+        async saveBilling() {
+            if (!this.billingForm.amount || parseFloat(this.billingForm.amount) <= 0) {
+                this.showStatus('Введите корректную сумму', 'error');
+                return;
+            }
+            
+            this.savingBilling = true;
+            
+            try {
+                const amount = this.billingForm.isDeposit 
+                    ? parseFloat(this.billingForm.amount)
+                    : -parseFloat(this.billingForm.amount);
+                
+                const response = await fetch(`/api/admin/billing/users/${this.billingUser.id}/transactions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        usdt_amount: amount
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to create transaction');
+                }
+                
+                this.showStatus(
+                    this.billingForm.isDeposit ? 'Баланс пополнен' : 'Баланс списан',
+                    'success'
+                );
+                this.closeBillingModal();
+                await this.loadUsers();
+                // Обновить историю биллинга, если модальное окно открыто
+                if (this.showBillingHistoryModal && this.billingHistoryUser && this.billingHistoryUser.id === this.billingUser.id) {
+                    await this.loadBillingHistory();
+                }
+                
+            } catch (error) {
+                console.error('Error saving billing:', error);
+                this.showStatus('Ошибка операции: ' + error.message, 'error');
+            } finally {
+                this.savingBilling = false;
+            }
+        },
+        
+        async showBillingHistory(user) {
+            this.billingHistoryUser = {...user}; // Копируем объект, чтобы обновлять баланс
+            this.billingHistoryPage = 1;
+            this.showBillingHistoryModal = true;
+            await this.loadBillingHistory();
+            // Обновить данные пользователя для актуального баланса
+            await this.loadUsers();
+        },
+        
+        async loadBillingHistory() {
+            if (!this.billingHistoryUser) return;
+            
+            this.billingHistoryLoading = true;
+            try {
+                const params = new URLSearchParams({
+                    page: this.billingHistoryPage,
+                    page_size: 20
+                });
+                
+                const response = await fetch(`/api/admin/billing/users/${this.billingHistoryUser.id}/transactions?${params}`);
+                
+                if (!response.ok) {
+                    throw new Error('Failed to load billing history');
+                }
+                
+                const data = await response.json();
+                this.billingHistory = data.transactions;
+                this.billingHistoryTotal = data.total;
+                
+                // Обновить баланс пользователя из списка, если модальное окно открыто
+                if (this.showBillingHistoryModal && this.billingHistoryUser) {
+                    const updatedUser = this.users.find(u => u.id === this.billingHistoryUser.id);
+                    if (updatedUser) {
+                        this.billingHistoryUser.balance_usdt = updatedUser.balance_usdt;
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Error loading billing history:', error);
+                this.showStatus('Ошибка загрузки истории: ' + error.message, 'error');
+            } finally {
+                this.billingHistoryLoading = false;
+            }
+        },
+        
+        goToBillingHistoryPage(pageNum) {
+            this.billingHistoryPage = pageNum;
+            this.loadBillingHistory();
+        },
+        
+        getBillingHistoryTotalPages() {
+            return Math.ceil(this.billingHistoryTotal / 20);
+        },
+        
+        getBillingHistoryPaginationPages() {
+            const pages = [];
+            const totalPages = this.getBillingHistoryTotalPages();
+            const maxVisible = 5;
+            let start = Math.max(1, this.billingHistoryPage - Math.floor(maxVisible / 2));
+            let end = Math.min(totalPages, start + maxVisible - 1);
+            
+            if (end - start < maxVisible - 1) {
+                start = Math.max(1, end - maxVisible + 1);
+            }
+            
+            for (let i = start; i <= end; i++) {
+                pages.push(i);
+            }
+            return pages;
+        },
+        
+        closeBillingHistoryModal() {
+            this.showBillingHistoryModal = false;
+            this.billingHistoryUser = null;
+            this.billingHistory = [];
+            this.billingHistoryPage = 1;
+        },
+        
+        formatCurrency(amount) {
+            return new Intl.NumberFormat('ru-RU', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 8
+            }).format(amount);
         },
         
         closeUserModal() {
@@ -4827,7 +4997,8 @@ Vue.component('WalletUsers', {
                 wallet_address: '',
                 blockchain: 'tron',
                 nickname: '',
-                is_verified: false
+                is_verified: false,
+                access_to_admin_panel: false
             };
         },
         
@@ -4850,7 +5021,8 @@ Vue.component('WalletUsers', {
                     ? {
                         nickname: this.userForm.nickname,
                         blockchain: this.userForm.blockchain,
-                        is_verified: this.userForm.is_verified
+                        is_verified: this.userForm.is_verified,
+                        access_to_admin_panel: this.userForm.access_to_admin_panel
                     }
                     : this.userForm;
                 
@@ -5000,8 +5172,10 @@ Vue.component('WalletUsers', {
                                     <th style="width: 100px;">Блокчейн</th>
                                     <th style="width: 200px;">Имя</th>
                                     <th style="width: 120px;">Верифицирован</th>
+                                    <th style="width: 140px;">Доступ к панели</th>
+                                    <th style="width: 120px;">Баланс USDT</th>
                                     <th style="width: 150px;">Создан</th>
-                                    <th style="width: 120px;" class="text-end">Действия</th>
+                                    <th style="width: 200px;" class="text-end">Действия</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -5029,6 +5203,19 @@ Vue.component('WalletUsers', {
                                             <i class="fas fa-times-circle me-1"></i> Нет
                                         </span>
                                     </td>
+                                    <td>
+                                        <span v-if="user.access_to_admin_panel" class="badge bg-primary" title="Пользователь имеет доступ к админ-панели ноды">
+                                            <i class="fas fa-shield-alt me-1"></i> Да
+                                        </span>
+                                        <span v-else class="badge bg-secondary" title="Пользователь не имеет доступа к админ-панели ноды">
+                                            <i class="fas fa-ban me-1"></i> Нет
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info">
+                                            [[ formatCurrency(user.balance_usdt || 0) ]] USDT
+                                        </span>
+                                    </td>
                                     <td class="small text-muted">[[ formatDate(user.created_at) ]]</td>
                                     <td class="text-end">
                                         <div class="btn-group btn-group-sm">
@@ -5038,6 +5225,20 @@ Vue.component('WalletUsers', {
                                                 title="Редактировать"
                                             >
                                                 <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button 
+                                                class="btn btn-outline-success"
+                                                @click="showBillingModalForUser(user)"
+                                                title="Пополнить/Списать баланс"
+                                            >
+                                                <i class="fas fa-wallet"></i>
+                                            </button>
+                                            <button 
+                                                class="btn btn-outline-info"
+                                                @click="showBillingHistory(user)"
+                                                title="История операций"
+                                            >
+                                                <i class="fas fa-history"></i>
                                             </button>
                                             <button 
                                                 class="btn btn-outline-danger"
@@ -5131,7 +5332,7 @@ Vue.component('WalletUsers', {
                                 />
                             </div>
                             <div class="mb-3" v-if="editingUser">
-                                <div class="form-check">
+                                <div class="form-check mb-2">
                                     <input 
                                         class="form-check-input" 
                                         type="checkbox" 
@@ -5142,8 +5343,19 @@ Vue.component('WalletUsers', {
                                         Пользователь верифицирован (проверены документы)
                                     </label>
                                 </div>
+                                <div class="form-check">
+                                    <input 
+                                        class="form-check-input" 
+                                        type="checkbox" 
+                                        v-model="userForm.access_to_admin_panel"
+                                        id="access_to_admin_panel_check"
+                                    />
+                                    <label class="form-check-label" for="access_to_admin_panel_check">
+                                        Доступ к панели ноды
+                                    </label>
+                                </div>
                                 <small class="form-text text-muted">
-                                    Отметьте, если пользователь прошел верификацию документов
+                                    Отметьте, если пользователь прошел верификацию документов или должен иметь доступ к админ-панели
                                 </small>
                             </div>
                         </div>
@@ -5195,6 +5407,180 @@ Vue.component('WalletUsers', {
                             </button>
                             <button type="button" class="btn btn-danger" @click="deleteUser">
                                 <i class="fas fa-trash me-1"></i> Удалить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Billing Modal -->
+            <div v-if="showBillingModal" class="modal d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                <i class="fas fa-wallet me-2"></i>
+                                Управление балансом
+                            </h5>
+                            <button type="button" class="btn-close" @click="closeBillingModal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div v-if="billingUser" class="mb-3">
+                                <p class="mb-1"><strong>Пользователь:</strong> [[ billingUser.nickname ]]</p>
+                                <p class="mb-0"><strong>Текущий баланс:</strong> <span class="badge bg-info">[[ formatCurrency(billingUser.balance_usdt || 0) ]] USDT</span></p>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Тип операции</label>
+                                <div class="btn-group w-100" role="group">
+                                    <input type="radio" class="btn-check" id="billing_deposit" v-model="billingForm.isDeposit" :value="true">
+                                    <label class="btn btn-outline-success" for="billing_deposit">
+                                        <i class="fas fa-plus me-1"></i> Пополнить
+                                    </label>
+                                    
+                                    <input type="radio" class="btn-check" id="billing_withdraw" v-model="billingForm.isDeposit" :value="false">
+                                    <label class="btn btn-outline-danger" for="billing_withdraw">
+                                        <i class="fas fa-minus me-1"></i> Списать
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Сумма (USDT)</label>
+                                <input 
+                                    type="number" 
+                                    step="0.00000001"
+                                    min="0.00000001"
+                                    class="form-control"
+                                    v-model="billingForm.amount"
+                                    placeholder="Введите сумму"
+                                    :disabled="savingBilling"
+                                />
+                            </div>
+                            
+                            <div v-if="billingForm.amount && billingUser" class="alert alert-info">
+                                <strong>Новый баланс:</strong> 
+                                [[ formatCurrency((billingUser.balance_usdt || 0) + (billingForm.isDeposit ? parseFloat(billingForm.amount) : -parseFloat(billingForm.amount))) ]] USDT
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="closeBillingModal" :disabled="savingBilling">
+                                Отмена
+                            </button>
+                            <button 
+                                type="button" 
+                                class="btn" 
+                                :class="billingForm.isDeposit ? 'btn-success' : 'btn-danger'"
+                                @click="saveBilling"
+                                :disabled="savingBilling || !billingForm.amount || parseFloat(billingForm.amount) <= 0"
+                            >
+                                <span v-if="savingBilling" class="spinner-border spinner-border-sm me-2"></span>
+                                [[ savingBilling ? 'Обработка...' : (billingForm.isDeposit ? 'Пополнить' : 'Списать') ]]
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Billing History Modal -->
+            <div v-if="showBillingHistoryModal" class="modal d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-dialog-centered modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                <i class="fas fa-history me-2"></i>
+                                История операций
+                            </h5>
+                            <button 
+                                type="button" 
+                                class="btn btn-sm btn-outline-primary me-2" 
+                                @click="loadBillingHistory"
+                                :disabled="billingHistoryLoading"
+                                title="Обновить"
+                            >
+                                <i class="fas fa-sync-alt" :class="{'fa-spin': billingHistoryLoading}"></i>
+                            </button>
+                            <button type="button" class="btn-close" @click="closeBillingHistoryModal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div v-if="billingHistoryUser" class="mb-3">
+                                <p class="mb-1"><strong>Пользователь:</strong> [[ billingHistoryUser.nickname ]]</p>
+                                <p class="mb-0"><strong>Текущий баланс:</strong> <span class="badge bg-info">[[ formatCurrency(billingHistoryUser.balance_usdt || 0) ]] USDT</span></p>
+                            </div>
+                            
+                            <div v-if="billingHistoryLoading" class="text-center py-4">
+                                <div class="spinner-border text-primary"></div>
+                                <p class="mt-2">Загрузка истории...</p>
+                            </div>
+                            
+                            <div v-else-if="billingHistory.length === 0" class="text-center py-4 text-muted">
+                                <i class="fas fa-inbox fa-3x mb-3 opacity-50"></i>
+                                <p>История операций пуста</p>
+                            </div>
+                            
+                            <div v-else class="table-responsive">
+                                <table class="table table-hover table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 50px;">ID</th>
+                                            <th style="width: 120px;">Тип</th>
+                                            <th>Сумма</th>
+                                            <th style="width: 180px;">Дата</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="transaction in billingHistory" :key="transaction.id">
+                                            <td>[[ transaction.id ]]</td>
+                                            <td>
+                                                <span class="badge" :class="transaction.usdt_amount >= 0 ? 'bg-success' : 'bg-danger'">
+                                                    <i :class="transaction.usdt_amount >= 0 ? 'fas fa-plus' : 'fas fa-minus'" class="me-1"></i>
+                                                    [[ transaction.usdt_amount >= 0 ? 'Пополнение' : 'Списание' ]]
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <strong :class="transaction.usdt_amount >= 0 ? 'text-success' : 'text-danger'">
+                                                    [[ transaction.usdt_amount >= 0 ? '+' : '' ]][[ formatCurrency(Math.abs(transaction.usdt_amount)) ]] USDT
+                                                </strong>
+                                            </td>
+                                            <td class="small text-muted">[[ formatDate(transaction.created_at) ]]</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Pagination -->
+                            <nav v-if="getBillingHistoryTotalPages() > 1" class="mt-3">
+                                <ul class="pagination justify-content-center pagination-sm">
+                                    <li class="page-item" :class="{disabled: billingHistoryPage === 1}">
+                                        <a class="page-link" @click.prevent="goToBillingHistoryPage(billingHistoryPage - 1)" href="#">
+                                            <i class="fas fa-chevron-left"></i>
+                                        </a>
+                                    </li>
+                                    <li class="page-item" v-for="pageNum in getBillingHistoryPaginationPages()" :key="pageNum" :class="{active: billingHistoryPage === pageNum}">
+                                        <a class="page-link" @click.prevent="goToBillingHistoryPage(pageNum)" href="#">
+                                            [[ pageNum ]]
+                                        </a>
+                                    </li>
+                                    <li class="page-item" :class="{disabled: billingHistoryPage === getBillingHistoryTotalPages()}">
+                                        <a class="page-link" @click.prevent="goToBillingHistoryPage(billingHistoryPage + 1)" href="#">
+                                            <i class="fas fa-chevron-right"></i>
+                                        </a>
+                                    </li>
+                                </ul>
+                                <p class="text-center text-muted small mb-0">
+                                    Показано [[ billingHistory.length ]] из [[ billingHistoryTotal ]] операций
+                                </p>
+                            </nav>
+                            
+                            <div v-else-if="billingHistoryTotal > 0" class="mt-2 text-center">
+                                <p class="text-muted small mb-0">
+                                    Всего операций: [[ billingHistoryTotal ]]
+                                </p>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="closeBillingHistoryModal">
+                                Закрыть
                             </button>
                         </div>
                     </div>

@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 from routers import auth
 from routers import didcomm
 from routers import wallet_users
+from routers.billing import router as billing_router
 from dependencies import UserDepends, AdminDepends, RequireAdminDepends, SettingsDepends, PrivKeyDepends, DbDepends
 from schemas.node import (
     NodeInitRequest, NodeInitPemRequest, NodeInitResponse,
@@ -68,6 +69,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(didcomm.router)
 app.include_router(wallet_users.router)
+app.include_router(billing_router)
 
 
 @app.get("/", response_class=HTMLResponse)
