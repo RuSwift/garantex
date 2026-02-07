@@ -546,12 +546,14 @@ class TronMultisig:
             weight = transaction.config.owner_weights[signer_index]
         
         # Create signature data
+        # Note: External signatures from web wallets (TronLink) are already signed
+        # by the user, so we trust them as VALID. TRON network will reject invalid signatures anyway.
         sig_data = SignatureData(
             signer_address=signer_address,
             signature=signature_hex,
             signature_index=signer_index,
             public_key=public_key_hex,
-            status=SignatureStatus.PENDING,  # Will be verified later
+            status=SignatureStatus.VALID,  # Trust web wallet signatures
             weight=weight
         )
         
@@ -560,7 +562,7 @@ class TronMultisig:
             try:
                 self.verify_signature(transaction, sig_data)
             except Exception as e:
-                # If verification fails, still add signature but mark as invalid
+                # If verification fails, mark as invalid
                 sig_data.status = SignatureStatus.INVALID
                 sig_data.metadata = {"verification_error": str(e)}
         

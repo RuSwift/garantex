@@ -3,46 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRON Multisig Test</title>
+    <title>TRON Multisig Test - Account Permissions</title>
     <link href="/static/css/bootstrap.min.css" rel="stylesheet">
     <link href="/static/css/font-awesome.min.css" rel="stylesheet">
-    <link href="/static/css/web3-auth.css" rel="stylesheet">
-    <link href="/static/css/web3-auth-mobile.css" rel="stylesheet">
     <style>
         body {
-            background-color: #f5f5f5;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
             padding: 20px;
         }
-        .test-container {
-            max-width: 1200px;
-            margin: 0 auto;
+        .container {
+            max-width: 1000px;
         }
-        .info-box {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
+        .card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
             margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .step {
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            border-left: 4px solid #0d6efd;
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px 15px 0 0 !important;
+            padding: 20px;
         }
-        .step.completed {
+        .step-card {
+            border-left: 5px solid #6c757d;
+            transition: all 0.3s ease;
+        }
+        .step-card.active {
+            border-left-color: #0d6efd;
+            box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.1);
+            animation: pulse-border 2s ease-in-out infinite;
+        }
+        .step-card.completed {
             border-left-color: #198754;
             background: #f0f9ff;
+        }
+        @keyframes pulse-border {
+            0%, 100% {
+                box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.1);
+            }
+            50% {
+                box-shadow: 0 0 0 6px rgba(13, 110, 253, 0.2);
+            }
         }
         .log-area {
             background: #1e1e1e;
             color: #d4d4d4;
             padding: 15px;
-            border-radius: 4px;
+            border-radius: 8px;
             font-family: 'Courier New', monospace;
             font-size: 12px;
-            max-height: 300px;
+            max-height: 400px;
             overflow-y: auto;
         }
         .log-entry {
@@ -57,187 +70,492 @@
         .log-entry.info {
             color: #569cd6;
         }
-        .wallet-section {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+        .log-entry.warning {
+            color: #dcdcaa;
         }
-        .wallet-connected {
-            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        .wallet-badge {
+            background: white;
+            color: #667eea;
+            padding: 10px 15px;
+            border-radius: 10px;
+            display: inline-block;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .btn-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+        }
+        .btn-gradient:hover {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+            color: white;
+        }
+        .info-badge {
+            background: #e7f3ff;
+            border-left: 4px solid #0d6efd;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .warning-badge {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
         }
     </style>
 </head>
 <body>
-    <div id="app" class="test-container">
-        <div class="info-box">
-            <h1><i class="fas fa-vial"></i> TRON Multisig Test Page</h1>
-            <p class="lead">Тестирование мультиподписного кошелька 2/3</p>
-            <hr>
-            <div class="alert alert-info">
-                <strong><i class="fas fa-info-circle"></i> Как это работает:</strong>
-                <ol class="mb-0">
-                    <li>Подключите TRON кошелек (TronLink, TrustWallet, или WalletConnect)</li>
-                    <li>Создается конфигурация 2/3 (нужно 2 подписи из 3 владельцев)</li>
-                    <li>Вы подписываете транзакцию через ваш кошелек</li>
-                    <li>Сервер автоматически добавляет вторую подпись</li>
-                    <li>Транзакция готова к отправке в сеть</li>
-                </ol>
+    <div id="app" class="container">
+        <!-- Header -->
+        <div class="card">
+            <div class="card-header">
+                <h1 class="mb-0"><i class="fas fa-shield-alt"></i> TRON Multisig Test</h1>
+                <p class="mb-0 mt-2" style="opacity: 0.9;">Account Permission Approach - Нативная мультиподпись TRON</p>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info mb-0">
+                    <h5><i class="fas fa-info-circle"></i> Как это работает:</h5>
+                    <ol class="mb-0">
+                        <li>Подключите TRON кошелек (TronLink) - это будет Owner1</li>
+                        <li>Проверяем multisig permissions на аккаунте Owner1</li>
+                        <li>Создаём транзакцию с permission_id</li>
+                        <li>Подписываем через TronLink (Owner1)</li>
+                        <li>Автоматически добавляется подпись Owner2</li>
+                        <li>Отправляем транзакцию в TRON mainnet</li>
+                    </ol>
+                </div>
             </div>
         </div>
 
-        <!-- Step 0: Connect Wallet (Universal) -->
-        <div class="wallet-section" :class="{ 'wallet-connected': walletConnected }">
-            <h4><i class="fas fa-wallet"></i> Шаг 0: Подключение кошелька</h4>
-            <div v-if="!walletConnected">
-                <p style="opacity: 0.9; margin-bottom: 15px;">
-                    Подключите любой TRON кошелек для продолжения
-                </p>
-                <tron-auth 
-                    @authenticated="onWalletConnected"
-                    style="margin-top: 10px;"
-                ></tron-auth>
-            </div>
-            <div v-else>
-                <div class="alert alert-light mb-0">
-                    <strong>✓ Кошелек подключен</strong><br>
-                    <code style="color: #333;">[[ walletAddress ]]</code>
+        <!-- Step 0: Connect Wallet -->
+        <div class="card step-card" :class="{ completed: walletConnected }">
+            <div class="card-body">
+                <h4><i class="fas fa-wallet"></i> Шаг 0: Подключение кошелька</h4>
+                <div v-if="!walletConnected">
+                    <div class="warning-badge mb-3">
+                        <strong><i class="fas fa-exclamation-triangle"></i> Перед подключением:</strong>
+                        <ol class="mb-0 mt-2">
+                            <li>Убедитесь, что расширение TronLink установлено</li>
+                            <li><strong>Разблокируйте кошелек TronLink</strong> (введите пароль)</li>
+                            <li>Переключитесь на <strong>TRON Mainnet</strong></li>
+                            <li>Нажмите кнопку "Подключить TronLink"</li>
+                        </ol>
+                        <div class="mt-2" style="font-size: 0.9em; opacity: 0.8;">
+                            <strong>💡 Chrome:</strong> Если TronLink не определяется, попробуйте:
+                            <ul class="mb-0 mt-1">
+                                <li>Перезагрузите страницу (F5) после разблокировки TronLink</li>
+                                <li>Откройте расширение TronLink в новой вкладке и вернитесь сюда</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <button class="btn btn-gradient btn-lg" @click="connectWallet" :disabled="loading">
+                        <i class="fas fa-plug"></i> 
+                        <span v-if="loading">Подключение...</span>
+                        <span v-else>Подключить TronLink</span>
+                    </button>
+                </div>
+                <div v-else>
+                    <div class="alert alert-success mb-0">
+                        <strong>✓ Кошелек подключен</strong><br>
+                        <span class="wallet-badge">[[ walletAddress ]]</span>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- Step 1: Initialize Config -->
-        <div class="step" :class="{ completed: configInitialized }" v-if="walletConnected">
-            <h4><i class="fas fa-cog"></i> Шаг 1: Инициализация конфигурации</h4>
-            <div v-if="!configInitialized">
-                <p>Создать тестовую конфигурацию мультиподписи 2/3</p>
-                <button class="btn btn-primary" @click="initConfig" :disabled="loading">
-                    <i class="fas fa-play"></i> Инициализировать
-                </button>
-            </div>
-            <div v-else class="alert alert-success mb-0">
-                <strong>✓ Multisig кошелек создан</strong>
-                <ul class="mb-0 mt-2">
-                    <li><strong>Адрес multisig кошелька:</strong> <code>[[ config.multisig_address ]]</code></li>
-                    <li><strong>Требуется подписей:</strong> [[config.required_signatures]]/[[config.total_owners]]</li>
-                    <li><strong>Владельцы:</strong>
-                        <ul>
-                            <li v-for="(addr, index) in config.owner_addresses" :key="index">
-                                <code>[[ addr ]]</code>
-                                <span v-if="addr === config.user_address" class="badge bg-primary">Вы</span>
-                                <span v-else class="badge bg-secondary">Авто-подпись</span>
-                            </li>
-                        </ul>
-                    </li>
-                </ul>
-            </div>
-        </div>
-
-        <!-- Step 2: TRON Multisig Component -->
-        <div class="step" :class="{ completed: transactionSigned }" v-if="configInitialized && walletConnected">
-            <h4><i class="fas fa-signature"></i> Шаг 2: Подписание транзакции</h4>
-            <p class="text-muted">Ваш кошелек: <code>[[ walletAddress ]]</code></p>
-            <p class="text-muted"><strong>Multisig кошелек:</strong> <code>[[ config.multisig_address ]]</code></p>
-            <tron-multisig 
-                :external-address="walletAddress"
-                :multisig-address="config.multisig_address"
-                :skip-connection="true"
-                :show-full-form="true"
-                backend-url="/api/multisig"
-                @transaction-signed="onTransactionSigned"
-                @error="onError">
-            </tron-multisig>
-        </div>
-
-        <!-- Step 3: Transaction Status -->
-        <div class="step" :class="{ completed: transactionReady }" v-if="currentTransaction">
-            <h4><i class="fas fa-check-circle"></i> Шаг 3: Статус транзакции</h4>
-            <div class="alert" :class="transactionReady ? 'alert-success' : 'alert-info'">
-                <h5>[[transactionReady ? '✓ Транзакция готова!' : '⏳ Ожидание подписей...']]</h5>
-                <p><strong>TX ID:</strong> <code>[[ currentTransaction.txId ]]</code></p>
-                <p><strong>Подписей:</strong> 
-                    <span class="badge bg-primary fs-6">
-                        [[ currentTransaction.signaturesCount ]] / [[ currentTransaction.requiredSignatures ]]
-                    </span>
-                </p>
-                <div v-if="transactionReady">
-                    <hr>
-                    <button class="btn btn-success" @click="finalizeTransaction">
-                        <i class="fas fa-paper-plane"></i> Финализировать транзакцию
+        <div class="card step-card" :class="{ active: walletConnected && !configLoaded, completed: configLoaded }" v-if="walletConnected">
+            <div class="card-body">
+                <h4><i class="fas fa-cog"></i> Шаг 1: Инициализация конфигурации</h4>
+                <div v-if="!configLoaded">
+                    <p class="text-muted">Загрузить конфигурацию мультиподписи из мнемоник (2/3)</p>
+                    <button class="btn btn-gradient" @click="loadConfig" :disabled="loading">
+                        <i class="fas fa-download"></i> Загрузить конфигурацию
                     </button>
-                    <p class="text-muted small mt-2 mb-0">
-                        <i class="fas fa-info-circle"></i> 
-                        В реальном сценарии здесь будет отправка в TRON сеть
-                    </p>
+                </div>
+                <div v-else>
+                    <div class="alert alert-success">
+                        <strong>✓ Конфигурация загружена</strong>
+                        <div class="mt-2">
+                            <strong>Требуется подписей:</strong> [[config.required_signatures]]/[[config.total_owners]]
+                        </div>
+                        <div class="mt-2">
+                            <strong>Владельцы:</strong>
+                            <ul class="mb-0 mt-1">
+                                <li><code>[[ config.owner1_address ]]</code> <span class="badge bg-primary">Owner1 (Вы)</span></li>
+                                <li><code>[[ config.owner2_address ]]</code> <span class="badge bg-secondary">Owner2 (Авто)</span></li>
+                                <li><code>[[ config.owner3_address ]]</code> <span class="badge bg-secondary">Owner3</span></li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="info-badge">
+                        <strong><i class="fas fa-lightbulb"></i> Важно:</strong>
+                        Аккаунт Owner1 должен быть настроен с multisig permissions (2/3).
+                        Все транзакции с него требуют 2 подписи из 3 владельцев.
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Finalized Transaction -->
-        <div class="step completed" v-if="finalizedTransaction">
-            <h4><i class="fas fa-trophy"></i> Готово! Транзакция финализирована</h4>
-            <div class="alert alert-success">
-                <p><strong>Подписанная транзакция готова к broadcast:</strong></p>
-                <pre class="bg-light p-3"><code>[[ JSON.stringify(finalizedTransaction, null, 2) ]]</code></pre>
+        <!-- Step 2: Check Permissions -->
+        <div class="card step-card" :class="{ active: configLoaded && !permissionsChecked, completed: permissionsChecked }" v-if="configLoaded">
+            <div class="card-body">
+                <h4><i class="fas fa-key"></i> Шаг 2: Проверка Permissions</h4>
+                <div v-if="!permissionsChecked">
+                    <p class="text-muted">Проверить multisig permissions на аккаунте Owner1</p>
+                    <button class="btn btn-gradient" @click="checkPermissions" :disabled="loading">
+                        <i class="fas fa-search"></i> Проверить Permissions
+                    </button>
+                </div>
+                <div v-else>
+                    <div v-if="hasMultisig" class="alert alert-success">
+                        <strong>✓ Multisig permissions найдены!</strong>
+                        <div class="mt-2">
+                            <strong>Permission ID:</strong> [[ permissionId ]]<br>
+                            <strong>Permission Name:</strong> [[ permissionName ]]<br>
+                            <strong>Threshold:</strong> [[ permissionThreshold ]]<br>
+                            <strong>Keys:</strong> [[ permissionKeysCount ]]
+                        </div>
+                    </div>
+                    <div v-else class="alert alert-warning">
+                        <strong>⚠ Multisig permissions не найдены</strong>
+                        <p class="mb-0 mt-2">
+                            Аккаунт Owner1 не имеет multisig permissions.<br>
+                            Необходимо сначала настроить permissions через AccountPermissionUpdateContract.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Create Transaction -->
+        <div class="card step-card" :class="{ active: hasMultisig && !transactionCreated, completed: transactionCreated }" v-if="hasMultisig">
+            <div class="card-body">
+                <h4><i class="fas fa-file-invoice"></i> Шаг 3: Создание транзакции</h4>
+                <div v-if="!transactionCreated">
+                    <p class="text-muted">Создать транзакцию перевода с multisig permission</p>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Получатель:</label>
+                            <input type="text" class="form-control" v-model="recipientAddress" placeholder="TRON адрес">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Сумма (TRX):</label>
+                            <input type="number" class="form-control" v-model="amount" step="0.1" min="0.1">
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-gradient" @click="createTransaction" :disabled="loading || !recipientAddress || !amount">
+                        <i class="fas fa-plus"></i> Создать транзакцию
+                    </button>
+                </div>
+                <div v-else>
+                    <div class="alert alert-success">
+                        <strong>✓ Транзакция создана</strong>
+                        <div class="mt-2">
+                            <strong>TX ID:</strong> <code>[[ txId ]]</code><br>
+                            <strong>От:</strong> <code>[[ walletAddress ]]</code><br>
+                            <strong>Кому:</strong> <code>[[ recipientAddress ]]</code><br>
+                            <strong>Сумма:</strong> [[ amount ]] TRX
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 4: Sign Transaction -->
+        <div class="card step-card" :class="{ active: transactionCreated && !transactionSigned, completed: transactionSigned }" v-if="transactionCreated">
+            <div class="card-body">
+                <h4><i class="fas fa-signature"></i> Шаг 4: Подписание транзакции</h4>
+                <div v-if="!transactionSigned">
+                    <div class="info-badge mb-3">
+                        <strong><i class="fas fa-info-circle"></i> Требуется ваша подпись</strong>
+                        <p class="mb-0 mt-2">
+                            Транзакция создана и ожидает подписи от Owner1 (ваш кошелек).<br>
+                            TronLink откроет окно для подтверждения подписи.
+                        </p>
+                    </div>
+                    <button class="btn btn-gradient btn-lg w-100" @click="signTransaction" :disabled="loading" style="font-size: 1.1rem; padding: 12px;">
+                        <i class="fas fa-pen"></i> 
+                        <span v-if="loading">Ожидание подписи...</span>
+                        <span v-else>✍️ Подписать через TronLink</span>
+                    </button>
+                </div>
+                <div v-else>
+                    <div class="alert alert-success">
+                        <strong>✓ Транзакция подписана</strong>
+                        <div class="mt-2">
+                            <strong>Подписей:</strong> [[ signaturesCount ]] / [[ requiredSignatures ]]<br>
+                            <strong>Готова к broadcast:</strong> [[ isReady ? 'Да ✓' : 'Нет (нужно больше подписей)' ]]
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 5: Broadcast Transaction -->
+        <div class="card step-card" :class="{ active: isReady && !transactionBroadcast, completed: transactionBroadcast }" v-if="isReady">
+            <div class="card-body">
+                <h4><i class="fas fa-broadcast-tower"></i> Шаг 5: Отправка в TRON Mainnet</h4>
+                <div v-if="!transactionBroadcast">
+                    <div class="alert alert-success mb-3">
+                        <strong><i class="fas fa-check-circle"></i> Транзакция готова!</strong>
+                        <p class="mb-0 mt-2">
+                            Все необходимые подписи собраны ([[ signaturesCount ]]/[[ requiredSignatures ]]).<br>
+                            Нажмите кнопку ниже, чтобы отправить транзакцию в TRON Mainnet.
+                        </p>
+                    </div>
+                    <button class="btn btn-success btn-lg w-100" @click="broadcastTransaction" :disabled="loading" style="font-size: 1.2rem; padding: 15px;">
+                        <i class="fas fa-paper-plane"></i> 
+                        <span v-if="loading">Отправка...</span>
+                        <span v-else>🚀 Отправить в TRON Mainnet</span>
+                    </button>
+                </div>
+                <div v-else>
+                    <div class="alert alert-success">
+                        <strong>✅ Транзакция успешно отправлена в Mainnet!</strong>
+                        <div class="mt-3">
+                            <strong>TX ID:</strong><br>
+                            <code style="font-size: 0.9rem; word-break: break-all;">[[ broadcastTxId ]]</code>
+                        </div>
+                        <div class="mt-3">
+                            <a :href="'https://tronscan.org/#/transaction/' + broadcastTxId" target="_blank" class="btn btn-primary btn-lg w-100">
+                                <i class="fas fa-external-link-alt"></i> Посмотреть транзакцию в TronScan
+                            </a>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
         <!-- Logs -->
-        <div class="info-box">
-            <h4><i class="fas fa-terminal"></i> Логи</h4>
-            <div class="log-area" ref="logArea">
-                <div v-for="(log, index) in logs" :key="index" class="log-entry" :class="log.type">
-                    <span class="text-muted">[[ log.time ]]</span> [[ log.message ]]
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="fas fa-terminal"></i> Логи</h4>
+            </div>
+            <div class="card-body">
+                <div class="log-area" ref="logArea">
+                    <div v-for="(log, index) in logs" :key="index" class="log-entry" :class="log.type">
+                        <span class="text-muted">[[ log.time ]]</span> [[ log.message ]]
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <button class="btn btn-sm btn-secondary" @click="clearLogs">
+                        <i class="fas fa-trash"></i> Очистить логи
+                    </button>
+                    <button class="btn btn-sm btn-warning ms-2" @click="resetAll">
+                        <i class="fas fa-redo"></i> Сбросить всё
+                    </button>
                 </div>
             </div>
-            <button class="btn btn-sm btn-secondary mt-2" @click="clearLogs">
-                <i class="fas fa-trash"></i> Очистить логи
-            </button>
-            <button class="btn btn-sm btn-warning mt-2 ms-2" @click="resetTest">
-                <i class="fas fa-redo"></i> Сбросить тест
-            </button>
         </div>
     </div>
 
     <script src="/static/js/vue.min.js"></script>
-    <script src="/static/js/components.js"></script>
-    <script src="/static/js/tron-multisig-vue.js"></script>
-    
     <script>
         new Vue({
             el: '#app',
             delimiters: ['[[', ']]'],
             data: {
-                // Wallet connection
+                loading: false,
+                
+                // Wallet
                 walletConnected: false,
                 walletAddress: null,
+                tronWeb: null,
                 
-                // Multisig workflow
-                loading: false,
-                configInitialized: false,
-                transactionSigned: false,
-                transactionReady: false,
+                // Config
+                configLoaded: false,
                 config: null,
-                currentTransaction: null,
-                finalizedTransaction: null,
+                
+                // Permissions
+                permissionsChecked: false,
+                hasMultisig: false,
+                permissionId: null,
+                permissionName: null,
+                permissionThreshold: null,
+                permissionKeysCount: null,
+                
+                // Transaction
+                transactionCreated: false,
+                txId: null,
+                rawDataHex: null,
+                unsignedTransaction: null,
+                recipientAddress: '',
+                amount: 0.1,
+                
+                // Signing
+                transactionSigned: false,
+                signaturesCount: 0,
+                requiredSignatures: 2,
+                isReady: false,
+                
+                // Broadcast
+                transactionBroadcast: false,
+                broadcastTxId: null,
+                
+                // Logs
                 logs: []
             },
             methods: {
-                async initConfig() {
+                async connectWallet() {
                     this.loading = true;
-                    this.log('Инициализация конфигурации...', 'info');
+                    this.log('Подключение к TronLink...', 'info');
                     
                     try {
-                        const response = await fetch('/api/multisig/test/config');
+                        // Шаг 1: Ждем инжектирования TronLink (важно для Chrome)
+                        this.log('⏳ Ожидание инжектирования TronLink...', 'info');
+                        let attempts = 0;
+                        const maxWaitAttempts = 30; // 3 секунды на инжектирование
+                        
+                        while (attempts < maxWaitAttempts) {
+                            if (typeof window.tronWeb !== 'undefined') {
+                                break;
+                            }
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            attempts++;
+                        }
+                        
+                        // Проверка наличия TronWeb (официальный способ)
+                        if (typeof window.tronWeb === 'undefined') {
+                            throw new Error('TronLink не установлен. Установите расширение TronLink.');
+                        }
+                        
+                        this.log('✓ TronLink обнаружен', 'success');
+                        
+                        // Шаг 2: Проверяем статус подключения
+                        const isLocked = !window.tronWeb.ready || 
+                                        !window.tronWeb.defaultAddress || 
+                                        window.tronWeb.defaultAddress.base58 === false;
+                        
+                        if (isLocked) {
+                            this.log('🔒 TronLink заблокирован или не подключен к сайту', 'warning');
+                            this.log('⏳ Запрос разрешения на подключение...', 'info');
+                            
+                            // Явный запрос доступа через tronLink API (новый способ)
+                            if (window.tronLink) {
+                                try {
+                                    this.log('  Использую tronLink.request()...', 'info');
+                                    const res = await window.tronLink.request({ 
+                                        method: 'tron_requestAccounts' 
+                                    });
+                                    
+                                    if (res.code === 200) {
+                                        this.log('  ✓ Разрешение получено!', 'success');
+                                    } else if (res.code === 4001) {
+                                        throw new Error('Вы отклонили запрос на подключение');
+                                    }
+                                } catch (e) {
+                                    if (e.message && e.message.includes('отклонили')) {
+                                        throw e;
+                                    }
+                                    this.log('  ⚠ Старый метод запроса', 'warning');
+                                }
+                            }
+                        }
+                        
+                        // Шаг 3: Ждем готовности TronWeb после запроса доступа
+                        this.log('⏳ Ожидание готовности TronWeb...', 'info');
+                        attempts = 0;
+                        const maxReadyAttempts = 50; // 5 секунд на готовность
+                        
+                        while (attempts < maxReadyAttempts) {
+                            if (window.tronWeb && 
+                                window.tronWeb.ready && 
+                                window.tronWeb.defaultAddress &&
+                                window.tronWeb.defaultAddress.base58 &&
+                                window.tronWeb.defaultAddress.base58 !== false) {
+                                
+                                const address = window.tronWeb.defaultAddress.base58;
+                                this.tronWeb = window.tronWeb;
+                                this.walletAddress = address;
+                                this.walletConnected = true;
+                                this.log('✅ Кошелек подключен: ' + this.walletAddress, 'success');
+                                
+                                // Логируем версию TronWeb
+                                if (window.tronWeb.version) {
+                                    this.log('  TronWeb версия: ' + window.tronWeb.version, 'info');
+                                }
+                                
+                                return;
+                            }
+                            
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            attempts++;
+                            
+                            // Промежуточная диагностика
+                            if (attempts === 10) {
+                                this.log('  ⏳ Все еще ждем... (проверьте что TronLink разблокирован)', 'warning');
+                                console.log('TronWeb state:', {
+                                    exists: !!window.tronWeb,
+                                    ready: window.tronWeb?.ready,
+                                    defaultAddress: window.tronWeb?.defaultAddress
+                                });
+                            }
+                        }
+                        
+                        // Если не удалось подключиться
+                        throw new Error('TronLink не готов. Разблокируйте кошелек и попробуйте снова.');
+                        
+                    } catch (error) {
+                        this.log('❌ Ошибка: ' + error.message, 'error');
+                        
+                        if (error.message.includes('не установлен')) {
+                            this.log('  📥 Решение:', 'warning');
+                            this.log('     1. Установите TronLink: https://www.tronlink.org/', 'warning');
+                            this.log('     2. Перезагрузите страницу', 'warning');
+                        } else if (error.message.includes('отклонили')) {
+                            this.log('  💡 Решение:', 'warning');
+                            this.log('     Нажмите "Подключить" снова и разрешите доступ', 'warning');
+                        } else {
+                            this.log('  🔓 Решение:', 'warning');
+                            this.log('     1. Откройте расширение TronLink (кликните на иконку)', 'warning');
+                            this.log('     2. Введите пароль для разблокировки', 'warning');
+                            this.log('     3. Нажмите "Подключить TronLink" снова', 'warning');
+                        }
+                        
+                        // Дополнительная диагностика
+                        console.error('Connection error details:', {
+                            tronWebExists: typeof window.tronWeb !== 'undefined',
+                            tronWebReady: window.tronWeb ? window.tronWeb.ready : null,
+                            defaultAddress: window.tronWeb ? window.tronWeb.defaultAddress : null
+                        });
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                
+                async loadConfig() {
+                    this.loading = true;
+                    this.log('Загрузка конфигурации...', 'info');
+                    
+                    try {
+                        const response = await fetch('/api/multisig/config');
                         const data = await response.json();
                         
                         if (data.success) {
                             this.config = data.config;
-                            this.configInitialized = true;
-                            this.log('✓ Конфигурация создана: ' + data.message, 'success');
+                            this.configLoaded = true;
+                            this.requiredSignatures = data.config.required_signatures;
+                            
+                            this.log('✓ ' + data.message, 'success');
+                            this.log('  Owner1: ' + data.config.owner1_address, 'info');
+                            this.log('  Owner2: ' + data.config.owner2_address, 'info');
+                            this.log('  Owner3: ' + data.config.owner3_address, 'info');
+                            
+                            // Check if wallet matches owner1
+                            if (this.walletAddress !== data.config.owner1_address) {
+                                this.log('⚠ ВНИМАНИЕ: Подключенный кошелек не совпадает с Owner1!', 'warning');
+                                this.log('  Ожидается: ' + data.config.owner1_address, 'warning');
+                                this.log('  Подключен: ' + this.walletAddress, 'warning');
+                            }
                         } else {
-                            throw new Error(data.message || 'Failed to create config');
+                            throw new Error(data.detail || 'Failed to load config');
                         }
                     } catch (error) {
                         this.log('✗ Ошибка: ' + error.message, 'error');
@@ -246,74 +564,237 @@
                     }
                 },
                 
-                onWalletConnected(address, token) {
-                    this.walletAddress = address;
-                    this.walletConnected = true;
-                    this.log('✓ Кошелек подключен: ' + address, 'success');
-                    this.log('Теперь можно инициализировать конфигурацию', 'info');
-                },
-                
-                onTransactionSigned(tx) {
-                    this.currentTransaction = tx;
-                    this.transactionSigned = true;
-                    this.transactionReady = tx.isReady;
-                    
-                    this.log('✓ Транзакция подписана!', 'success');
-                    this.log('  TX ID: ' + tx.txId, 'info');
-                    this.log('  Подписей: ' + tx.signaturesCount + '/' + tx.requiredSignatures, 'info');
-                    
-                    if (tx.isReady) {
-                        this.log('✓ Транзакция готова к отправке!', 'success');
-                    }
-                },
-                
-                onError(error) {
-                    this.log('✗ Ошибка: ' + error.message, 'error');
-                },
-                
-                async finalizeTransaction() {
-                    if (!this.currentTransaction) return;
-                    
-                    this.log('Финализация транзакции...', 'info');
+                async checkPermissions() {
+                    this.loading = true;
+                    this.log('Проверка permissions для ' + this.walletAddress + '...', 'info');
                     
                     try {
-                        const response = await fetch(
-                            '/api/multisig/transaction/' + this.currentTransaction.txId + '/finalize',
-                            { method: 'POST' }
-                        );
+                        const response = await fetch('/api/multisig/check-permissions', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                owner_address: this.walletAddress
+                            })
+                        });
                         const data = await response.json();
                         
                         if (data.success) {
-                            this.finalizedTransaction = data.signed_transaction;
-                            this.log('✓ Транзакция финализирована!', 'success');
-                            this.log('  Готова к broadcast в TRON сеть', 'success');
+                            this.permissionsChecked = true;
+                            this.hasMultisig = data.has_multisig;
+                            
+                            if (data.has_multisig) {
+                                this.permissionId = data.permission_id;
+                                this.permissionName = data.permission_name;
+                                this.permissionThreshold = data.threshold;
+                                this.permissionKeysCount = data.keys_count;
+                                
+                                this.log('✓ ' + data.message, 'success');
+                                this.log('  Permission ID: ' + data.permission_id, 'info');
+                                this.log('  Threshold: ' + data.threshold, 'info');
+                            } else {
+                                this.log('⚠ ' + data.message, 'warning');
+                                this.log('  Аккаунт не настроен для multisig', 'warning');
+                            }
                         } else {
-                            throw new Error(data.detail || 'Finalization failed');
+                            throw new Error(data.detail || 'Failed to check permissions');
                         }
                     } catch (error) {
-                        this.log('✗ Ошибка финализации: ' + error.message, 'error');
+                        this.log('✗ Ошибка: ' + error.message, 'error');
+                    } finally {
+                        this.loading = false;
                     }
                 },
                 
-                async resetTest() {
-                    if (!confirm('Сбросить все тестовые данные?')) return;
+                async createTransaction() {
+                    this.loading = true;
+                    this.log('Создание транзакции...', 'info');
+                    this.log('  От: ' + this.walletAddress, 'info');
+                    this.log('  Кому: ' + this.recipientAddress, 'info');
+                    this.log('  Сумма: ' + this.amount + ' TRX', 'info');
+                    this.log('  Permission ID: ' + this.permissionId, 'info');
                     
                     try {
-                        await fetch('/api/multisig/test/reset');
+                        const response = await fetch('/api/multisig/create-transaction', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                from_address: this.walletAddress,
+                                to_address: this.recipientAddress,
+                                amount_trx: parseFloat(this.amount),
+                                permission_id: this.permissionId
+                            })
+                        });
+                        const data = await response.json();
                         
-                        this.configInitialized = false;
-                        this.transactionSigned = false;
-                        this.transactionReady = false;
+                        if (data.success) {
+                            this.txId = data.tx_id;
+                            this.rawDataHex = data.raw_data_hex;
+                            this.unsignedTransaction = data.unsigned_transaction; // Save full transaction
+                            this.transactionCreated = true;
+                            
+                            this.log('✓ ' + data.message, 'success');
+                            this.log('  TX ID: ' + data.tx_id, 'info');
+                            this.log('', 'info');
+                            this.log('👇 Перейдите к Шагу 4 для подписания транзакции', 'success');
+                            
+                            // Прокрутка к следующему шагу
+                            this.$nextTick(() => {
+                                setTimeout(() => {
+                                    const step4 = document.querySelector('.card.step-card.active');
+                                    if (step4) {
+                                        step4.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    }
+                                }, 300);
+                            });
+                        } else {
+                            throw new Error(data.detail || 'Failed to create transaction');
+                        }
+                    } catch (error) {
+                        this.log('✗ Ошибка: ' + error.message, 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                
+                async signTransaction() {
+                    this.loading = true;
+                    this.log('Подписание транзакции через TronLink...', 'info');
+                    this.log('  TX ID: ' + this.txId, 'info');
+                    this.log('  Wallet address: ' + this.walletAddress, 'info');
+                    
+                    try {
+                        // ВАЖНО: Передать полную транзакцию в TronLink для правильной подписи
+                        this.log('  Вызов tronWeb.trx.sign() с полной транзакцией...', 'info');
+                        
+                        // Sign полную транзакцию (не raw_data_hex!)
+                        const signedTx = await this.tronWeb.trx.sign(this.unsignedTransaction);
+                        
+                        this.log('  Получен ответ от TronLink', 'info');
+                        this.log('  Тип ответа: ' + typeof signedTx, 'info');
+                        
+                        // Извлекаем подпись из подписанной транзакции
+                        let cleanSignature;
+                        if (signedTx.signature && Array.isArray(signedTx.signature) && signedTx.signature.length > 0) {
+                            cleanSignature = signedTx.signature[0];
+                            this.log('  Подпись извлечена из массива signature', 'info');
+                        } else if (typeof signedTx === 'string') {
+                            cleanSignature = signedTx;
+                            this.log('  Подпись возвращена как строка', 'info');
+                        } else {
+                            throw new Error('Неожиданный формат ответа от TronLink: ' + JSON.stringify(signedTx));
+                        }
+                        
+                        // Убираем префикс 0x если есть
+                        if (cleanSignature.startsWith('0x')) {
+                            cleanSignature = cleanSignature.substring(2);
+                            this.log('  Убран префикс 0x', 'info');
+                        }
+                        
+                        this.log('✓ Подпись получена от TronLink', 'success');
+                        this.log('  Signature length: ' + cleanSignature.length, 'info');
+                        this.log('  Signature (first 32): ' + cleanSignature.substring(0, 32) + '...', 'info');
+                        
+                        // Send signature to backend
+                        const response = await fetch('/api/multisig/add-signature', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                tx_id: this.txId,
+                                signature: cleanSignature,
+                                signer_address: this.walletAddress
+                            })
+                        });
+                        if (!response.ok) {
+                            const errorData = await response.json();
+                            throw new Error(errorData.detail || 'Failed to add signature');
+                        }
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            this.transactionSigned = true;
+                            this.signaturesCount = data.signatures_count;
+                            this.isReady = data.is_ready;
+                            
+                            this.log('✓ ' + data.message, 'success');
+                            this.log('  Подписей: ' + data.signatures_count + '/' + data.required_signatures, 'info');
+                            
+                            if (data.is_ready) {
+                                this.log('✓ Транзакция готова к broadcast!', 'success');
+                                this.log('', 'info');
+                                this.log('👇 Перейдите к Шагу 5 для отправки в сеть', 'success');
+                                
+                                // Прокрутка к Шагу 5 (broadcast)
+                                this.$nextTick(() => {
+                                    setTimeout(() => {
+                                        const step5 = document.querySelectorAll('.card.step-card')[4]; // Шаг 5
+                                        if (step5) {
+                                            step5.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        }
+                                    }, 300);
+                                });
+                            }
+                        } else {
+                            throw new Error(data.detail || 'Failed to add signature');
+                        }
+                    } catch (error) {
+                        this.log('✗ Ошибка: ' + error.message, 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                
+                async broadcastTransaction() {
+                    this.loading = true;
+                    this.log('Отправка транзакции в TRON mainnet...', 'info');
+                    
+                    try {
+                        const response = await fetch('/api/multisig/broadcast', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                tx_id: this.txId
+                            })
+                        });
+                        const data = await response.json();
+                        
+                        if (data.success && data.result) {
+                            this.transactionBroadcast = true;
+                            this.broadcastTxId = data.txid;
+                            
+                            this.log('✅ ' + data.message, 'success');
+                            this.log('  TronScan: https://tronscan.org/#/transaction/' + data.txid, 'success');
+                        } else {
+                            throw new Error(data.detail || 'Broadcast failed');
+                        }
+                    } catch (error) {
+                        this.log('✗ Ошибка broadcast: ' + error.message, 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                
+                async resetAll() {
+                    if (!confirm('Сбросить все данные и начать заново?')) return;
+                    
+                    try {
+                        await fetch('/api/multisig/reset');
+                        
+                        // Reset local state
+                        this.configLoaded = false;
                         this.config = null;
-                        this.currentTransaction = null;
-                        this.finalizedTransaction = null;
+                        this.permissionsChecked = false;
+                        this.hasMultisig = false;
+                        this.permissionId = null;
+                        this.transactionCreated = false;
+                        this.txId = null;
+                        this.transactionSigned = false;
+                        this.isReady = false;
+                        this.transactionBroadcast = false;
+                        this.recipientAddress = '';
+                        this.amount = 0.1;
                         
-                        this.log('✓ Тест сброшен', 'info');
-                        
-                        // Reload page
-                        setTimeout(() => {
-                            location.reload();
-                        }, 1000);
+                        this.log('✓ Данные сброшены', 'info');
                     } catch (error) {
                         this.log('✗ Ошибка сброса: ' + error.message, 'error');
                     }
@@ -323,7 +804,6 @@
                     const time = new Date().toLocaleTimeString('ru-RU');
                     this.logs.push({ time, message, type });
                     
-                    // Auto-scroll to bottom
                     this.$nextTick(() => {
                         if (this.$refs.logArea) {
                             this.$refs.logArea.scrollTop = this.$refs.logArea.scrollHeight;
@@ -333,14 +813,127 @@
                 
                 clearLogs() {
                     this.logs = [];
+                },
+                
+                setupTronLinkListeners() {
+                    // Слушатель событий TronLink (официальный способ)
+                    window.addEventListener('message', (e) => {
+                        if (e.data.message && e.data.message.action === 'setAccount') {
+                            // Аккаунт изменился
+                            if (this.walletConnected && window.tronWeb && window.tronWeb.defaultAddress) {
+                                const newAddress = window.tronWeb.defaultAddress.base58;
+                                if (newAddress && newAddress !== this.walletAddress) {
+                                    this.walletAddress = newAddress;
+                                    this.log('⚠ Аккаунт изменен: ' + this.walletAddress, 'warning');
+                                }
+                            }
+                        } else if (e.data.message && e.data.message.action === 'disconnect') {
+                            this.log('⚠ TronLink отключен', 'warning');
+                            this.walletConnected = false;
+                            this.walletAddress = null;
+                        } else if (e.data.message && e.data.message.action === 'connect') {
+                            // TronLink подключен (важно для Chrome)
+                            this.log('✓ TronLink готов к подключению', 'success');
+                            this.checkAutoConnectPassive();
+                        } else if (e.data.message && e.data.message.action === 'accountsChanged') {
+                            // Обработка смены аккаунта
+                            this.log('🔄 Аккаунты изменены, обновление...', 'info');
+                            this.checkAutoConnectPassive();
+                        }
+                    });
+                    
+                    // Слушатель для Chrome: событие загрузки TronLink
+                    window.addEventListener('load', () => {
+                        // Дополнительная проверка после загрузки страницы
+                        setTimeout(() => {
+                            this.diagnosticTronLink();
+                            this.checkAutoConnectPassive();
+                        }, 1500);
+                    });
+                    
+                    // Слушатель для специфичного события TronLink в Chrome
+                    document.addEventListener('tronLink#initialized', () => {
+                        this.log('✓ TronLink инициализирован (Chrome)', 'success');
+                        this.diagnosticTronLink();
+                        this.checkAutoConnectPassive();
+                    });
+                },
+                
+                diagnosticTronLink() {
+                    // Диагностика для отладки проблем с TronLink
+                    console.log('=== TronLink Diagnostic ===');
+                    console.log('window.tronWeb:', window.tronWeb);
+                    console.log('window.tronLink:', window.tronLink);
+                    
+                    if (window.tronWeb) {
+                        console.log('  tronWeb.ready:', window.tronWeb.ready);
+                        console.log('  tronWeb.defaultAddress:', window.tronWeb.defaultAddress);
+                        
+                        // Детальная проверка defaultAddress
+                        const addr = window.tronWeb.defaultAddress;
+                        console.log('  defaultAddress type:', typeof addr);
+                        console.log('  defaultAddress.base58:', addr.base58);
+                        console.log('  defaultAddress.hex:', addr.hex);
+                        
+                        // Попробуем альтернативный способ получения адреса
+                        if (addr.base58) {
+                            console.log('  ✅ Address from base58:', addr.base58);
+                        } else {
+                            console.log('  ⚠️ defaultAddress.base58 is false');
+                        }
+                    }
+                    
+                    this.log('🔍 Проверка TronLink...', 'info');
+                    
+                    if (typeof window.tronWeb === 'undefined' && typeof window.tronLink === 'undefined') {
+                        this.log('  ⚠ TronLink не обнаружен', 'warning');
+                        this.log('  💡 Убедитесь, что расширение установлено и включено', 'warning');
+                    } else if (window.tronWeb && !window.tronWeb.ready) {
+                        this.log('  ⚠ TronLink найден, но не готов (кошелек заблокирован)', 'warning');
+                    } else if (window.tronWeb && window.tronWeb.ready) {
+                        this.log('  ✓ TronLink готов к работе', 'success');
+                    }
+                },
+            
+                checkAutoConnectPassive() {
+                    // Пассивная проверка без запросов
+                    try {
+                        if (typeof window.tronWeb !== 'undefined' && 
+                            window.tronWeb.ready && 
+                            window.tronWeb.defaultAddress && 
+                            window.tronWeb.defaultAddress.base58 &&
+                            window.tronWeb.defaultAddress.base58 !== false) {
+                            
+                            this.tronWeb = window.tronWeb;
+                            this.walletAddress = window.tronWeb.defaultAddress.base58;
+                            this.walletConnected = true;
+                            this.log('✓ TronLink уже подключен: ' + this.walletAddress, 'success');
+                        }
+                    } catch (error) {
+                        // Игнорируем ошибки при пассивной проверке
+                        console.log('Passive check:', error.message);
+                    }
                 }
             },
-            mounted() {
-                this.log('Тестовая страница загружена', 'info');
-                this.log('TronLink должен быть установлен и подключен к Shasta Testnet', 'info');
+            async mounted() {
+                this.log('Страница загружена', 'info');
+                this.log('Браузер: ' + navigator.userAgent.split(' ').pop(), 'info');
+                this.log('Убедитесь, что TronLink подключен к TRON Mainnet', 'warning');
+                this.log('Аккаунт Owner1 должен иметь multisig permissions (2/3)', 'warning');
+                
+                // Диагностика TronLink
+                this.diagnosticTronLink();
+                
+                // Setup TronLink event listeners
+                this.setupTronLinkListeners();
+                
+                // Wait a bit for TronLink to inject in Chrome
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Simple passive check - don't trigger TronLink popup
+                this.checkAutoConnectPassive();
             }
         });
     </script>
 </body>
 </html>
-
