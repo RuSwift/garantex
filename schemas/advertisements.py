@@ -30,6 +30,7 @@ class UpdateAdvertisementRequest(BaseModel):
     max_limit: Optional[int] = Field(None, description="Maximum transaction limit in USDT", ge=0)
     currency: Optional[str] = Field(None, description="Currency code (USD, EUR, RUB, etc.)", max_length=10)
     is_active: Optional[bool] = Field(None, description="Whether the advertisement is active")
+    escrow_enabled: Optional[bool] = Field(None, description="Whether escrow deals are enabled")
 
 
 class AdvertisementResponse(AdvertisementBase):
@@ -38,6 +39,7 @@ class AdvertisementResponse(AdvertisementBase):
     user_id: int = Field(..., description="Owner user ID")
     is_active: bool = Field(..., description="Whether the advertisement is active")
     is_verified: bool = Field(..., description="Whether the advertisement is verified by admin")
+    escrow_enabled: bool = Field(False, description="Whether escrow deals are enabled")
     user_is_verified: bool = Field(False, description="Whether the user (owner) is verified (document verification)")
     rating: Optional[str] = Field(None, description="User rating (e.g. '4.9')")
     deals_count: int = Field(..., description="Number of completed deals")

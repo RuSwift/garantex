@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from routers import auth
 from routers import tron_multisig
 from routers.wallet_users import profile_router, router as wallet_users_router
-from routers.advertisements import marketplace_router, my_ads_router
+from routers.advertisements import marketplace_router, my_ads_router, admin_ads_router
 from routers.billing import router as billing_router
 from dependencies import UserDepends
 from settings import Settings
@@ -44,6 +44,7 @@ app.include_router(profile_router)
 app.include_router(wallet_users_router)
 app.include_router(marketplace_router)
 app.include_router(my_ads_router)
+app.include_router(admin_ads_router)
 app.include_router(billing_router)
 
 

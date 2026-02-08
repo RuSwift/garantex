@@ -223,6 +223,7 @@ class AdvertisementService:
         max_limit: Optional[int] = None,
         currency: Optional[str] = None,
         is_active: Optional[bool] = None,
+        escrow_enabled: Optional[bool] = None,
         db: AsyncSession = None
     ) -> Advertisement:
         """
@@ -290,6 +291,9 @@ class AdvertisementService:
         
         if is_active is not None:
             update_values['is_active'] = is_active
+        
+        if escrow_enabled is not None:
+            update_values['escrow_enabled'] = escrow_enabled
         
         # Check that at least one field is being updated
         if not update_values:

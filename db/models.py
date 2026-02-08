@@ -265,6 +265,7 @@ class Advertisement(Base):
     # Status and verification
     is_active = Column(Boolean, default=True, nullable=False, comment="Whether the advertisement is active")
     is_verified = Column(Boolean, default=False, nullable=False, comment="Whether the advertisement is verified by admin")
+    escrow_enabled = Column(Boolean, default=False, nullable=False, comment="Whether escrow deals are enabled (agent conducts deal using their liquidity, debiting funds from escrow address upon service delivery)")
     
     # Statistics (for display purposes)
     rating = Column(String(10), nullable=True, default="0.0", comment="User rating (e.g. '4.9')")

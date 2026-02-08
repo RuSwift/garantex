@@ -319,18 +319,18 @@
                                 class="bg-white rounded-2xl border hover:shadow-xl transition-all group overflow-hidden flex flex-col">
                                 <div class="p-6 flex-1">
                                     <div class="flex justify-between items-start mb-4">
-                                        <div class="flex items-center gap-3">
-                                            <div class="flex flex-col items-center gap-1">
+                                        <div class="flex items-center gap-3 flex-1 min-w-0">
+                                            <div class="flex flex-col items-center gap-1 flex-shrink-0">
                                                 <div @click="loadUserDidDoc(ad.user_id, {nickname: ad.owner_nickname, avatar: ad.owner_avatar})" class="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 font-bold overflow-hidden cursor-pointer hover:bg-blue-200 transition-colors">
                                                     <img v-if="ad.owner_avatar" :src="ad.owner_avatar" :alt="ad.owner_nickname || 'Owner'" class="w-full h-full object-cover">
                                                     <span v-else>[[ (ad.owner_nickname || ad.name || 'A').charAt(0).toUpperCase() ]]</span>
                                                 </div>
                                                 <span v-if="ad.owner_nickname" @click="loadUserDidDoc(ad.user_id, {nickname: ad.owner_nickname, avatar: ad.owner_avatar})" class="text-xs text-gray-600 font-medium text-center max-w-[60px] truncate cursor-pointer hover:text-blue-600 transition-colors">[[ ad.owner_nickname ]]</span>
                                             </div>
-                                            <div>
-                                                <h3 class="font-bold text-lg text-gray-900 leading-none">[[ ad.name ]]</h3>
+                                            <div class="flex-1 min-w-0">
+                                                <h3 class="font-bold text-lg text-gray-900 leading-none truncate">[[ ad.name ]]</h3>
                                                 <div class="flex items-center gap-1 mt-1">
-                                                    <svg class="w-3.5 h-3.5 text-amber-400 fill-amber-400" viewBox="0 0 24 24">
+                                                    <svg class="w-3.5 h-3.5 text-amber-400 fill-amber-400 flex-shrink-0" viewBox="0 0 24 24">
                                                         <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
                                                     </svg>
                                                     <span class="text-sm font-semibold">[[ ad.rating || '0.0' ]]</span>
@@ -338,25 +338,49 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <div v-if="ad.user_is_verified" 
-                                             class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold uppercase tracking-tight cursor-help relative group"
-                                             title="Агент прошел верификацию документов">
-                                            Проверен
-                                            <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
-                                                Агент прошел верификацию документов
-                                                <div class="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
-                                                    <div class="border-4 border-transparent border-t-gray-900"></div>
+                                        <div class="flex flex-col items-end gap-2 flex-shrink-0 ml-3">
+                                            <div v-if="ad.user_is_verified" 
+                                                 class="bg-green-100 text-green-700 px-2.5 py-1 rounded-lg text-xs font-bold uppercase tracking-tight cursor-help relative group">
+                                                Проверен
+                                                <div class="absolute bottom-full right-0 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                                                    Агент прошел верификацию документов
+                                                    <div class="absolute top-full right-4 -mt-1">
+                                                        <div class="border-4 border-transparent border-t-gray-900"></div>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                        <div v-else class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold uppercase tracking-tight">
-                                            Не проверен
+                                            <div v-else class="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg text-xs font-bold uppercase tracking-tight">
+                                                Не проверен
+                                            </div>
                                         </div>
                                     </div>
 
-                                    <p class="text-gray-600 text-sm mb-6 min-h-[60px]">
+                                    <p class="text-gray-600 text-sm mb-4 min-h-[60px]">
                                         [[ ad.description ]]
                                     </p>
+
+                                    <!-- Escrow Badge -->
+                                    <div v-if="ad.escrow_enabled" class="mb-4 relative">
+                                        <span @click.stop="toggleEscrowTooltip(ad.id)" 
+                                              class="px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold uppercase tracking-tight cursor-pointer inline-flex items-center gap-1.5 hover:bg-purple-200 transition-colors">
+                                            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                                                <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.2"/>
+                                                <circle cx="12" cy="12" r="4" fill="currentColor"/>
+                                            </svg>
+                                            ЭСКРОУ СДЕЛКА
+                                        </span>
+                                        <transition name="fade">
+                                            <div v-if="openEscrowTooltip === ad.id" 
+                                                 class="absolute bottom-full left-0 mb-2 px-4 py-3 bg-gray-800 text-white text-sm rounded-xl z-[9999] w-72 shadow-2xl border border-gray-700">
+                                                <p class="leading-relaxed font-medium">
+                                                    Агент проводит сделку за счет своей ликвидности, списывая средства с эскроу адреса по факту оказания услуги
+                                                </p>
+                                                <div class="absolute top-full left-6 -mt-1">
+                                                    <div class="border-8 border-transparent border-t-gray-800"></div>
+                                                </div>
+                                            </div>
+                                        </transition>
+                                    </div>
 
                                     <div class="grid grid-cols-2 gap-4 border-t pt-4">
                                         <div>
@@ -681,6 +705,30 @@
                                                     </span>
                                                 </div>
                                                 <p class="text-gray-600 text-sm mb-3">[[ ad.description ]]</p>
+                                                
+                                                <!-- Escrow Badge -->
+                                                <div v-if="ad.escrow_enabled" class="mb-3 relative">
+                                                    <span @click.stop="toggleEscrowTooltip('my_' + ad.id)" 
+                                                          class="px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold uppercase tracking-tight cursor-pointer inline-flex items-center gap-1.5 hover:bg-purple-200 transition-colors">
+                                                        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                                                            <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.2"/>
+                                                            <circle cx="12" cy="12" r="4" fill="currentColor"/>
+                                                        </svg>
+                                                        ЭСКРОУ СДЕЛКА
+                                                    </span>
+                                                    <transition name="fade">
+                                                        <div v-if="openEscrowTooltip === 'my_' + ad.id" 
+                                                             class="absolute bottom-full left-0 mb-2 px-4 py-3 bg-gray-800 text-white text-sm rounded-xl z-[9999] w-72 shadow-2xl border border-gray-700">
+                                                            <p class="leading-relaxed font-medium">
+                                                                Агент проводит сделку за счет своей ликвидности, списывая средства с эскроу адреса по факту оказания услуги
+                                                            </p>
+                                                            <div class="absolute top-full left-6 -mt-1">
+                                                                <div class="border-8 border-transparent border-t-gray-800"></div>
+                                                            </div>
+                                                        </div>
+                                                    </transition>
+                                                </div>
+                                                
                                                 <div class="flex items-center gap-1">
                                                     <svg class="w-4 h-4 text-amber-400 fill-amber-400" viewBox="0 0 24 24">
                                                         <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
@@ -914,6 +962,31 @@
                                 class="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                             />
                             <span class="text-sm font-semibold text-gray-700">Объявление активно</span>
+                        </label>
+                    </div>
+
+                    <!-- Escrow Enabled -->
+                    <div>
+                        <label class="flex items-center gap-3">
+                            <input 
+                                type="checkbox" 
+                                v-model="adForm.escrow_enabled"
+                                class="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm font-semibold text-gray-700">Эскроу сделка</span>
+                                <div class="relative group">
+                                    <svg class="w-4 h-4 text-gray-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 max-w-xs text-center">
+                                        Агент проводит сделку за счет своей ликвидности, списывая средства с эскроу адреса по факту оказания услуги
+                                        <div class="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                                            <div class="border-4 border-transparent border-t-gray-900"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </label>
                     </div>
 
@@ -1242,7 +1315,8 @@
                     min_limit: 0,
                     max_limit: 0,
                     currency: '',
-                    is_active: true
+                    is_active: true,
+                    escrow_enabled: false
                 },
                 // Chat/Deals
                 showDealsChat: false,
@@ -1275,7 +1349,9 @@
                 didDocData: null,
                 isLoadingDidDoc: false,
                 didDocError: null,
-                didDocOwnerInfo: null
+                didDocOwnerInfo: null,
+                // Escrow tooltip
+                openEscrowTooltip: null
             },
             mounted() {
                 // Проверяем авторизацию при загрузке
@@ -1287,6 +1363,15 @@
                     // Загружаем объявления маркетплейса
                     this.searchMarketplace();
                 }
+                
+                // Close escrow tooltip when clicking outside
+                document.addEventListener('click', (event) => {
+                    // Check if click is outside escrow badge
+                    if (!event.target.closest('[class*="bg-purple-100"]') && 
+                        !event.target.closest('[class*="bg-gray-800"]')) {
+                        this.openEscrowTooltip = null;
+                    }
+                });
             },
             watch: {
                 activeView(newView) {
@@ -1664,7 +1749,8 @@
                             min_limit: parseInt(ad.min_limit),
                             max_limit: parseInt(ad.max_limit),
                             currency: ad.currency,
-                            is_active: ad.is_active
+                            is_active: ad.is_active,
+                            escrow_enabled: ad.escrow_enabled || false
                         };
                     } else {
                         // Creating new ad
@@ -1675,7 +1761,8 @@
                             min_limit: 0,
                             max_limit: 0,
                             currency: '',
-                            is_active: true
+                            is_active: true,
+                            escrow_enabled: false
                         };
                     }
                     this.adFormMessage = '';
@@ -1692,7 +1779,8 @@
                         min_limit: 0,
                         max_limit: 0,
                         currency: '',
-                        is_active: true
+                        is_active: true,
+                        escrow_enabled: false
                     };
                 },
                 async saveAd() {
@@ -1719,7 +1807,8 @@
                                 min_limit: this.adForm.min_limit,
                                 max_limit: this.adForm.max_limit,
                                 currency: this.adForm.currency,
-                                is_active: this.adForm.is_active
+                                is_active: this.adForm.is_active,
+                                escrow_enabled: this.adForm.escrow_enabled
                             }
                             : {
                                 name: this.adForm.name,
@@ -1727,7 +1816,8 @@
                                 fee: this.adForm.fee,
                                 min_limit: this.adForm.min_limit,
                                 max_limit: this.adForm.max_limit,
-                                currency: this.adForm.currency
+                                currency: this.adForm.currency,
+                                escrow_enabled: this.adForm.escrow_enabled
                             };
 
                         const response = await fetch(url, {
@@ -1928,6 +2018,14 @@
                         document.body.removeChild(textarea);
                         alert('DIDDoc скопирован в буфер обмена!');
                     });
+                },
+                toggleEscrowTooltip(adId) {
+                    // Если кликнули на тот же тултип - закрываем, иначе открываем новый
+                    if (this.openEscrowTooltip === adId) {
+                        this.openEscrowTooltip = null;
+                    } else {
+                        this.openEscrowTooltip = adId;
+                    }
                 }
             }
         });

@@ -2,7 +2,7 @@
 Router for Advertisement management API
 """
 from fastapi import APIRouter, HTTPException, Depends
-from dependencies import DbDepends
+from dependencies import DbDepends, RequireAdminDepends
 from routers.auth import get_current_tron_user, UserInfo
 from schemas.advertisements import (
     CreateAdvertisementRequest,
@@ -40,6 +40,7 @@ async def _advertisement_to_response(advertisement, db):
         "currency": advertisement.currency,
         "is_active": advertisement.is_active,
         "is_verified": advertisement.is_verified,
+        "escrow_enabled": advertisement.escrow_enabled,
         "user_is_verified": user_is_verified,
         "rating": advertisement.rating,
         "deals_count": advertisement.deals_count,
@@ -304,6 +305,7 @@ async def update_advertisement(
             max_limit=request.max_limit,
             currency=request.currency,
             is_active=request.is_active,
+            escrow_enabled=request.escrow_enabled,
             db=db
         )
         
@@ -422,5 +424,60 @@ async def toggle_advertisement_active(
         raise HTTPException(
             status_code=500,
             detail=f"Error toggling advertisement status: {str(e)}"
+        )
+
+
+# Admin router for managing advertisements
+admin_ads_router = APIRouter(
+    prefix="/api/admin/advertisements",
+    tags=["admin-advertisements"]
+)
+
+
+@admin_ads_router.put("/{advertisement_id}/escrow-enabled", response_model=AdvertisementResponse)
+async def set_advertisement_escrow_enabled(
+    advertisement_id: int,
+    escrow_enabled: bool,
+    db: DbDepends = None,
+    admin: RequireAdminDepends = None
+):
+    """
+    Set escrow_enabled flag for advertisement (admin only)
+    
+    Args:
+        advertisement_id: Advertisement ID
+        escrow_enabled: Whether escrow deals are enabled
+        db: Database session
+        admin: Admin authentication
+        
+    Returns:
+        Updated advertisement
+    """
+    try:
+        # Get advertisement
+        advertisement = await AdvertisementService.get_by_id(advertisement_id, db)
+        
+        if not advertisement:
+            raise HTTPException(
+                status_code=404,
+                detail="Advertisement not found"
+            )
+        
+        # Update escrow_enabled flag (admin can update any advertisement)
+        advertisement = await AdvertisementService.update_advertisement(
+            advertisement_id=advertisement_id,
+            user_id=advertisement.user_id,  # Keep original owner
+            escrow_enabled=escrow_enabled,
+            db=db
+        )
+        
+        return await _advertisement_to_response(advertisement, db)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating advertisement escrow flag: {str(e)}"
         )
 
