@@ -22,6 +22,7 @@ from schemas.node import (
 from didcomm.did import create_peer_did_from_keypair
 from services.node import NodeService
 from services.admin import AdminService
+from services.node import NodeService
 from services.tron_auth import tron_auth
 import jwt
 from datetime import datetime, timedelta
@@ -1190,7 +1191,6 @@ async def get_node_did_document(
     """
     # If node key doesn't exist, return a simple status response with 200 OK
     if priv_key is None:
-        from services.node import NodeService
         has_key_in_db = await NodeService.has_key(db)
         
         # Return 200 OK with status message instead of 503
