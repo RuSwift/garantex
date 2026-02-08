@@ -39,3 +39,4 @@ def downgrade():
     op.drop_index(op.f('ix_billing_id'), table_name='billing')
     op.drop_table('billing')
 
+

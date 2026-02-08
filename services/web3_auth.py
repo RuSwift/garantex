@@ -163,3 +163,4 @@ class Web3Auth:
 # Создаем глобальный экземпляр
 web3_auth = Web3Auth()
 
+

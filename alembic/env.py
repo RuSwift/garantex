@@ -8,9 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from alembic import context
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project_root))
+
+# Load environment variables from .env file in project root
+env_file_path = project_root / ".env"
+if env_file_path.exists():
+    load_dotenv(env_file_path, override=False)
 
 # Import settings and models
 from settings import DatabaseSettings
@@ -27,7 +34,20 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Get database URL from settings
+# Environment variables are now loaded from .env file, so DatabaseSettings will use them
 db_settings = DatabaseSettings()
+
+# Print connection parameters for debugging
+print("=" * 60)
+print("Database Connection Parameters:")
+print(f"  Host: {db_settings.host}")
+print(f"  Port: {db_settings.port}")
+print(f"  User: {db_settings.user}")
+print(f"  Database: {db_settings.database}")
+print(f"  Password: {'***' if db_settings.password else '(not set)'}")
+print(f"  .env file: {env_file_path} ({'found' if env_file_path.exists() else 'not found'})")
+print("=" * 60)
+
 config.set_main_option("sqlalchemy.url", db_settings.url)
 
 # add your model's MetaData object here
