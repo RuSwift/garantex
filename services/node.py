@@ -4,6 +4,7 @@ Node service для инициализации и управления ключ�
 import json
 import base64
 import hashlib
+import logging
 from typing import Optional, Union, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
@@ -13,6 +14,8 @@ from didcomm.crypto import EthKeyPair, KeyPair, EthCrypto
 from didcomm.did import create_peer_did_from_keypair
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
+
+logger = logging.getLogger(__name__)
 
 
 class NodeService:
@@ -154,6 +157,15 @@ class NodeService:
         await db.commit()
         await db.refresh(node_settings)
         
+        # Логируем критическое событие создания записи NodeSettings
+        logger.critical(
+            "NodeSettings record created in database: id=%d, key_type=%s, ethereum_address=%s, did=%s",
+            node_settings.id,
+            node_settings.key_type,
+            ethereum_address or "None",
+            did_obj.did
+        )
+        
         # Возвращаем информацию о ключе
         return {
             "did": did_obj.did,
@@ -234,6 +246,15 @@ class NodeService:
         db.add(node_settings)
         await db.commit()
         await db.refresh(node_settings)
+        
+        # Логируем критическое событие создания записи NodeSettings
+        logger.critical(
+            "NodeSettings record created in database: id=%d, key_type=%s, ethereum_address=%s, did=%s",
+            node_settings.id,
+            node_settings.key_type,
+            ethereum_address or "None",
+            did_obj.did
+        )
         
         # Возвращаем информацию о ключе
         return {

@@ -404,6 +404,13 @@ async def init_node(
             settings.secret.get_secret_value()
         )
         
+        # Проверяем, что запись действительно создалась в БД
+        if not await NodeService.has_key(db):
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create NodeSettings record in database"
+            )
+        
         return NodeInitResponse(
             success=True,
             message="Node initialized successfully",
@@ -454,6 +461,13 @@ async def init_node_from_pem(
             db,
             settings.secret.get_secret_value()
         )
+        
+        # Проверяем, что запись действительно создалась в БД
+        if not await NodeService.has_key(db):
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create NodeSettings record in database"
+            )
         
         return NodeInitResponse(
             success=True,
