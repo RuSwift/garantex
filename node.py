@@ -8,7 +8,7 @@ from routers import auth
 from routers import didcomm
 from routers import wallet_users
 from routers.billing import router as billing_router
-from dependencies import UserDepends, AdminDepends, RequireAdminDepends, SettingsDepends, PrivKeyDepends, DbDepends
+from dependencies import UserDepends, AdminDepends, RequireAdminDepends, SettingsDepends, PrivKeyDepends, DbDepends, get_admin_from_cookie
 from schemas.node import (
     NodeInitRequest, NodeInitPemRequest, NodeInitResponse,
     SetPasswordRequest, ChangePasswordRequest, AdminInfoResponse, AdminConfiguredResponse,
@@ -373,10 +373,10 @@ async def admin_logout():
 # API для инициализации ноды
 @app.post("/api/node/init", response_model=NodeInitResponse)
 async def init_node(
-    request: NodeInitRequest,
+    request: Request,
+    data: NodeInitRequest,
     db: DbDepends,
     settings: SettingsDepends,
-    admin: RequireAdminDepends
 ):
     """
     Инициализирует ноду с использованием мнемонической фразы
@@ -395,11 +395,19 @@ async def init_node(
             status_code=500,
             detail="SECRET not configured in environment variables"
         )
+        
+    admin = await get_admin_from_cookie(request, settings)
+    node_initialized = await NodeService.is_node_initialized(db)
+    if node_initialized and not admin:
+        raise HTTPException(
+            status_code=401,
+            detail="Node already initialized, please login as admin"
+        )
     
     try:
         # Вызываем сервис инициализации
         result = await NodeService.init_from_mnemonic(
-            request.mnemonic,
+            data.mnemonic,
             db,
             settings.secret.get_secret_value()
         )
