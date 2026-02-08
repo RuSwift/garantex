@@ -1186,14 +1186,19 @@ async def get_node_did_document(
     Works even if node is not fully initialized (admin/service_endpoint not configured).
     
     Returns:
-        DID Document in JSON format
+        DID Document in JSON format, or status message if node is not initialized
     """
-    # Check if node key exists
+    # If node key doesn't exist, return a simple status response with 200 OK
     if priv_key is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Node key not available"
-        )
+        from services.node import NodeService
+        has_key_in_db = await NodeService.has_key(db)
+        
+        # Return 200 OK with status message instead of 503
+        return {
+            "status": "not_initialized",
+            "message": "Node is not initialized. Please initialize the node first.",
+            "initialized": False
+        }
     
     try:
         # Get service endpoint from database
