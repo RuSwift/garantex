@@ -320,8 +320,12 @@
                                 <div class="p-6 flex-1">
                                     <div class="flex justify-between items-start mb-4">
                                         <div class="flex items-center gap-3">
-                                            <div class="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
-                                                [[ ad.name.charAt(0) ]]
+                                            <div class="flex flex-col items-center gap-1">
+                                                <div @click="loadUserDidDoc(ad.user_id, {nickname: ad.owner_nickname, avatar: ad.owner_avatar})" class="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 font-bold overflow-hidden cursor-pointer hover:bg-blue-200 transition-colors">
+                                                    <img v-if="ad.owner_avatar" :src="ad.owner_avatar" :alt="ad.owner_nickname || 'Owner'" class="w-full h-full object-cover">
+                                                    <span v-else>[[ (ad.owner_nickname || ad.name || 'A').charAt(0).toUpperCase() ]]</span>
+                                                </div>
+                                                <span v-if="ad.owner_nickname" @click="loadUserDidDoc(ad.user_id, {nickname: ad.owner_nickname, avatar: ad.owner_avatar})" class="text-xs text-gray-600 font-medium text-center max-w-[60px] truncate cursor-pointer hover:text-blue-600 transition-colors">[[ ad.owner_nickname ]]</span>
                                             </div>
                                             <div>
                                                 <h3 class="font-bold text-lg text-gray-900 leading-none">[[ ad.name ]]</h3>
@@ -650,8 +654,12 @@
                                 <div class="p-6">
                                     <div class="flex justify-between items-start mb-4">
                                         <div class="flex items-center gap-4 flex-1">
-                                            <div class="w-16 h-16 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xl">
-                                                [[ ad.name.charAt(0) ]]
+                                            <div class="flex flex-col items-center gap-1">
+                                                <div @click="loadUserDidDoc(ad.user_id, {nickname: ad.owner_nickname, avatar: ad.owner_avatar})" class="w-16 h-16 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xl overflow-hidden cursor-pointer hover:bg-blue-200 transition-colors">
+                                                    <img v-if="ad.owner_avatar" :src="ad.owner_avatar" :alt="ad.owner_nickname || 'Owner'" class="w-full h-full object-cover">
+                                                    <span v-else>[[ (ad.owner_nickname || ad.name || 'A').charAt(0).toUpperCase() ]]</span>
+                                                </div>
+                                                <span v-if="ad.owner_nickname" @click="loadUserDidDoc(ad.user_id, {nickname: ad.owner_nickname, avatar: ad.owner_avatar})" class="text-xs text-gray-600 font-medium text-center max-w-[80px] truncate cursor-pointer hover:text-blue-600 transition-colors">[[ ad.owner_nickname ]]</span>
                                             </div>
                                             <div class="flex-1">
                                                 <div class="flex items-center gap-3 mb-2">
@@ -939,6 +947,252 @@
                 </form>
             </div>
         </div>
+
+        <!-- DIDDoc Modal -->
+        <div v-if="showDidDocModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeDidDocModal">
+            <div class="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+                <div class="p-6 border-b flex items-center justify-between sticky top-0 bg-white z-10">
+                    <h3 class="text-2xl font-bold text-gray-900">DID Document</h3>
+                    <button 
+                        @click="closeDidDocModal"
+                        class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                        <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="p-6 overflow-y-auto flex-1">
+                    <!-- Loading State -->
+                    <div v-if="isLoadingDidDoc" class="text-center py-12">
+                        <div class="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+                        <p class="mt-4 text-gray-600">Загрузка DIDDoc...</p>
+                    </div>
+
+                    <!-- Error State -->
+                    <div v-else-if="didDocError" class="text-center py-12">
+                        <svg class="w-16 h-16 mx-auto mb-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <p class="text-red-600 font-semibold mb-2">Ошибка загрузки</p>
+                        <p class="text-gray-600">[[ didDocError ]]</p>
+                    </div>
+
+                    <!-- DIDDoc Content -->
+                    <div v-else-if="didDocData" class="space-y-6">
+                        <!-- Owner Info Header -->
+                        <div v-if="didDocOwnerInfo || didDocData.credential" class="flex items-center gap-4 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
+                            <div class="w-20 h-20 rounded-2xl bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-2xl overflow-hidden flex-shrink-0">
+                                <img v-if="didDocOwnerInfo && didDocOwnerInfo.avatar" :src="didDocOwnerInfo.avatar" :alt="didDocOwnerInfo.nickname || 'Owner'" class="w-full h-full object-cover">
+                                <span v-else>[[ ((didDocOwnerInfo && didDocOwnerInfo.nickname) || (didDocData.credential && didDocData.credential.nickname) || 'U').charAt(0).toUpperCase() ]]</span>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <h4 class="text-xl font-bold text-gray-900 mb-1">
+                                    [[ (didDocOwnerInfo && didDocOwnerInfo.nickname) || (didDocData.credential && didDocData.credential.nickname) || 'Пользователь' ]]
+                                </h4>
+                                <a v-if="didDocData.credential && didDocData.credential.walletAddress && isTronAddress(didDocData.credential.walletAddress)" 
+                                   :href="getTronScanUrl(didDocData.credential.walletAddress)" 
+                                   target="_blank" 
+                                   rel="noopener noreferrer"
+                                   class="text-sm text-blue-600 font-mono truncate hover:text-blue-800 underline flex items-center gap-1">
+                                    [[ didDocData.credential.walletAddress ]]
+                                    <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                    </svg>
+                                </a>
+                                <p v-else-if="didDocData.credential && didDocData.credential.walletAddress" class="text-sm text-gray-600 font-mono truncate">
+                                    [[ didDocData.credential.walletAddress ]]
+                                </p>
+                            </div>
+                            <div class="flex-shrink-0">
+                                <button 
+                                    @click="copyDidDocToClipboard"
+                                    class="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center gap-2"
+                                >
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                    </svg>
+                                    Копировать JSON
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- DID Information -->
+                        <div class="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                            <h5 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                Основная информация
+                            </h5>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <p class="text-xs text-gray-500 uppercase font-semibold mb-1">DID</p>
+                                    <p class="text-sm font-mono text-gray-900 break-all">[[ didDocData.id ]]</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Controller</p>
+                                    <a v-if="isTronAddress(didDocData.controller)" 
+                                       :href="getTronScanUrl(didDocData.controller)" 
+                                       target="_blank" 
+                                       rel="noopener noreferrer"
+                                       class="text-sm font-mono text-blue-600 hover:text-blue-800 break-all flex items-center gap-1 underline">
+                                        [[ didDocData.controller ]]
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                        </svg>
+                                    </a>
+                                    <p v-else class="text-sm font-mono text-gray-900 break-all">[[ didDocData.controller ]]</p>
+                                </div>
+                                <div v-if="didDocData.credential && didDocData.credential.blockchain">
+                                    <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Blockchain</p>
+                                    <p class="text-sm font-semibold text-gray-900 uppercase">[[ didDocData.credential.blockchain ]]</p>
+                                </div>
+                                <div v-if="didDocData.credential && didDocData.credential.ecCurve">
+                                    <p class="text-xs text-gray-500 uppercase font-semibold mb-1">EC Curve</p>
+                                    <p class="text-sm font-semibold text-gray-900">[[ didDocData.credential.ecCurve ]]</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Verification Proofs -->
+                        <div v-if="didDocData.proof && didDocData.proof.length > 0" class="space-y-4">
+                            <h5 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                Доказательства и репутация
+                            </h5>
+                            
+                            <!-- Verification Proof -->
+                            <div v-for="proof in didDocData.proof" :key="proof.type" class="bg-white rounded-xl p-5 border border-gray-200 hover:shadow-md transition-shadow">
+                                <div v-if="proof.type === 'VerificationProof'" class="space-y-3">
+                                    <div class="flex items-center justify-between">
+                                        <h6 class="font-bold text-gray-900 flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                                            </svg>
+                                            Верификация
+                                        </h6>
+                                        <span :class="['px-3 py-1 rounded-full text-xs font-bold uppercase', proof.verificationStatus ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700']">
+                                            [[ proof.verificationStatus ? 'Проверен' : 'Не проверен' ]]
+                                        </span>
+                                    </div>
+                                    <p v-if="proof.verifiedAt" class="text-xs text-gray-500">
+                                        Проверен: [[ formatDate(proof.verifiedAt) ]]
+                                    </p>
+                                </div>
+
+                                <div v-else-if="proof.type === 'RatingProof'" class="space-y-3">
+                                    <h6 class="font-bold text-gray-900 flex items-center gap-2">
+                                        <svg class="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                        </svg>
+                                        Рейтинг и сделки
+                                    </h6>
+                                    <div class="grid grid-cols-3 gap-4">
+                                        <div>
+                                            <p class="text-xs text-gray-500 mb-1">Средний рейтинг</p>
+                                            <p class="text-lg font-bold text-amber-600">[[ proof.averageRating || '0.0' ]]</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-gray-500 mb-1">Всего сделок</p>
+                                            <p class="text-lg font-bold text-gray-900">[[ proof.totalDeals || 0 ]]</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-gray-500 mb-1">Транзакций</p>
+                                            <p class="text-lg font-bold text-gray-900">[[ proof.totalTransactions || 0 ]]</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <!-- Verification Methods -->
+                        <div v-if="didDocData.verificationMethod && didDocData.verificationMethod.length > 0" class="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                            <h5 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+                                </svg>
+                                Методы верификации
+                            </h5>
+                            <div v-for="(method, index) in didDocData.verificationMethod" :key="index" class="mb-4 last:mb-0">
+                                <div class="bg-white rounded-lg p-4 border border-gray-200">
+                                    <p class="text-xs text-gray-500 uppercase font-semibold mb-1">ID</p>
+                                    <p class="text-sm font-mono text-gray-900 mb-3 break-all">[[ method.id ]]</p>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Тип</p>
+                                            <p class="text-sm font-semibold text-gray-900">[[ method.type ]]</p>
+                                        </div>
+                                        <div v-if="method.blockchainAccountId">
+                                            <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Blockchain Account</p>
+                                            <p class="text-sm font-mono text-gray-900 break-all">[[ method.blockchainAccountId ]]</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Services -->
+                        <div v-if="didDocData.service && didDocData.service.length > 0" class="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                            <h5 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 0013.895 5.411"></path>
+                                </svg>
+                                Сервисы
+                            </h5>
+                            <div v-for="(service, index) in didDocData.service" :key="index" class="bg-white rounded-lg p-4 border border-gray-200 mb-3 last:mb-0">
+                                <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Тип</p>
+                                <p class="text-sm font-semibold text-gray-900 mb-3">[[ service.type ]]</p>
+                                <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Endpoint</p>
+                                <p class="text-sm font-mono text-blue-600 break-all">[[ service.serviceEndpoint ]]</p>
+                            </div>
+                        </div>
+
+                        <!-- Credential Details -->
+                        <div v-if="didDocData.credential" class="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                            <h5 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                </svg>
+                                Учетные данные
+                            </h5>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div v-if="didDocData.credential.nickname">
+                                    <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Никнейм</p>
+                                    <p class="text-sm font-semibold text-gray-900">[[ didDocData.credential.nickname ]]</p>
+                                </div>
+                                <div v-if="didDocData.credential.walletAddress">
+                                    <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Адрес кошелька</p>
+                                    <a v-if="isTronAddress(didDocData.credential.walletAddress)" 
+                                       :href="getTronScanUrl(didDocData.credential.walletAddress)" 
+                                       target="_blank" 
+                                       rel="noopener noreferrer"
+                                       class="text-sm font-mono text-blue-600 hover:text-blue-800 break-all flex items-center gap-1 underline">
+                                        [[ didDocData.credential.walletAddress ]]
+                                        <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                        </svg>
+                                    </a>
+                                    <p v-else class="text-sm font-mono text-gray-900 break-all">[[ didDocData.credential.walletAddress ]]</p>
+                                </div>
+                                <div v-if="didDocData.credential.createdAt">
+                                    <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Создан</p>
+                                    <p class="text-sm text-gray-900">[[ formatDate(didDocData.credential.createdAt) ]]</p>
+                                </div>
+                                <div v-if="didDocData.credential.updatedAt">
+                                    <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Обновлен</p>
+                                    <p class="text-sm text-gray-900">[[ formatDate(didDocData.credential.updatedAt) ]]</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/static/js/components.js"></script>
@@ -1015,7 +1269,13 @@
                     }
                 ],
                 recentTransactions: [],
-                isLoadingBillingHistory: false
+                isLoadingBillingHistory: false,
+                // DIDDoc Modal
+                showDidDocModal: false,
+                didDocData: null,
+                isLoadingDidDoc: false,
+                didDocError: null,
+                didDocOwnerInfo: null
             },
             mounted() {
                 // Проверяем авторизацию при загрузке
@@ -1583,6 +1843,91 @@
                 // Chat/Deals methods
                 openDealsChat() {
                     this.showDealsChat = true;
+                },
+                // DIDDoc methods
+                async loadUserDidDoc(userId, ownerInfo = null) {
+                    if (!userId) return;
+                    
+                    this.isLoadingDidDoc = true;
+                    this.didDocError = null;
+                    this.didDocData = null;
+                    this.didDocOwnerInfo = ownerInfo;
+                    this.showDidDocModal = true;
+                    
+                    try {
+                        const response = await fetch(`/api/profile/user/${userId}/did-doc`);
+                        
+                        if (!response.ok) {
+                            throw new Error(`Failed to load DIDDoc: ${response.statusText}`);
+                        }
+                        
+                        this.didDocData = await response.json();
+                    } catch (error) {
+                        console.error('Error loading DIDDoc:', error);
+                        this.didDocError = error.message || 'Ошибка загрузки DIDDoc';
+                    } finally {
+                        this.isLoadingDidDoc = false;
+                    }
+                },
+                closeDidDocModal() {
+                    this.showDidDocModal = false;
+                    this.didDocData = null;
+                    this.didDocError = null;
+                    this.didDocOwnerInfo = null;
+                },
+                formatDidDoc(data) {
+                    if (!data) return '';
+                    return JSON.stringify(data, null, 2);
+                },
+                formatDate(dateString) {
+                    if (!dateString) return '';
+                    try {
+                        const date = new Date(dateString);
+                        return date.toLocaleString('ru-RU', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                    } catch (e) {
+                        return dateString;
+                    }
+                },
+                formatBalance(balance) {
+                    if (balance === null || balance === undefined) return '0.00';
+                    const num = parseFloat(balance);
+                    return num.toLocaleString('ru-RU', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                    });
+                },
+                isTronAddress(address) {
+                    if (!address || typeof address !== 'string') return false;
+                    // TRON адреса начинаются с 'T' и имеют длину 34 символа
+                    return address.startsWith('T') && address.length === 34;
+                },
+                getTronScanUrl(address) {
+                    if (!address) return '#';
+                    return `https://tronscan.org/#/address/${address}`;
+                },
+                copyDidDocToClipboard() {
+                    if (!this.didDocData) return;
+                    
+                    const jsonString = this.formatDidDoc(this.didDocData);
+                    navigator.clipboard.writeText(jsonString).then(() => {
+                        alert('DIDDoc скопирован в буфер обмена!');
+                    }).catch(err => {
+                        console.error('Ошибка копирования:', err);
+                        // Fallback
+                        const textarea = document.createElement('textarea');
+                        textarea.value = jsonString;
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        alert('DIDDoc скопирован в буфер обмена!');
+                    });
                 }
             }
         });

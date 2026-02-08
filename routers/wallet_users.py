@@ -14,9 +14,10 @@ from schemas.users import (
     ProfileResponse
 )
 from schemas.billing import BillingList, BillingItem
+from typing import Dict, Any
 from db.models import WalletUser, Billing
 from services.wallet_user import WalletUserService
-from sqlalchemy import select, func, or_, desc
+from sqlalchemy import select, func, or_, desc, Numeric
 
 router = APIRouter(
     prefix="/api/admin/wallet-users",
@@ -600,5 +601,295 @@ async def get_my_billing_history(
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching billing history: {str(e)}"
+        )
+
+
+# Public endpoint for DIDDoc (no admin auth required)
+@profile_router.get("/user/{user_id}/did-doc")
+async def get_user_did_doc_public(
+    user_id: int,
+    db: DbDepends
+):
+    """
+    Get DID Document for a user with proofs, ratings, and other information (public endpoint)
+    
+    Args:
+        user_id: Wallet user ID
+        db: Database session
+        
+    Returns:
+        DID Document with user information, proofs, and ratings
+    """
+    try:
+        if db is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Database session not available"
+            )
+        
+        # Get user
+        result = await db.execute(
+            select(WalletUser).where(WalletUser.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail=f"User with ID {user_id} not found"
+            )
+        
+        # Determine DID method and EC curve based on blockchain
+        blockchain_lower = user.blockchain.lower()
+        if blockchain_lower in ['tron', 'ethereum', 'bitcoin']:
+            # TRON, Ethereum, Bitcoin use secp256k1
+            did_method = "ethr" if blockchain_lower == "ethereum" else blockchain_lower
+            did = f"did:{did_method}:{user.wallet_address.lower()}"
+            ec_curve = "secp256k1"
+            verification_method_type = "EcdsaSecp256k1VerificationKey2019"
+            context_security = "https://w3id.org/security/suites/secp256k1-2019/v1"
+        elif blockchain_lower in ['polkadot', 'substrate']:
+            # Polkadot uses Ed25519
+            did = f"did:polkadot:{user.wallet_address.lower()}"
+            ec_curve = "Ed25519"
+            verification_method_type = "Ed25519VerificationKey2018"
+            context_security = "https://w3id.org/security/suites/ed25519-2018/v1"
+        else:
+            # Default to secp256k1 for unknown blockchains
+            did = f"did:ethr:{user.wallet_address.lower()}"
+            ec_curve = "secp256k1"
+            verification_method_type = "EcdsaSecp256k1VerificationKey2019"
+            context_security = "https://w3id.org/security/suites/secp256k1-2019/v1"
+        
+        # Get user statistics (from advertisements)
+        from db.models import Advertisement
+        ads_result = await db.execute(
+            select(func.count(Advertisement.id), func.avg(func.cast(Advertisement.rating, Numeric)))
+            .where(Advertisement.user_id == user_id)
+        )
+        stats = ads_result.first()
+        ads_count = stats[0] or 0
+        avg_rating = float(stats[1]) if stats[1] else 0.0
+        
+        # Get billing statistics
+        from db.models import Billing
+        billing_result = await db.execute(
+            select(func.count(Billing.id), func.sum(Billing.usdt_amount))
+            .where(Billing.wallet_user_id == user_id)
+        )
+        billing_stats = billing_result.first()
+        transactions_count = billing_stats[0] or 0
+        total_volume = float(billing_stats[1]) if billing_stats[1] else 0.0
+        
+        # Create DID Document with proofs and credentials
+        did_document = {
+            "@context": [
+                "https://www.w3.org/ns/did/v1",
+                context_security,
+                "https://w3id.org/credentials/v1"
+            ],
+            "id": did,
+            "controller": user.wallet_address,
+            "verificationMethod": [
+                {
+                    "id": f"{did}#wallet",
+                    "type": verification_method_type,
+                    "controller": did,
+                    "blockchainAccountId": f"{user.blockchain}:{user.wallet_address}",
+                    "ecCurve": ec_curve
+                }
+            ],
+            "authentication": [f"{did}#wallet"],
+            "assertionMethod": [f"{did}#wallet"],
+            "service": [
+                {
+                    "id": f"{did}#profile",
+                    "type": "UserProfile",
+                    "serviceEndpoint": f"/api/profile/user/{user_id}"
+                }
+            ],
+            "proof": [
+                {
+                    "type": "VerificationProof",
+                    "verificationStatus": user.is_verified,
+                    "verifiedAt": user.updated_at.isoformat() if user.is_verified else None
+                },
+                {
+                    "type": "RatingProof",
+                    "averageRating": round(avg_rating, 1),
+                    "totalDeals": ads_count,
+                    "totalTransactions": transactions_count
+                },
+                {
+                    "type": "BalanceProof",
+                    "currentBalance": float(user.balance_usdt or 0),
+                    "totalVolume": total_volume
+                }
+            ],
+            "credential": {
+                "nickname": user.nickname,
+                "walletAddress": user.wallet_address,
+                "blockchain": user.blockchain,
+                "ecCurve": ec_curve,
+                "isVerified": user.is_verified,
+                "accessToAdminPanel": user.access_to_admin_panel,
+                "createdAt": user.created_at.isoformat(),
+                "updatedAt": user.updated_at.isoformat()
+            }
+        }
+        
+        return did_document
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error fetching user DID Document: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching user DID Document: {str(e)}"
+        )
+
+
+@router.get("/{user_id}/did-doc")
+async def get_user_did_doc(
+    user_id: int,
+    db: DbDepends
+):
+    """
+    Get DID Document for a user with proofs, ratings, and other information
+    
+    Args:
+        user_id: Wallet user ID
+        db: Database session
+        admin: Admin authentication (optional for public access)
+        
+    Returns:
+        DID Document with user information, proofs, and ratings
+    """
+    try:
+        # Get user
+        result = await db.execute(
+            select(WalletUser).where(WalletUser.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail=f"User with ID {user_id} not found"
+            )
+        
+        # Determine DID method and EC curve based on blockchain
+        blockchain_lower = user.blockchain.lower()
+        if blockchain_lower in ['tron', 'ethereum', 'bitcoin']:
+            # TRON, Ethereum, Bitcoin use secp256k1
+            did_method = "ethr" if blockchain_lower == "ethereum" else blockchain_lower
+            did = f"did:{did_method}:{user.wallet_address.lower()}"
+            ec_curve = "secp256k1"
+            verification_method_type = "EcdsaSecp256k1VerificationKey2019"
+            context_security = "https://w3id.org/security/suites/secp256k1-2019/v1"
+        elif blockchain_lower in ['polkadot', 'substrate']:
+            # Polkadot uses Ed25519
+            did = f"did:polkadot:{user.wallet_address.lower()}"
+            ec_curve = "Ed25519"
+            verification_method_type = "Ed25519VerificationKey2018"
+            context_security = "https://w3id.org/security/suites/ed25519-2018/v1"
+        else:
+            # Default to secp256k1 for unknown blockchains
+            did = f"did:ethr:{user.wallet_address.lower()}"
+            ec_curve = "secp256k1"
+            verification_method_type = "EcdsaSecp256k1VerificationKey2019"
+            context_security = "https://w3id.org/security/suites/secp256k1-2019/v1"
+        
+        # Get user statistics (from advertisements)
+        from db.models import Advertisement
+        ads_result = await db.execute(
+            select(func.count(Advertisement.id), func.avg(func.cast(Advertisement.rating, Numeric)))
+            .where(Advertisement.user_id == user_id)
+        )
+        stats = ads_result.first()
+        ads_count = stats[0] or 0
+        avg_rating = float(stats[1]) if stats[1] else 0.0
+        
+        # Get billing statistics
+        from db.models import Billing
+        billing_result = await db.execute(
+            select(func.count(Billing.id), func.sum(Billing.usdt_amount))
+            .where(Billing.wallet_user_id == user_id)
+        )
+        billing_stats = billing_result.first()
+        transactions_count = billing_stats[0] or 0
+        total_volume = float(billing_stats[1]) if billing_stats[1] else 0.0
+        
+        # Create DID Document with proofs and credentials
+        did_document = {
+            "@context": [
+                "https://www.w3.org/ns/did/v1",
+                context_security,
+                "https://w3id.org/credentials/v1"
+            ],
+            "id": did,
+            "controller": user.wallet_address,
+            "verificationMethod": [
+                {
+                    "id": f"{did}#wallet",
+                    "type": verification_method_type,
+                    "controller": did,
+                    "blockchainAccountId": f"{user.blockchain}:{user.wallet_address}",
+                    "ecCurve": ec_curve
+                }
+            ],
+            "authentication": [f"{did}#wallet"],
+            "assertionMethod": [f"{did}#wallet"],
+            "service": [
+                {
+                    "id": f"{did}#profile",
+                    "type": "UserProfile",
+                    "serviceEndpoint": f"/api/profile/user/{user_id}"
+                }
+            ],
+            "proof": [
+                {
+                    "type": "VerificationProof",
+                    "verificationStatus": user.is_verified,
+                    "verifiedAt": user.updated_at.isoformat() if user.is_verified else None
+                },
+                {
+                    "type": "RatingProof",
+                    "averageRating": round(avg_rating, 1),
+                    "totalDeals": ads_count,
+                    "totalTransactions": transactions_count
+                },
+                {
+                    "type": "BalanceProof",
+                    "currentBalance": float(user.balance_usdt or 0),
+                    "totalVolume": total_volume
+                }
+            ],
+            "credential": {
+                "nickname": user.nickname,
+                "walletAddress": user.wallet_address,
+                "blockchain": user.blockchain,
+                "ecCurve": ec_curve,
+                "isVerified": user.is_verified,
+                "accessToAdminPanel": user.access_to_admin_panel,
+                "createdAt": user.created_at.isoformat(),
+                "updatedAt": user.updated_at.isoformat()
+            }
+        }
+        
+        return did_document
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error fetching user DID Document: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching user DID Document: {str(e)}"
         )
 

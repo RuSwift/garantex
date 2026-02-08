@@ -41,6 +41,8 @@ class AdvertisementResponse(AdvertisementBase):
     user_is_verified: bool = Field(False, description="Whether the user (owner) is verified (document verification)")
     rating: Optional[str] = Field(None, description="User rating (e.g. '4.9')")
     deals_count: int = Field(..., description="Number of completed deals")
+    owner_nickname: Optional[str] = Field(None, description="Owner's nickname")
+    owner_avatar: Optional[str] = Field(None, description="Owner's avatar (base64 data URI)")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Update timestamp")
     
