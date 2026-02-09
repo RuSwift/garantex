@@ -8,6 +8,7 @@ from routers import auth
 from routers import didcomm
 from routers import wallet_users
 from routers.billing import router as billing_router
+from routers import wallets
 from dependencies import UserDepends, AdminDepends, RequireAdminDepends, SettingsDepends, PrivKeyDepends, DbDepends, get_admin_from_cookie
 from schemas.node import (
     NodeInitRequest, NodeInitPemRequest, NodeInitResponse,
@@ -71,6 +72,7 @@ app.include_router(auth.router)
 app.include_router(didcomm.router)
 app.include_router(wallet_users.router)
 app.include_router(billing_router)
+app.include_router(wallets.router)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -125,8 +127,16 @@ async def root(
             ]
         },
         {
-            "header": "Аккаунт",
+            "header": "Администратор",
             "items": [
+                {
+                    "id": "wallets",
+                    "href": "/",
+                    "icon_class": "fas fa-tachometer-alt",
+                    "label": "Кошельки",
+                    "sub": [],
+                    "page": "Wallets"
+                },
                 {
                     "id": "profile",
                     "href": "/profile",
@@ -139,7 +149,7 @@ async def root(
                     "id": "admin-account",
                     "href": "/admin-account",
                     "icon_class": "fas fa-user-shield",
-                    "label": "Администрирование",
+                    "label": "Админ",
                     "sub": [],
                     "page": "AdminAccount"
                 }

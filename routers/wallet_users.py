@@ -1,8 +1,11 @@
 """
 Router for WalletUser management API
 """
-from fastapi import APIRouter, HTTPException, Depends
+import logging
+from fastapi import APIRouter, HTTPException, Depends, Query
 from dependencies import RequireAdminDepends, DbDepends
+
+logger = logging.getLogger(__name__)
 from routers.auth import get_current_tron_user, get_current_user
 from schemas.node import ChangeResponse
 from schemas.users import (
@@ -37,6 +40,7 @@ async def list_wallet_users(
     page_size: int = 20,
     query: str = None,
     blockchain: str = None,
+    access_to_admin_panel: str = Query(None, description="Filter by admin panel access (true/false for managers only)"),
     db: DbDepends = None,
     admin: RequireAdminDepends = None
 ):
@@ -48,6 +52,7 @@ async def list_wallet_users(
         page_size: Number of items per page
         query: Search query (wallet address or nickname)
         blockchain: Filter by blockchain type
+        access_to_admin_panel: Filter by admin panel access (True for managers only)
         db: Database session
         admin: Admin authentication
         
@@ -71,6 +76,21 @@ async def list_wallet_users(
         if blockchain:
             stmt = stmt.where(WalletUser.blockchain == blockchain)
             count_stmt = count_stmt.where(WalletUser.blockchain == blockchain)
+        
+        if access_to_admin_panel is not None:
+            # Convert string to boolean - handle both string and boolean inputs
+            if isinstance(access_to_admin_panel, str):
+                filter_value = access_to_admin_panel.lower() in ('true', '1', 'yes', 'on')
+            else:
+                filter_value = bool(access_to_admin_panel)
+            
+            logger.info(f"Filtering by access_to_admin_panel: input={access_to_admin_panel} (type={type(access_to_admin_panel)}), filter_value={filter_value}")
+            
+            # Apply filter
+            stmt = stmt.where(WalletUser.access_to_admin_panel == filter_value)
+            count_stmt = count_stmt.where(WalletUser.access_to_admin_panel == filter_value)
+            
+            logger.info(f"Filter applied: access_to_admin_panel == {filter_value}")
         
         # Get total count
         total_result = await db.execute(count_stmt)
@@ -238,7 +258,9 @@ async def create_wallet_user(
         new_user = WalletUser(
             wallet_address=request.wallet_address,
             blockchain=request.blockchain,
-            nickname=request.nickname
+            nickname=request.nickname,
+            access_to_admin_panel=request.access_to_admin_panel,
+            is_verified=request.is_verified
         )
         
         db.add(new_user)

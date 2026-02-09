@@ -754,6 +754,908 @@ Vue.component('Profile', {
     `
 });
 
+// Wallets Component
+Vue.component('Wallets', {
+    delimiters: ['[[', ']]'],
+    data() {
+        return {
+            activeTab: 'wallets', // 'wallets' or 'managers'
+            
+            // Wallets data
+            loading: true,
+            wallets: [],
+            total: 0,
+            
+            // Create wallet modal
+            showCreateModal: false,
+            walletForm: {
+                name: '',
+                mnemonic: ''
+            },
+            savingWallet: false,
+            
+            // Edit wallet name
+            editingWalletId: null,
+            editingWalletName: '',
+            savingName: false,
+            
+            // Delete confirmation
+            walletToDelete: null,
+            
+            // Managers data
+            loadingManagers: true,
+            managers: [],
+            managersTotal: 0,
+            managersPage: 1,
+            managersPageSize: 20,
+            
+            // Create/Edit manager modal
+            showManagerModal: false,
+            editingManager: null,
+            managerForm: {
+                wallet_address: '',
+                blockchain: 'tron',
+                nickname: '',
+                is_verified: false,
+                access_to_admin_panel: true
+            },
+            savingManager: false,
+            
+            // Delete manager confirmation
+            managerToDelete: null,
+            
+            statusMessage: '',
+            statusType: ''
+        };
+    },
+    mounted() {
+        this.loadWallets();
+    },
+    methods: {
+        async loadWallets() {
+            this.loading = true;
+            try {
+                const response = await fetch('/api/wallets', {
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    let errorMessage = 'Ошибка загрузки кошельков';
+                    
+                    if (response.status === 401) {
+                        errorMessage = 'Требуется авторизация администратора';
+                    } else if (response.status === 403) {
+                        errorMessage = 'Доступ запрещен';
+                    } else {
+                        // Попытаемся получить детали ошибки из ответа
+                        try {
+                            const errorData = await response.json();
+                            errorMessage = errorData.detail || errorMessage;
+                        } catch (e) {
+                            errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                        }
+                    }
+                    
+                    throw new Error(errorMessage);
+                }
+                
+                const data = await response.json();
+                this.wallets = data.wallets || [];
+                this.total = data.total || 0;
+                
+            } catch (error) {
+                console.error('Error loading wallets:', error);
+                this.showStatus('Ошибка загрузки кошельков: ' + error.message, 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+        
+        showCreateWalletModal() {
+            this.walletForm = {
+                name: '',
+                mnemonic: ''
+            };
+            this.showCreateModal = true;
+        },
+        
+        closeCreateModal() {
+            this.showCreateModal = false;
+            this.walletForm = {
+                name: '',
+                mnemonic: ''
+            };
+        },
+        
+        validateMnemonic(mnemonic) {
+            // Базовая валидация: проверяем, что это строка и содержит слова
+            if (!mnemonic || typeof mnemonic !== 'string') {
+                return false;
+            }
+            
+            const words = mnemonic.trim().split(/\s+/);
+            // Мнемоника обычно содержит 12, 15, 18, 21 или 24 слова
+            return words.length >= 12 && words.length <= 24;
+        },
+        
+        async createWallet() {
+            if (!this.walletForm.name || !this.walletForm.name.trim()) {
+                this.showStatus('Введите имя кошелька', 'error');
+                return;
+            }
+            
+            if (!this.walletForm.mnemonic || !this.walletForm.mnemonic.trim()) {
+                this.showStatus('Введите мнемоническую фразу', 'error');
+                return;
+            }
+            
+            if (!this.validateMnemonic(this.walletForm.mnemonic)) {
+                this.showStatus('Мнемоническая фраза должна содержать от 12 до 24 слов', 'error');
+                return;
+            }
+            
+            this.savingWallet = true;
+            
+            try {
+                const response = await fetch('/api/wallets', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        name: this.walletForm.name.trim(),
+                        mnemonic: this.walletForm.mnemonic.trim()
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Ошибка создания кошелька');
+                }
+                
+                this.showStatus('Кошелек успешно создан', 'success');
+                this.closeCreateModal();
+                await this.loadWallets();
+                
+            } catch (error) {
+                console.error('Error creating wallet:', error);
+                this.showStatus('Ошибка создания кошелька: ' + error.message, 'error');
+            } finally {
+                this.savingWallet = false;
+            }
+        },
+        
+        startEditingName(wallet) {
+            this.editingWalletId = wallet.id;
+            this.editingWalletName = wallet.name;
+        },
+        
+        cancelEditingName() {
+            this.editingWalletId = null;
+            this.editingWalletName = '';
+        },
+        
+        async saveWalletName(wallet) {
+            if (!this.editingWalletName || !this.editingWalletName.trim()) {
+                this.showStatus('Имя не может быть пустым', 'error');
+                return;
+            }
+            
+            this.savingName = true;
+            
+            try {
+                const response = await fetch(`/api/wallets/${wallet.id}/name`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        name: this.editingWalletName.trim()
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Ошибка обновления имени');
+                }
+                
+                this.showStatus('Имя кошелька обновлено', 'success');
+                this.cancelEditingName();
+                await this.loadWallets();
+                
+            } catch (error) {
+                console.error('Error updating wallet name:', error);
+                this.showStatus('Ошибка обновления имени: ' + error.message, 'error');
+            } finally {
+                this.savingName = false;
+            }
+        },
+        
+        confirmDelete(wallet) {
+            this.walletToDelete = wallet;
+        },
+        
+        cancelDelete() {
+            this.walletToDelete = null;
+        },
+        
+        async deleteWallet() {
+            if (!this.walletToDelete) return;
+            
+            try {
+                const response = await fetch(`/api/wallets/${this.walletToDelete.id}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Ошибка удаления кошелька');
+                }
+                
+                this.showStatus('Кошелек успешно удален', 'success');
+                this.cancelDelete();
+                await this.loadWallets();
+                
+            } catch (error) {
+                console.error('Error deleting wallet:', error);
+                this.showStatus('Ошибка удаления кошелька: ' + error.message, 'error');
+            }
+        },
+        
+        copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                this.showStatus('Адрес скопирован в буфер обмена', 'success');
+            }).catch(err => {
+                console.error('Error copying to clipboard:', err);
+                this.showStatus('Ошибка копирования', 'error');
+            });
+        },
+        
+        formatDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            return date.toLocaleString('ru-RU');
+        },
+        
+        showStatus(message, type) {
+            this.statusMessage = message;
+            this.statusType = type;
+            setTimeout(() => {
+                this.statusMessage = '';
+                this.statusType = '';
+            }, 5000);
+        },
+        
+        // Tab switching
+        switchTab(tab) {
+            this.activeTab = tab;
+            if (tab === 'managers' && this.managers.length === 0) {
+                this.loadManagers();
+            }
+        },
+        
+        // Managers methods
+        async loadManagers() {
+            this.loadingManagers = true;
+            try {
+                const params = new URLSearchParams({
+                    page: this.managersPage,
+                    page_size: this.managersPageSize,
+                    access_to_admin_panel: 'true'
+                });
+                
+                const url = '/api/admin/wallet-users?' + params.toString();
+                console.log('Loading managers from:', url);
+                
+                const response = await fetch(url, {
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Failed to load managers:', errorText);
+                    throw new Error('Failed to load managers');
+                }
+                
+                const data = await response.json();
+                console.log('Managers loaded:', data.users?.length || 0, 'of', data.total || 0);
+                this.managers = data.users || [];
+                this.managersTotal = data.total || 0;
+                
+            } catch (error) {
+                console.error('Error loading managers:', error);
+                this.showStatus('Ошибка загрузки менеджеров: ' + error.message, 'error');
+            } finally {
+                this.loadingManagers = false;
+            }
+        },
+        
+        showCreateManagerModal() {
+            this.editingManager = null;
+            this.managerForm = {
+                wallet_address: '',
+                blockchain: 'tron',
+                nickname: '',
+                is_verified: false,
+                access_to_admin_panel: true
+            };
+            this.showManagerModal = true;
+        },
+        
+        showEditManagerModal(manager) {
+            this.editingManager = manager;
+            this.managerForm = {
+                wallet_address: manager.wallet_address,
+                blockchain: manager.blockchain,
+                nickname: manager.nickname,
+                is_verified: manager.is_verified || false,
+                access_to_admin_panel: manager.access_to_admin_panel || false
+            };
+            this.showManagerModal = true;
+        },
+        
+        closeManagerModal() {
+            this.showManagerModal = false;
+            this.editingManager = null;
+            this.managerForm = {
+                wallet_address: '',
+                blockchain: 'tron',
+                nickname: '',
+                is_verified: false,
+                access_to_admin_panel: true
+            };
+        },
+        
+        async saveManager() {
+            if (!this.managerForm.wallet_address || !this.managerForm.blockchain || !this.managerForm.nickname) {
+                this.showStatus('Заполните все поля', 'error');
+                return;
+            }
+            
+            // Валидация адреса кошелька (только при создании нового менеджера)
+            if (!this.editingManager) {
+                if (!this.validateWalletAddress(this.managerForm.wallet_address, this.managerForm.blockchain)) {
+                    const blockchainName = this.managerForm.blockchain === 'tron' ? 'TRON' : 'Ethereum';
+                    const expectedFormat = this.managerForm.blockchain === 'tron' 
+                        ? '34 символа, начинается с T (например: TRCW29HRORXWcw3PoEEaQzZaRLiZjbkFnS)'
+                        : '42 символа, начинается с 0x (например: 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb)';
+                    this.showStatus(`Неверный формат адреса ${blockchainName}. Ожидается: ${expectedFormat}`, 'error');
+                    return;
+                }
+            }
+            
+            this.savingManager = true;
+            
+            try {
+                const url = this.editingManager 
+                    ? '/api/admin/wallet-users/' + this.editingManager.id
+                    : '/api/admin/wallet-users';
+                
+                const method = this.editingManager ? 'PUT' : 'POST';
+                
+                const body = this.editingManager
+                    ? {
+                        nickname: this.managerForm.nickname,
+                        blockchain: this.managerForm.blockchain,
+                        is_verified: this.managerForm.is_verified,
+                        access_to_admin_panel: this.managerForm.access_to_admin_panel
+                    }
+                    : this.managerForm;
+                
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify(body)
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to save manager');
+                }
+                
+                this.showStatus(
+                    this.editingManager ? 'Менеджер обновлен' : 'Менеджер создан',
+                    'success'
+                );
+                this.closeManagerModal();
+                await this.loadManagers();
+                
+            } catch (error) {
+                console.error('Error saving manager:', error);
+                this.showStatus('Ошибка сохранения: ' + error.message, 'error');
+            } finally {
+                this.savingManager = false;
+            }
+        },
+        
+        confirmDeleteManager(manager) {
+            this.managerToDelete = manager;
+        },
+        
+        cancelDeleteManager() {
+            this.managerToDelete = null;
+        },
+        
+        async deleteManager() {
+            if (!this.managerToDelete) return;
+            
+            try {
+                const response = await fetch('/api/admin/wallet-users/' + this.managerToDelete.id, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to delete manager');
+                }
+                
+                this.showStatus('Менеджер удален', 'success');
+                this.managerToDelete = null;
+                await this.loadManagers();
+                
+            } catch (error) {
+                console.error('Error deleting manager:', error);
+                this.showStatus('Ошибка удаления: ' + error.message, 'error');
+            }
+        },
+        
+        truncateAddress(address) {
+            if (!address || address.length <= 16) return address;
+            return address.substring(0, 8) + '...' + address.substring(address.length - 6);
+        },
+        
+        validateWalletAddress(address, blockchain) {
+            if (!address || typeof address !== 'string') {
+                return false;
+            }
+            
+            const trimmedAddress = address.trim();
+            
+            if (blockchain === 'tron') {
+                // TRON адреса начинаются с 'T', длина 34 символа
+                if (trimmedAddress.length !== 34) {
+                    return false;
+                }
+                if (!trimmedAddress.startsWith('T')) {
+                    return false;
+                }
+                // Проверка на Base58 символы (1-9, A-H, J-N, P-Z, a-k, m-z)
+                const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+                return base58Regex.test(trimmedAddress);
+            } else if (blockchain === 'ethereum') {
+                // Ethereum адреса начинаются с '0x', длина 42 символа
+                if (trimmedAddress.length !== 42) {
+                    return false;
+                }
+                if (!trimmedAddress.startsWith('0x') && !trimmedAddress.startsWith('0X')) {
+                    return false;
+                }
+                // Проверка на hex символы (0-9, a-f, A-F)
+                const hexRegex = /^0x[0-9a-fA-F]{40}$/;
+                return hexRegex.test(trimmedAddress);
+            }
+            
+            return false;
+        }
+    },
+    template: `
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="fas fa-wallet me-1"></i>
+                    Управление кошельками и менеджерами
+                </div>
+                <div>
+                    <button v-if="activeTab === 'wallets'" class="btn btn-primary btn-sm" @click="showCreateWalletModal">
+                        <i class="fas fa-plus me-1"></i>
+                        Добавить кошелек
+                    </button>
+                    <button v-else class="btn btn-primary btn-sm" @click="showCreateManagerModal">
+                        <i class="fas fa-plus me-1"></i>
+                        Добавить менеджера
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Tab Navigation -->
+            <div class="card-body p-0">
+                <ul class="nav nav-tabs px-3 pt-3" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button 
+                            class="nav-link" 
+                            :class="{active: activeTab === 'wallets'}"
+                            @click="switchTab('wallets')"
+                            type="button"
+                        >
+                            <i class="fas fa-wallet me-1"></i>
+                            Кошельки для операций
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button 
+                            class="nav-link" 
+                            :class="{active: activeTab === 'managers'}"
+                            @click="switchTab('managers')"
+                            type="button"
+                        >
+                            <i class="fas fa-users me-1"></i>
+                            Менеджеры
+                        </button>
+                    </li>
+                </ul>
+                
+                <div class="card-body pt-3">
+                    <!-- Status Message -->
+                    <div v-if="statusMessage" :class="'alert alert-' + (statusType === 'error' ? 'danger' : 'success')" role="alert">
+                        [[ statusMessage ]]
+                    </div>
+                    
+                    <!-- Wallets Tab -->
+                    <div v-if="activeTab === 'wallets'">
+                        <!-- Loading State -->
+                        <div v-if="loading" class="text-center py-4">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Загрузка...</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Wallets Table -->
+                        <div v-else>
+                            <div v-if="wallets.length === 0" class="alert alert-info">
+                                Кошельки для сделок не найдены. Добавьте первый кошелек.
+                            </div>
+                            
+                            <div v-else class="table-responsive">
+                                <table class="table table-striped table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Имя</th>
+                                            <th>TRON адрес</th>
+                                            <th>Ethereum адрес</th>
+                                            <th>Создан</th>
+                                            <th>Действия</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="wallet in wallets" :key="wallet.id">
+                                            <td>[[ wallet.id ]]</td>
+                                            <td>
+                                                <div v-if="editingWalletId === wallet.id">
+                                                    <div class="input-group input-group-sm">
+                                                        <input 
+                                                            type="text" 
+                                                            class="form-control" 
+                                                            v-model="editingWalletName"
+                                                            @keyup.enter="saveWalletName(wallet)"
+                                                            @keyup.esc="cancelEditingName"
+                                                        >
+                                                        <button 
+                                                            class="btn btn-success btn-sm" 
+                                                            @click="saveWalletName(wallet)"
+                                                            :disabled="savingName"
+                                                        >
+                                                            <i class="fas fa-check"></i>
+                                                        </button>
+                                                        <button 
+                                                            class="btn btn-secondary btn-sm" 
+                                                            @click="cancelEditingName"
+                                                            :disabled="savingName"
+                                                        >
+                                                            <i class="fas fa-times"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div v-else>
+                                                    [[ wallet.name ]]
+                                                    <button 
+                                                        class="btn btn-link btn-sm p-0 ms-2" 
+                                                        @click="startEditingName(wallet)"
+                                                        title="Редактировать имя"
+                                                    >
+                                                        <i class="fas fa-edit"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <code class="text-truncate d-inline-block" style="max-width: 150px;" :title="wallet.tron_address">
+                                                    [[ wallet.tron_address ]]
+                                                </code>
+                                                <button 
+                                                    class="btn btn-link btn-sm p-0 ms-1" 
+                                                    @click="copyToClipboard(wallet.tron_address)"
+                                                    title="Копировать адрес"
+                                                >
+                                                    <i class="fas fa-copy"></i>
+                                                </button>
+                                            </td>
+                                            <td>
+                                                <code class="text-truncate d-inline-block" style="max-width: 150px;" :title="wallet.ethereum_address">
+                                                    [[ wallet.ethereum_address ]]
+                                                </code>
+                                                <button 
+                                                    class="btn btn-link btn-sm p-0 ms-1" 
+                                                    @click="copyToClipboard(wallet.ethereum_address)"
+                                                    title="Копировать адрес"
+                                                >
+                                                    <i class="fas fa-copy"></i>
+                                                </button>
+                                            </td>
+                                            <td>[[ formatDate(wallet.created_at) ]]</td>
+                                            <td>
+                                                <button 
+                                                    class="btn btn-danger btn-sm" 
+                                                    @click="confirmDelete(wallet)"
+                                                    title="Удалить кошелек"
+                                                >
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Managers Tab -->
+                    <div v-if="activeTab === 'managers'">
+                        <!-- Loading State -->
+                        <div v-if="loadingManagers" class="text-center py-4">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Загрузка...</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Managers Table -->
+                        <div v-else>
+                            <div v-if="managers.length === 0" class="alert alert-info">
+                                Менеджеры не найдены. Добавьте первого менеджера.
+                            </div>
+                            
+                            <div v-else class="table-responsive">
+                                <table class="table table-striped table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Адрес кошелька</th>
+                                            <th>Блокчейн</th>
+                                            <th>Имя</th>
+                                            <th>Верифицирован</th>
+                                            <th>Создан</th>
+                                            <th>Действия</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="manager in managers" :key="manager.id">
+                                            <td>[[ manager.id ]]</td>
+                                            <td>
+                                                <code class="small">[[ truncateAddress(manager.wallet_address) ]]</code>
+                                            </td>
+                                            <td>
+                                                <span class="badge" :class="{
+                                                    'bg-info': manager.blockchain === 'tron',
+                                                    'bg-primary': manager.blockchain === 'ethereum',
+                                                    'bg-warning': manager.blockchain === 'bitcoin',
+                                                    'bg-secondary': !['tron', 'ethereum', 'bitcoin'].includes(manager.blockchain)
+                                                }">
+                                                    [[ manager.blockchain.toUpperCase() ]]
+                                                </span>
+                                            </td>
+                                            <td>[[ manager.nickname ]]</td>
+                                            <td>
+                                                <span v-if="manager.is_verified" class="badge bg-success">
+                                                    <i class="fas fa-check-circle me-1"></i> Да
+                                                </span>
+                                                <span v-else class="badge bg-secondary">
+                                                    <i class="fas fa-times-circle me-1"></i> Нет
+                                                </span>
+                                            </td>
+                                            <td class="small text-muted">[[ formatDate(manager.created_at) ]]</td>
+                                            <td>
+                                                <div class="btn-group btn-group-sm">
+                                                    <button 
+                                                        class="btn btn-outline-primary"
+                                                        @click="showEditManagerModal(manager)"
+                                                        title="Редактировать"
+                                                    >
+                                                        <i class="fas fa-edit"></i>
+                                                    </button>
+                                                    <button 
+                                                        class="btn btn-outline-danger"
+                                                        @click="confirmDeleteManager(manager)"
+                                                        title="Удалить"
+                                                    >
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Create Wallet Modal -->
+            <div v-if="showCreateModal" class="modal fade show" style="display: block; background-color: rgba(0, 0, 0, 0.5);" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content" style="box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);">
+                        <div class="modal-header bg-primary text-white">
+                            <h5 class="modal-title">Добавить кошелек</h5>
+                            <button type="button" class="btn-close btn-close-white" @click="closeCreateModal"></button>
+                        </div>
+                        <div class="modal-body" style="padding: 2rem;">
+                            <div class="mb-3">
+                                <label for="walletName" class="form-label">Имя кошелька</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    id="walletName"
+                                    v-model="walletForm.name"
+                                    placeholder="Введите имя кошелька"
+                                >
+                            </div>
+                            <div class="mb-3">
+                                <label for="walletMnemonic" class="form-label">Мнемоническая фраза</label>
+                                <textarea 
+                                    class="form-control" 
+                                    id="walletMnemonic"
+                                    v-model="walletForm.mnemonic"
+                                    rows="3"
+                                    placeholder="Введите мнемоническую фразу (12-24 слова)"
+                                ></textarea>
+                                <small class="form-text text-muted">
+                                    Мнемоническая фраза будет зашифрована и сохранена в базе данных.
+                                </small>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="closeCreateModal">Отмена</button>
+                            <button 
+                                type="button" 
+                                class="btn btn-primary" 
+                                @click="createWallet"
+                                :disabled="savingWallet"
+                            >
+                                <span v-if="savingWallet" class="spinner-border spinner-border-sm me-1"></span>
+                                Создать
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Delete Confirmation Modal -->
+            <div v-if="walletToDelete" class="modal fade show" style="display: block; background-color: rgba(0, 0, 0, 0.5);" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content" style="box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);">
+                        <div class="modal-header bg-danger text-white">
+                            <h5 class="modal-title">Подтверждение удаления</h5>
+                            <button type="button" class="btn-close btn-close-white" @click="cancelDelete"></button>
+                        </div>
+                        <div class="modal-body" style="padding: 2rem;">
+                            <p>Вы уверены, что хотите удалить кошелек <strong>[[ walletToDelete.name ]]</strong>?</p>
+                            <p class="text-danger"><small>Это действие нельзя отменить.</small></p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="cancelDelete">Отмена</button>
+                            <button type="button" class="btn btn-danger" @click="deleteWallet">
+                                Удалить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Create/Edit Manager Modal -->
+            <div v-if="showManagerModal" class="modal d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                [[ editingManager ? 'Редактировать менеджера' : 'Добавить менеджера' ]]
+                            </h5>
+                            <button type="button" class="btn-close" @click="closeManagerModal"></button>
+                        </div>
+                        <div class="modal-body" style="padding: 2rem;">
+                            <div class="mb-3">
+                                <label class="form-label">Адрес кошелька</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control font-monospace"
+                                    v-model="managerForm.wallet_address"
+                                    :disabled="!!editingManager"
+                                    placeholder="TXxx... или 0xxx..."
+                                />
+                                <small class="form-text text-muted">
+                                    [[ editingManager ? 'Адрес нельзя изменить' : 'Введите адрес кошелька менеджера' ]]
+                                </small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Блокчейн</label>
+                                <select class="form-select" v-model="managerForm.blockchain">
+                                    <option value="tron">TRON</option>
+                                    <option value="ethereum">Ethereum</option>
+                                    <option value="bitcoin">Bitcoin</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Имя менеджера</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control"
+                                    v-model="managerForm.nickname"
+                                    placeholder="Введите имя"
+                                    maxlength="100"
+                                />
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="closeManagerModal">
+                                Отмена
+                            </button>
+                            <button 
+                                type="button" 
+                                class="btn btn-primary" 
+                                @click="saveManager"
+                                :disabled="savingManager"
+                            >
+                                [[ savingManager ? 'Сохранение...' : 'Сохранить' ]]
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Delete Manager Confirmation Modal -->
+            <div v-if="managerToDelete" class="modal d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header bg-danger text-white">
+                            <h5 class="modal-title">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                Подтверждение удаления
+                            </h5>
+                            <button type="button" class="btn-close btn-close-white" @click="cancelDeleteManager"></button>
+                        </div>
+                        <div class="modal-body" style="padding: 2rem;">
+                            <p>Вы уверены, что хотите удалить менеджера?</p>
+                            <div class="card">
+                                <div class="card-body">
+                                    <p class="mb-1"><strong>Имя:</strong> [[ managerToDelete.nickname ]]</p>
+                                    <p class="mb-1"><strong>Адрес:</strong> <code class="small">[[ managerToDelete.wallet_address ]]</code></p>
+                                    <p class="mb-0"><strong>Блокчейн:</strong> [[ managerToDelete.blockchain ]]</p>
+                                </div>
+                            </div>
+                            <div class="alert alert-warning mt-3 mb-0">
+                                <i class="fas fa-exclamation-circle me-2"></i>
+                                Это действие необратимо!
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="cancelDeleteManager">
+                                Отмена
+                            </button>
+                            <button type="button" class="btn btn-danger" @click="deleteManager">
+                                <i class="fas fa-trash me-1"></i> Удалить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `
+});
+
 // Default/Empty Component (fallback)
 Vue.component('Default', {
     delimiters: ['[[', ']]'],
@@ -5008,6 +5910,18 @@ Vue.component('WalletUsers', {
                 return;
             }
             
+            // Валидация адреса кошелька (только при создании нового пользователя)
+            if (!this.editingUser) {
+                if (!this.validateWalletAddress(this.userForm.wallet_address, this.userForm.blockchain)) {
+                    const blockchainName = this.userForm.blockchain === 'tron' ? 'TRON' : 'Ethereum';
+                    const expectedFormat = this.userForm.blockchain === 'tron' 
+                        ? '34 символа, начинается с T (например: TRCW29HRORXWcw3PoEEaQzZaRLiZjbkFnS)'
+                        : '42 символа, начинается с 0x (например: 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb)';
+                    this.showStatus(`Неверный формат адреса ${blockchainName}. Ожидается: ${expectedFormat}`, 'error');
+                    return;
+                }
+            }
+            
             this.savingUser = true;
             
             try {
@@ -5100,6 +6014,40 @@ Vue.component('WalletUsers', {
         truncateAddress(address) {
             if (!address || address.length <= 16) return address;
             return address.substring(0, 8) + '...' + address.substring(address.length - 6);
+        },
+        
+        validateWalletAddress(address, blockchain) {
+            if (!address || typeof address !== 'string') {
+                return false;
+            }
+            
+            const trimmedAddress = address.trim();
+            
+            if (blockchain === 'tron') {
+                // TRON адреса начинаются с 'T', длина 34 символа
+                if (trimmedAddress.length !== 34) {
+                    return false;
+                }
+                if (!trimmedAddress.startsWith('T')) {
+                    return false;
+                }
+                // Проверка на Base58 символы (1-9, A-H, J-N, P-Z, a-k, m-z)
+                const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+                return base58Regex.test(trimmedAddress);
+            } else if (blockchain === 'ethereum') {
+                // Ethereum адреса начинаются с '0x', длина 42 символа
+                if (trimmedAddress.length !== 42) {
+                    return false;
+                }
+                if (!trimmedAddress.startsWith('0x') && !trimmedAddress.startsWith('0X')) {
+                    return false;
+                }
+                // Проверка на hex символы (0-9, a-f, A-F)
+                const hexRegex = /^0x[0-9a-fA-F]{40}$/;
+                return hexRegex.test(trimmedAddress);
+            }
+            
+            return false;
         }
     },
     
@@ -5299,7 +6247,7 @@ Vue.component('WalletUsers', {
                             </h5>
                             <button type="button" class="btn-close" @click="closeUserModal"></button>
                         </div>
-                        <div class="modal-body">
+                        <div class="modal-body" style="padding: 2rem;">
                             <div class="mb-3">
                                 <label class="form-label">Адрес кошелька</label>
                                 <input 
@@ -5331,7 +6279,7 @@ Vue.component('WalletUsers', {
                                     maxlength="100"
                                 />
                             </div>
-                            <div class="mb-3" v-if="editingUser">
+                            <div class="mb-3">
                                 <div class="form-check mb-2">
                                     <input 
                                         class="form-check-input" 
@@ -5387,7 +6335,7 @@ Vue.component('WalletUsers', {
                             </h5>
                             <button type="button" class="btn-close btn-close-white" @click="cancelDelete"></button>
                         </div>
-                        <div class="modal-body">
+                        <div class="modal-body" style="padding: 2rem;">
                             <p>Вы уверены, что хотите удалить пользователя?</p>
                             <div class="card">
                                 <div class="card-body">
@@ -5424,7 +6372,7 @@ Vue.component('WalletUsers', {
                             </h5>
                             <button type="button" class="btn-close" @click="closeBillingModal"></button>
                         </div>
-                        <div class="modal-body">
+                        <div class="modal-body" style="padding: 2rem;">
                             <div v-if="billingUser" class="mb-3">
                                 <p class="mb-1"><strong>Пользователь:</strong> [[ billingUser.nickname ]]</p>
                                 <p class="mb-0"><strong>Текущий баланс:</strong> <span class="badge bg-info">[[ formatCurrency(billingUser.balance_usdt || 0) ]] USDT</span></p>
@@ -5502,7 +6450,7 @@ Vue.component('WalletUsers', {
                             </button>
                             <button type="button" class="btn-close" @click="closeBillingHistoryModal"></button>
                         </div>
-                        <div class="modal-body">
+                        <div class="modal-body" style="padding: 2rem;">
                             <div v-if="billingHistoryUser" class="mb-3">
                                 <p class="mb-1"><strong>Пользователь:</strong> [[ billingHistoryUser.nickname ]]</p>
                                 <p class="mb-0"><strong>Текущий баланс:</strong> <span class="badge bg-info">[[ formatCurrency(billingHistoryUser.balance_usdt || 0) ]] USDT</span></p>

@@ -283,3 +283,28 @@ class Advertisement(Base):
     
     def __repr__(self):
         return f"<Advertisement(id={self.id}, name={self.name}, user_id={self.user_id}, currency={self.currency}, is_active={self.is_active})>"
+
+
+class Wallet(Base):
+    """Model for storing encrypted wallet mnemonics and addresses"""
+    
+    __tablename__ = "wallets"
+    
+    id = Column(Integer, primary_key=True, index=True, comment="Primary key")
+    
+    # Wallet name (editable)
+    name = Column(String(255), nullable=False, comment="Wallet name (editable)")
+    
+    # Encrypted mnemonic phrase
+    encrypted_mnemonic = Column(Text, nullable=False, comment="Encrypted mnemonic phrase")
+    
+    # Blockchain addresses
+    tron_address = Column(String(34), nullable=False, unique=True, index=True, comment="TRON address")
+    ethereum_address = Column(String(42), nullable=False, unique=True, index=True, comment="Ethereum address")
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="Last update timestamp (UTC)")
+    
+    def __repr__(self):
+        return f"<Wallet(id={self.id}, name={self.name}, tron_address={self.tron_address}, ethereum_address={self.ethereum_address})>"

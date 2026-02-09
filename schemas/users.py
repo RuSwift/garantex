@@ -36,6 +36,8 @@ class CreateWalletUserRequest(BaseModel):
     wallet_address: str = Field(..., description="Wallet address")
     blockchain: str = Field(..., description="Blockchain type (tron, ethereum, etc.)")
     nickname: str = Field(..., description="User display name")
+    access_to_admin_panel: bool = Field(False, description="Access to admin panel")
+    is_verified: bool = Field(False, description="Whether the user is verified")
 
 
 class UpdateWalletUserRequest(BaseModel):
