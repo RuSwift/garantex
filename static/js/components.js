@@ -812,6 +812,20 @@ Vue.component('Wallets', {
             addressUsernames: {}, // Cache for address -> username mapping
             tronNetwork: 'mainnet', // TRON network (mainnet, shasta, nile)
             
+            // Update permissions wizard
+            showUpdatePermissionsModal: false,
+            updatePermissionsWallet: null,
+            availableManagers: [], // Managers for address selection
+            loadingManagers: false,
+            updatePermissionsForm: {
+                threshold: 2,
+                permission_name: 'multisig',
+                keys: [], // Array of {address: '', weight: 1}
+                operations: 'c0000000000000000000000000000000000000000000000000000000000000000' // Only token transfers
+            },
+            creatingUpdateTx: false,
+            updateTxResult: null,
+            
             statusMessage: '',
             statusType: ''
         };
@@ -1450,6 +1464,162 @@ Vue.component('Wallets', {
             
             const baseUrl = baseUrls[this.tronNetwork] || baseUrls['mainnet'];
             return `${baseUrl}/#/address/${address}/permissions`;
+        },
+        
+        // Update permissions wizard methods
+        async showUpdatePermissionsWizard(wallet) {
+            this.updatePermissionsWallet = wallet;
+            this.updatePermissionsForm = {
+                threshold: 2,
+                permission_name: 'multisig',
+                keys: [],
+                operations: 'c0000000000000000000000000000000000000000000000000000000000000000'
+            };
+            this.updateTxResult = null;
+            this.showUpdatePermissionsModal = true;
+            await this.loadAvailableManagers();
+        },
+        
+        async loadAvailableManagers() {
+            this.loadingManagers = true;
+            try {
+                const params = new URLSearchParams({
+                    page: 1,
+                    page_size: 100,
+                    access_to_admin_panel: 'true'
+                });
+                
+                const response = await fetch('/api/admin/wallet-users?' + params, {
+                    credentials: 'include'
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const managers = data.users || [];
+                    
+                    // Add Owner address at the beginning of the list
+                    if (this.updatePermissionsWallet && this.updatePermissionsWallet.tron_address) {
+                        const ownerEntry = {
+                            id: 'owner',
+                            wallet_address: this.updatePermissionsWallet.tron_address,
+                            nickname: `Owner (${this.updatePermissionsWallet.name})`,
+                            is_owner: true
+                        };
+                        this.availableManagers = [ownerEntry, ...managers];
+                    } else {
+                        this.availableManagers = managers;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading managers:', error);
+            } finally {
+                this.loadingManagers = false;
+            }
+        },
+        
+        addPermissionKey() {
+            this.updatePermissionsForm.keys.push({
+                address: '',
+                weight: 1
+            });
+        },
+        
+        removePermissionKey(index) {
+            this.updatePermissionsForm.keys.splice(index, 1);
+        },
+        
+        getTotalWeight() {
+            return this.updatePermissionsForm.keys.reduce((sum, key) => {
+                return sum + (parseInt(key.weight) || 0);
+            }, 0);
+        },
+        
+        isWeightValid() {
+            const total = this.getTotalWeight();
+            return total >= this.updatePermissionsForm.threshold;
+        },
+        
+        getWeightValidationMessage() {
+            const total = this.getTotalWeight();
+            const threshold = this.updatePermissionsForm.threshold;
+            if (total < threshold) {
+                return `⚠️ ОПАСНО! Сумма весов (${total}) меньше threshold (${threshold}). Это заблокирует кошелек!`;
+            }
+            return `✓ Сумма весов (${total}) >= threshold (${threshold})`;
+        },
+        
+        async createUpdatePermissionsTransaction() {
+            // Validation
+            if (!this.updatePermissionsForm.keys.length) {
+                this.showStatus('Добавьте хотя бы один ключ', 'error');
+                return;
+            }
+            
+            if (!this.isWeightValid()) {
+                this.showStatus('Сумма весов должна быть >= threshold', 'error');
+                return;
+            }
+            
+            // Validate all keys have addresses
+            for (const key of this.updatePermissionsForm.keys) {
+                if (!key.address || !key.address.trim()) {
+                    this.showStatus('Все ключи должны иметь адрес', 'error');
+                    return;
+                }
+                if (!this.validateWalletAddress(key.address, 'tron')) {
+                    this.showStatus(`Неверный формат TRON адреса: ${key.address}`, 'error');
+                    return;
+                }
+            }
+            
+            this.creatingUpdateTx = true;
+            this.updateTxResult = null;
+            
+            try {
+                const response = await fetch(`/api/wallets/${this.updatePermissionsWallet.id}/update-permissions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        threshold: this.updatePermissionsForm.threshold,
+                        permission_name: this.updatePermissionsForm.permission_name,
+                        keys: this.updatePermissionsForm.keys.map(k => ({
+                            address: k.address.trim(),
+                            weight: parseInt(k.weight)
+                        })),
+                        operations: this.updatePermissionsForm.operations
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Ошибка создания транзакции');
+                }
+                
+                const data = await response.json();
+                this.updateTxResult = data;
+                this.showStatus('Транзакция обновления permissions создана', 'success');
+                
+            } catch (error) {
+                console.error('Error creating update transaction:', error);
+                this.showStatus('Ошибка создания транзакции: ' + error.message, 'error');
+            } finally {
+                this.creatingUpdateTx = false;
+            }
+        },
+        
+        closeUpdatePermissionsModal() {
+            this.showUpdatePermissionsModal = false;
+            this.updatePermissionsWallet = null;
+            this.updatePermissionsForm = {
+                threshold: 2,
+                permission_name: 'multisig',
+                keys: [],
+                operations: 'c0000000000000000000000000000000000000000000000000000000000000000'
+            };
+            this.updateTxResult = null;
         }
     },
     template: `
@@ -1589,6 +1759,13 @@ Vue.component('Wallets', {
                                                     title="Получить permissions из блокчейна"
                                                 >
                                                     <i class="fas fa-shield-alt" :class="{'fa-spin': loadingPermissions && permissionsWallet && permissionsWallet.id === wallet.id}"></i>
+                                                </button>
+                                                <button 
+                                                    class="btn btn-link btn-sm p-0 ms-1" 
+                                                    @click="showUpdatePermissionsWizard(wallet)"
+                                                    title="Настроить permissions"
+                                                >
+                                                    <i class="fas fa-cog"></i>
                                                 </button>
                                             </td>
                                             <td>
@@ -2003,6 +2180,196 @@ Vue.component('Wallets', {
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" @click="closePermissionsModal">
                                 Закрыть
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Update Permissions Wizard Modal -->
+            <div v-if="showUpdatePermissionsModal" class="modal d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-dialog-centered modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header bg-primary text-white">
+                            <h5 class="modal-title">
+                                <i class="fas fa-cog me-2"></i>
+                                Мастер конфигурации Permissions
+                            </h5>
+                            <button type="button" class="btn-close btn-close-white" @click="closeUpdatePermissionsModal"></button>
+                        </div>
+                        <div class="modal-body" style="padding: 2rem;">
+                            <div v-if="updatePermissionsWallet" class="mb-4">
+                                <p class="mb-1"><strong>Кошелек:</strong> [[ updatePermissionsWallet.name ]]</p>
+                                <p class="mb-0"><strong>TRON адрес:</strong> <code>[[ updatePermissionsWallet.tron_address ]]</code></p>
+                            </div>
+                            
+                            <!-- Transaction Result -->
+                            <div v-if="updateTxResult" class="alert alert-success mb-4">
+                                <h6><i class="fas fa-check-circle me-2"></i>Транзакция создана успешно!</h6>
+                                <p class="mb-1"><strong>TX ID:</strong> <code>[[ updateTxResult.tx_id ]]</code></p>
+                                <p class="mb-0"><small>Транзакция требует подписи для отправки в блокчейн.</small></p>
+                            </div>
+                            
+                            <!-- Configuration Form -->
+                            <div class="mb-3">
+                                <label class="form-label">Threshold (Порог подписей)</label>
+                                <input 
+                                    type="number" 
+                                    class="form-control"
+                                    v-model.number="updatePermissionsForm.threshold"
+                                    min="1"
+                                    :max="getTotalWeight()"
+                                />
+                                <small class="form-text text-muted">
+                                    Минимальное количество подписей для выполнения операций
+                                </small>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Имя permission</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control"
+                                    v-model="updatePermissionsForm.permission_name"
+                                    placeholder="multisig"
+                                />
+                            </div>
+                            
+                            <!-- Weight Validation -->
+                            <div class="mb-3">
+                                <div :class="'alert ' + (isWeightValid() ? 'alert-success' : 'alert-danger')">
+                                    <i :class="isWeightValid() ? 'fas fa-check-circle' : 'fas fa-exclamation-triangle'" class="me-2"></i>
+                                    [[ getWeightValidationMessage() ]]
+                                </div>
+                            </div>
+                            
+                            <!-- Keys List -->
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <label class="form-label mb-0">Ключи (Адреса менеджеров)</label>
+                                    <button 
+                                        class="btn btn-sm btn-primary" 
+                                        @click="addPermissionKey"
+                                        :disabled="loadingManagers"
+                                    >
+                                        <i class="fas fa-plus me-1"></i> Добавить ключ
+                                    </button>
+                                </div>
+                                
+                                <div v-if="loadingManagers" class="text-center py-2">
+                                    <div class="spinner-border spinner-border-sm"></div>
+                                    <small class="d-block mt-1">Загрузка менеджеров...</small>
+                                </div>
+                                
+                                <div v-else-if="updatePermissionsForm.keys.length === 0" class="alert alert-info">
+                                    Добавьте хотя бы один ключ
+                                </div>
+                                
+                                <div v-else class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 50px;">#</th>
+                                                <th>Адрес</th>
+                                                <th style="width: 120px;">Вес</th>
+                                                <th style="width: 80px;">Действие</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-for="(key, index) in updatePermissionsForm.keys" :key="index">
+                                                <td>[[ index + 1 ]]</td>
+                                                <td>
+                                                    <select 
+                                                        class="form-select form-select-sm"
+                                                        v-model="key.address"
+                                                    >
+                                                        <option value="">Выберите адрес...</option>
+                                                        <option 
+                                                            v-for="manager in availableManagers" 
+                                                            :key="manager.id || manager.wallet_address"
+                                                            :value="manager.wallet_address"
+                                                        >
+                                                            [[ manager.is_owner ? '👑 Owner: ' : '' ]][[ manager.nickname ]] ([[ manager.wallet_address ]])
+                                                        </option>
+                                                    </select>
+                                                    <small v-if="key.address && !validateWalletAddress(key.address, 'tron')" class="text-danger">
+                                                        Неверный формат TRON адреса
+                                                    </small>
+                                                </td>
+                                                <td>
+                                                    <input 
+                                                        type="number" 
+                                                        class="form-control form-control-sm"
+                                                        v-model.number="key.weight"
+                                                        min="1"
+                                                        step="1"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <button 
+                                                        class="btn btn-sm btn-danger"
+                                                        @click="removePermissionKey(index)"
+                                                        title="Удалить"
+                                                    >
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <!-- Operations Info -->
+                            <div class="mb-3">
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <h6 class="card-title">
+                                            <i class="fas fa-info-circle me-2"></i>
+                                            Операции
+                                        </h6>
+                                        <p class="card-text mb-0">
+                                            <small>
+                                                Настроено: <strong>только перевод токенов</strong> (TransferContract, TransferAssetContract, TriggerSmartContract для TRC20)
+                                            </small>
+                                        </p>
+                                        <input 
+                                            type="text" 
+                                            class="form-control form-control-sm mt-2 font-monospace"
+                                            v-model="updatePermissionsForm.operations"
+                                            readonly
+                                            title="Hex строка операций (только переводы токенов)"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Summary -->
+                            <div class="card bg-info text-white mb-3">
+                                <div class="card-body">
+                                    <h6 class="card-title">Сводка</h6>
+                                    <ul class="mb-0">
+                                        <li>Ключей: [[ updatePermissionsForm.keys.length ]]</li>
+                                        <li>Сумма весов: [[ getTotalWeight() ]]</li>
+                                        <li>Threshold: [[ updatePermissionsForm.threshold ]]</li>
+                                        <li>Операции: только перевод токенов</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="closeUpdatePermissionsModal">
+                                Отмена
+                            </button>
+                            <button 
+                                type="button" 
+                                class="btn btn-primary" 
+                                @click="createUpdatePermissionsTransaction"
+                                :disabled="creatingUpdateTx || !isWeightValid() || updatePermissionsForm.keys.length === 0"
+                            >
+                                <span v-if="creatingUpdateTx" class="spinner-border spinner-border-sm me-2"></span>
+                                <i v-else class="fas fa-cog me-2"></i>
+                                [[ creatingUpdateTx ? 'Создание...' : 'Создать транзакцию' ]]
                             </button>
                         </div>
                     </div>

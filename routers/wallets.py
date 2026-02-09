@@ -13,7 +13,9 @@ from schemas.wallet import (
     CreateWalletRequest,
     UpdateWalletNameRequest,
     WalletResponse,
-    WalletListResponse
+    WalletListResponse,
+    UpdatePermissionsRequest,
+    UpdatePermissionsResponse
 )
 from schemas.node import ChangeResponse
 from services.wallet import WalletService
@@ -382,4 +384,120 @@ async def get_tron_network(
         TRON network name
     """
     return {"network": settings.tron.network}
+
+
+@router.post("/{wallet_id}/update-permissions", response_model=UpdatePermissionsResponse)
+async def create_update_permissions_transaction(
+    wallet_id: int,
+    request: UpdatePermissionsRequest,
+    db: DbDepends,
+    settings: SettingsDepends,
+    admin: RequireAdminDepends
+):
+    """
+    Create transaction to update wallet permissions
+    
+    Args:
+        wallet_id: Wallet ID
+        request: Permission update configuration
+        db: Database session
+        settings: Application settings
+        admin: Admin authentication
+        
+    Returns:
+        Unsigned transaction for signing
+    """
+    try:
+        # Get wallet
+        result = await db.execute(
+            select(Wallet).where(Wallet.id == wallet_id)
+        )
+        wallet = result.scalar_one_or_none()
+        
+        if not wallet:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Wallet not found"
+            )
+        
+        # Validate threshold and weights
+        total_weight = sum(key.weight for key in request.keys)
+        if total_weight < request.threshold:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Сумма весов ({total_weight}) меньше threshold ({request.threshold}). Это заблокирует кошелек!"
+            )
+        
+        # Get current owner permission (required for update)
+        network = settings.tron.network
+        api_key = settings.tron.api_key
+        
+        async with TronAPIClient(network=network, api_key=api_key) as api:
+            account_info = await api.get_account(wallet.tron_address)
+            
+            if not account_info:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Account {wallet.tron_address} not found in TRON blockchain"
+                )
+            
+            # Get owner permission (required)
+            owner_permission = account_info.get("owner_permission")
+            if not owner_permission:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Owner permission not found. Cannot update permissions."
+                )
+            
+            # Prepare permission data
+            permission_data = {
+                "owner": {
+                    "type": 0,
+                    "permission_name": owner_permission.get("permission_name", "owner"),
+                    "threshold": owner_permission.get("threshold", 1),
+                    "keys": owner_permission.get("keys", [])
+                },
+                "actives": [{
+                    "type": 2,
+                    "permission_name": request.permission_name,
+                    "threshold": request.threshold,
+                    "operations": request.operations,
+                    "keys": [
+                        {
+                            "address": key.address,
+                            "weight": key.weight
+                        }
+                        for key in request.keys
+                    ]
+                }]
+            }
+            
+            # Create update transaction
+            update_tx = await api.update_account_permission(
+                owner_address=wallet.tron_address,
+                permission_data=permission_data
+            )
+            
+            if "txID" not in update_tx:
+                error_msg = update_tx.get("Error", "Unknown error")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Failed to create update transaction: {error_msg}"
+                )
+            
+            return UpdatePermissionsResponse(
+                success=True,
+                tx_id=update_tx["txID"],
+                raw_data_hex=update_tx.get("raw_data_hex", ""),
+                message="Транзакция обновления permissions создана. Требуется подпись для отправки."
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating update permissions transaction: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating update permissions transaction: {str(e)}"
+        )
 
