@@ -184,7 +184,29 @@ class AdminSettings(BaseSettings):
             return bool(self.tron_address)
         
         return False
+
+
+class TronSettings(BaseSettings):
+    """Настройки для работы с TRON сетью"""
     
+    model_config = SettingsConfigDict(
+        env_prefix="TRON_",
+        case_sensitive=False,
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+    
+    api_key: Optional[str] = Field(
+        default=None,
+        description="TronGrid API ключ для доступа к сети TRON (опционально)"
+    )
+    
+    network: str = Field(
+        default="mainnet",
+        description="TRON сеть: 'mainnet', 'shasta' (testnet), или 'nile' (testnet)"
+    )
+
 
 class Settings(BaseSettings):
     """Основные настройки приложения"""
@@ -230,6 +252,9 @@ class Settings(BaseSettings):
     # Настройки администратора
     admin: AdminSettings = Field(default_factory=AdminSettings)
     
+    # Настройки TRON
+    tron: TronSettings = Field(default_factory=TronSettings)
+    
     # Настройки PEM ключа
     pem: Optional[str] = Field(
         default=None,
@@ -253,4 +278,5 @@ __all__ = [
     "MnemonicSettings",
     "RedisSettings",
     "AdminSettings",
+    "TronSettings",
 ]

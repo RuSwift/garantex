@@ -804,6 +804,13 @@ Vue.component('Wallets', {
             // Delete manager confirmation
             managerToDelete: null,
             
+            // Permissions modal
+            showPermissionsModal: false,
+            permissionsWallet: null,
+            loadingPermissions: false,
+            permissionsData: null,
+            addressUsernames: {}, // Cache for address -> username mapping
+            
             statusMessage: '',
             statusType: ''
         };
@@ -1242,6 +1249,176 @@ Vue.component('Wallets', {
             }
             
             return false;
+        },
+        
+        // Permissions methods
+        async fetchWalletPermissions(wallet) {
+            this.loadingPermissions = true;
+            this.permissionsWallet = wallet;
+            this.permissionsData = null;
+            
+            try {
+                const response = await fetch(`/api/wallets/${wallet.id}/fetch-permissions`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Ошибка получения permissions');
+                }
+                
+                const data = await response.json();
+                this.permissionsData = data.account_permissions;
+                
+                // Load usernames for all addresses in permissions
+                await this.loadUsernamesForPermissions(data.account_permissions);
+                
+                // Update wallet in list
+                const walletIndex = this.wallets.findIndex(w => w.id === wallet.id);
+                if (walletIndex !== -1) {
+                    this.wallets[walletIndex].account_permissions = data.account_permissions;
+                }
+                
+                this.showPermissionsModal = true;
+                
+            } catch (error) {
+                console.error('Error fetching permissions:', error);
+                this.showStatus('Ошибка получения permissions: ' + error.message, 'error');
+            } finally {
+                this.loadingPermissions = false;
+            }
+        },
+        
+        async loadUsernamesForPermissions(permissions) {
+            if (!permissions) return;
+            
+            const addresses = new Set();
+            
+            // Collect all addresses from permissions
+            if (permissions.owner && permissions.owner.keys) {
+                permissions.owner.keys.forEach(key => {
+                    if (key.address) addresses.add(key.address);
+                });
+            }
+            
+            if (permissions.active && Array.isArray(permissions.active)) {
+                permissions.active.forEach(perm => {
+                    if (perm.keys) {
+                        perm.keys.forEach(key => {
+                            if (key.address) addresses.add(key.address);
+                        });
+                    }
+                });
+            }
+            
+            // Fetch usernames for all addresses
+            for (const address of addresses) {
+                if (!this.addressUsernames[address]) {
+                    try {
+                        const response = await fetch(`/api/wallets/addresses/${address}/username`, {
+                            credentials: 'include'
+                        });
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data.found) {
+                                this.addressUsernames[address] = data.username;
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`Error loading username for ${address}:`, error);
+                    }
+                }
+            }
+        },
+        
+        getAddressDisplay(address) {
+            if (!address) return '';
+            const username = this.addressUsernames[address];
+            if (username) {
+                return `${username} (${address})`;
+            }
+            return address;
+        },
+        
+        getOperationNames(operationsHex) {
+            if (!operationsHex) return [];
+            
+            // TRON operation types mapping
+            const operationMap = {
+                'TransferContract': 'Перевод TRX',
+                'TransferAssetContract': 'Перевод токенов',
+                'TriggerSmartContract': 'Вызов смарт-контракта',
+                'FreezeBalanceContract': 'Заморозка баланса',
+                'UnfreezeBalanceContract': 'Разморозка баланса',
+                'VoteWitnessContract': 'Голосование за свидетелей',
+                'AccountPermissionUpdateContract': 'Обновление permissions',
+                'CreateSmartContract': 'Создание смарт-контракта',
+                'ProposalCreateContract': 'Создание предложения',
+                'ProposalApproveContract': 'Одобрение предложения',
+                'ProposalDeleteContract': 'Удаление предложения',
+                'ExchangeCreateContract': 'Создание биржи',
+                'ExchangeInjectContract': 'Пополнение биржи',
+                'ExchangeWithdrawContract': 'Вывод с биржи',
+                'ExchangeTransactionContract': 'Транзакция на бирже',
+                'UpdateEnergyLimitContract': 'Обновление лимита энергии',
+                'AccountCreateContract': 'Создание аккаунта',
+                'WitnessCreateContract': 'Создание свидетеля',
+                'WitnessUpdateContract': 'Обновление свидетеля',
+                'AssetIssueContract': 'Выпуск токена',
+                'ParticipateAssetIssueContract': 'Участие в выпуске токена',
+                'UpdateAssetContract': 'Обновление токена',
+                'UpdateSettingContract': 'Обновление настроек',
+                'UpdateBrokerageContract': 'Обновление комиссии',
+                'ClearABIContract': 'Очистка ABI',
+                'UpdateAccountContract': 'Обновление аккаунта',
+                'ShieldedTransferContract': 'Shielded транзакция',
+                'MarketSellAssetContract': 'Продажа на рынке',
+                'MarketCancelOrderContract': 'Отмена ордера',
+                'WithdrawBalanceContract': 'Вывод баланса',
+                'UnfreezeAssetContract': 'Разморозка токенов',
+                'UpdateAccountPermissionContract': 'Обновление permissions аккаунта',
+                'SetAccountIdContract': 'Установка ID аккаунта',
+                'AccountPermissionUpdateContract': 'Обновление permissions',
+                'CreateSmartContract': 'Создание смарт-контракта',
+                'TriggerSmartContract': 'Вызов смарт-контракта',
+                'UpdateBrokerageContract': 'Обновление комиссии',
+                'ClearABIContract': 'Очистка ABI',
+                'UpdateEnergyLimitContract': 'Обновление лимита энергии',
+                'ShieldedTransferContract': 'Shielded транзакция',
+                'MarketSellAssetContract': 'Продажа на рынке',
+                'MarketCancelOrderContract': 'Отмена ордера',
+                'WithdrawBalanceContract': 'Вывод баланса',
+                'UnfreezeAssetContract': 'Разморозка токенов',
+                'UpdateAccountPermissionContract': 'Обновление permissions аккаунта',
+                'SetAccountIdContract': 'Установка ID аккаунта'
+            };
+            
+            // Parse operations hex string
+            // Operations are represented as a hex string where each bit represents an operation type
+            // For simplicity, we'll return a generic message
+            if (operationsHex === '7fff1fc0033e0000000000000000000000000000000000000000000000000000') {
+                return ['Все операции разрешены'];
+            }
+            
+            // Try to decode operations
+            const operations = [];
+            try {
+                // Convert hex to binary and check each bit
+                const binary = parseInt(operationsHex.substring(0, 16), 16).toString(2);
+                // This is a simplified version - actual decoding is more complex
+                operations.push('Операции настроены (детали в hex)');
+            } catch (e) {
+                operations.push('Операции: ' + operationsHex.substring(0, 32) + '...');
+            }
+            
+            return operations;
+        },
+        
+        closePermissionsModal() {
+            this.showPermissionsModal = false;
+            this.permissionsWallet = null;
+            this.permissionsData = null;
         }
     },
     template: `
@@ -1373,6 +1550,14 @@ Vue.component('Wallets', {
                                                     title="Копировать адрес"
                                                 >
                                                     <i class="fas fa-copy"></i>
+                                                </button>
+                                                <button 
+                                                    class="btn btn-link btn-sm p-0 ms-1" 
+                                                    @click="fetchWalletPermissions(wallet)"
+                                                    :disabled="loadingPermissions"
+                                                    title="Получить permissions из блокчейна"
+                                                >
+                                                    <i class="fas fa-shield-alt" :class="{'fa-spin': loadingPermissions && permissionsWallet && permissionsWallet.id === wallet.id}"></i>
                                                 </button>
                                             </td>
                                             <td>
@@ -1647,6 +1832,133 @@ Vue.component('Wallets', {
                             </button>
                             <button type="button" class="btn btn-danger" @click="deleteManager">
                                 <i class="fas fa-trash me-1"></i> Удалить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Permissions Modal -->
+            <div v-if="showPermissionsModal" class="modal d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-dialog-centered modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                <i class="fas fa-shield-alt me-2"></i>
+                                TRON Account Permissions
+                            </h5>
+                            <button type="button" class="btn-close" @click="closePermissionsModal"></button>
+                        </div>
+                        <div class="modal-body" style="padding: 2rem;">
+                            <div v-if="permissionsWallet" class="mb-3">
+                                <p class="mb-1"><strong>Кошелек:</strong> [[ permissionsWallet.name ]]</p>
+                                <p class="mb-0"><strong>TRON адрес:</strong> <code>[[ permissionsWallet.tron_address ]]</code></p>
+                            </div>
+                            
+                            <div v-if="loadingPermissions" class="text-center py-4">
+                                <div class="spinner-border text-primary"></div>
+                                <p class="mt-2">Загрузка permissions из блокчейна...</p>
+                            </div>
+                            
+                            <div v-else-if="!permissionsData" class="alert alert-info">
+                                Permissions не загружены. Нажмите кнопку для получения данных из блокчейна.
+                            </div>
+                            
+                            <div v-else>
+                                <!-- Owner Permission -->
+                                <div v-if="permissionsData.owner" class="mb-4">
+                                    <h6 class="mb-3">
+                                        <i class="fas fa-key me-2"></i>
+                                        Owner Keys (Владельцы)
+                                    </h6>
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <p class="mb-2"><strong>Threshold:</strong> [[ permissionsData.owner.threshold || 1 ]]</p>
+                                            <p class="mb-2"><strong>Permission Name:</strong> [[ permissionsData.owner.permission_name || 'owner' ]]</p>
+                                            <div v-if="permissionsData.owner.keys && permissionsData.owner.keys.length > 0">
+                                                <strong>Keys:</strong>
+                                                <ul class="list-unstyled mt-2">
+                                                    <li v-for="(key, index) in permissionsData.owner.keys" :key="index" class="mb-2">
+                                                        <code class="small">[[ getAddressDisplay(key.address) ]]</code>
+                                                        <span class="badge bg-secondary ms-2">Weight: [[ key.weight ]]</span>
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                            <div v-else class="text-muted">
+                                                <small>Нет ключей</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Active Permissions -->
+                                <div v-if="permissionsData.active && permissionsData.active.length > 0" class="mb-4">
+                                    <h6 class="mb-3">
+                                        <i class="fas fa-user-shield me-2"></i>
+                                        Active Permissions (Права на операции)
+                                    </h6>
+                                    <div v-for="(perm, index) in permissionsData.active" :key="index" class="card mb-3">
+                                        <div class="card-body">
+                                            <p class="mb-2"><strong>Permission ID:</strong> [[ perm.id ]]</p>
+                                            <p class="mb-2"><strong>Permission Name:</strong> [[ perm.permission_name || 'active' ]]</p>
+                                            <p class="mb-2"><strong>Threshold:</strong> [[ perm.threshold ]]</p>
+                                            
+                                            <div v-if="perm.operations" class="mb-2">
+                                                <strong>Operations:</strong>
+                                                <ul class="list-unstyled mt-1">
+                                                    <li v-for="(op, opIndex) in getOperationNames(perm.operations)" :key="opIndex" class="small">
+                                                        <i class="fas fa-check-circle text-success me-1"></i> [[ op ]]
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                            
+                                            <div v-if="perm.keys && perm.keys.length > 0">
+                                                <strong>Keys:</strong>
+                                                <ul class="list-unstyled mt-2">
+                                                    <li v-for="(key, keyIndex) in perm.keys" :key="keyIndex" class="mb-2">
+                                                        <code class="small">[[ getAddressDisplay(key.address) ]]</code>
+                                                        <span class="badge bg-info ms-2">Weight: [[ key.weight ]]</span>
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                            <div v-else class="text-muted">
+                                                <small>Нет ключей</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div v-else class="alert alert-warning">
+                                    <i class="fas fa-exclamation-triangle me-2"></i>
+                                    Активные permissions не найдены
+                                </div>
+                                
+                                <!-- Witness Permission -->
+                                <div v-if="permissionsData.witness" class="mb-4">
+                                    <h6 class="mb-3">
+                                        <i class="fas fa-certificate me-2"></i>
+                                        Witness Permission
+                                    </h6>
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <p class="mb-2"><strong>Permission Name:</strong> [[ permissionsData.witness.permission_name || 'witness' ]]</p>
+                                            <div v-if="permissionsData.witness.keys && permissionsData.witness.keys.length > 0">
+                                                <strong>Keys:</strong>
+                                                <ul class="list-unstyled mt-2">
+                                                    <li v-for="(key, index) in permissionsData.witness.keys" :key="index" class="mb-2">
+                                                        <code class="small">[[ getAddressDisplay(key.address) ]]</code>
+                                                        <span class="badge bg-secondary ms-2">Weight: [[ key.weight ]]</span>
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="closePermissionsModal">
+                                Закрыть
                             </button>
                         </div>
                     </div>

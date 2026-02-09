@@ -2,7 +2,7 @@
 Schemas for wallet management API
 """
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
@@ -23,6 +23,7 @@ class WalletResponse(BaseModel):
     name: str = Field(..., description="Wallet name")
     tron_address: str = Field(..., description="TRON address")
     ethereum_address: str = Field(..., description="Ethereum address")
+    account_permissions: Optional[Dict[str, Any]] = Field(None, description="TRON account permissions from blockchain")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Update timestamp")
     

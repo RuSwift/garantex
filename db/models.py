@@ -3,7 +3,7 @@ Database models for storing encrypted node settings
 """
 from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Boolean, Index, Numeric, ForeignKey
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import UUID, JSONB, JSON
 from sqlalchemy.sql import func
 import uuid
 from db import Base
@@ -301,6 +301,9 @@ class Wallet(Base):
     # Blockchain addresses
     tron_address = Column(String(34), nullable=False, unique=True, index=True, comment="TRON address")
     ethereum_address = Column(String(42), nullable=False, unique=True, index=True, comment="Ethereum address")
+    
+    # TRON account permissions (from blockchain)
+    account_permissions = Column(JSON, nullable=True, comment="TRON account permissions from blockchain")
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")

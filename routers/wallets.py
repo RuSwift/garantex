@@ -4,6 +4,9 @@ Router for Wallet management API
 import logging
 from fastapi import APIRouter, HTTPException, status
 from dependencies import RequireAdminDepends, DbDepends, SettingsDepends
+from sqlalchemy import select
+from db.models import Wallet, WalletUser
+from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 from schemas.wallet import (
@@ -14,6 +17,7 @@ from schemas.wallet import (
 )
 from schemas.node import ChangeResponse
 from services.wallet import WalletService
+from services.tron.api_client import TronAPIClient
 
 router = APIRouter(
     prefix="/api/wallets",
@@ -53,6 +57,7 @@ async def create_wallet(
             name=wallet.name,
             tron_address=wallet.tron_address,
             ethereum_address=wallet.ethereum_address,
+            account_permissions=wallet.account_permissions,
             created_at=wallet.created_at,
             updated_at=wallet.updated_at
         )
@@ -92,6 +97,7 @@ async def list_wallets(
                 name=wallet.name,
                 tron_address=wallet.tron_address,
                 ethereum_address=wallet.ethereum_address,
+                account_permissions=wallet.account_permissions,
                 created_at=wallet.created_at,
                 updated_at=wallet.updated_at
             )
@@ -146,6 +152,7 @@ async def get_wallet(
             name=wallet.name,
             tron_address=wallet.tron_address,
             ethereum_address=wallet.ethereum_address,
+            account_permissions=wallet.account_permissions,
             created_at=wallet.created_at,
             updated_at=wallet.updated_at
         )
@@ -195,6 +202,7 @@ async def update_wallet_name(
             name=wallet.name,
             tron_address=wallet.tron_address,
             ethereum_address=wallet.ethereum_address,
+            account_permissions=wallet.account_permissions,
             created_at=wallet.created_at,
             updated_at=wallet.updated_at
         )
@@ -243,5 +251,117 @@ async def delete_wallet(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error deleting wallet: {str(e)}"
+        )
+
+
+@router.post("/{wallet_id}/fetch-permissions", response_model=WalletResponse)
+async def fetch_wallet_permissions(
+    wallet_id: int,
+    db: DbDepends,
+    settings: SettingsDepends,
+    admin: RequireAdminDepends
+):
+    """
+    Fetch account permissions from TRON blockchain and update wallet
+    
+    Args:
+        wallet_id: Wallet ID
+        db: Database session
+        settings: Application settings
+        admin: Admin authentication
+        
+    Returns:
+        Updated wallet information with account permissions
+    """
+    try:
+        # Get wallet
+        result = await db.execute(
+            select(Wallet).where(Wallet.id == wallet_id)
+        )
+        wallet = result.scalar_one_or_none()
+        
+        if not wallet:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Wallet not found"
+            )
+        
+        # Fetch account info from TRON blockchain
+        network = settings.tron.network
+        api_key = settings.tron.api_key
+        
+        async with TronAPIClient(network=network, api_key=api_key) as api:
+            account_info = await api.get_account(wallet.tron_address)
+            
+            if not account_info:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Account {wallet.tron_address} not found in TRON blockchain"
+                )
+            
+            # Extract permissions
+            permissions_data = {
+                "owner": account_info.get("owner_permission"),
+                "active": account_info.get("active_permission", []),
+                "witness": account_info.get("witness_permission")
+            }
+            
+            # Update wallet with permissions
+            wallet.account_permissions = permissions_data
+            await db.commit()
+            await db.refresh(wallet)
+        
+        return WalletResponse(
+            id=wallet.id,
+            name=wallet.name,
+            tron_address=wallet.tron_address,
+            ethereum_address=wallet.ethereum_address,
+            account_permissions=wallet.account_permissions,
+            created_at=wallet.created_at,
+            updated_at=wallet.updated_at
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error fetching wallet permissions: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching wallet permissions: {str(e)}"
+        )
+
+
+@router.get("/addresses/{address}/username")
+async def get_username_by_address(
+    address: str,
+    db: DbDepends,
+    admin: RequireAdminDepends
+):
+    """
+    Get username by wallet address
+    
+    Args:
+        address: Wallet address (TRON or Ethereum)
+        db: Database session
+        admin: Admin authentication
+        
+    Returns:
+        Username if found, None otherwise
+    """
+    try:
+        result = await db.execute(
+            select(WalletUser).where(WalletUser.wallet_address == address)
+        )
+        user = result.scalar_one_or_none()
+        
+        if user:
+            return {"username": user.nickname, "found": True}
+        else:
+            return {"username": None, "found": False}
+    except Exception as e:
+        logger.error(f"Error getting username by address: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting username: {str(e)}"
         )
 

@@ -7,12 +7,10 @@ from typing import Optional, Dict, Any
 from services.tron import TronMultisig, MultisigConfig, MultisigTransaction
 from services.tron.api_client import TronAPIClient
 from services.tron.utils import keypair_from_mnemonic
+from dependencies import SettingsDepends
 import os
 
 router = APIRouter(prefix="/api/multisig", tags=["tron-multisig"])
-
-# Network configuration
-TRON_NETWORK = "mainnet"  # "mainnet" or "shasta" (testnet)
 
 # Хранилище транзакций в памяти (для демо)
 transactions_storage: Dict[str, MultisigTransaction] = {}
@@ -154,14 +152,19 @@ async def get_config():
 
 
 @router.post("/check-permissions")
-async def check_permissions(request: CheckPermissionsRequest):
+async def check_permissions(
+    request: CheckPermissionsRequest,
+    settings: SettingsDepends
+):
     """
     Проверить multisig permissions аккаунта в TRON Mainnet
     """
     try:
-        print(f"🔍 Checking permissions on TRON {TRON_NETWORK.upper()} for {request.owner_address}")
+        network = settings.tron.network
+        api_key = settings.tron.api_key
+        print(f"🔍 Checking permissions on TRON {network.upper()} for {request.owner_address}")
         
-        async with TronAPIClient(network=TRON_NETWORK) as api:
+        async with TronAPIClient(network=network, api_key=api_key) as api:
             account_info = await api.get_account(request.owner_address)
             
             if not account_info or "active_permission" not in account_info:
@@ -197,7 +200,7 @@ async def check_permissions(request: CheckPermissionsRequest):
                         permission_name=permission_name,
                         threshold=threshold,
                         keys_count=len(keys),
-                        message=f"Найден multisig permission в {TRON_NETWORK.upper()}: {permission_name} (ID: {permission_id})"
+                        message=f"Найден multisig permission в {network.upper()}: {permission_name} (ID: {permission_id})"
                     )
             
             print(f"   ⚠ No multisig_2_of_3 permission found")
@@ -215,18 +218,23 @@ async def check_permissions(request: CheckPermissionsRequest):
 
 
 @router.post("/create-transaction")
-async def create_transaction(request: CreateTransactionRequest):
+async def create_transaction(
+    request: CreateTransactionRequest,
+    settings: SettingsDepends
+):
     """
     Создать транзакцию в TRON Mainnet с multisig permission
     """
     try:
-        print(f"🔨 Creating transaction on TRON {TRON_NETWORK.upper()}...")
+        network = settings.tron.network
+        api_key = settings.tron.api_key
+        print(f"🔨 Creating transaction on TRON {network.upper()}...")
         print(f"   From: {request.from_address}")
         print(f"   To: {request.to_address}")
         print(f"   Amount: {request.amount_trx} TRX")
         print(f"   Permission ID: {request.permission_id}")
         
-        async with TronAPIClient(network=TRON_NETWORK) as api:
+        async with TronAPIClient(network=network, api_key=api_key) as api:
             unsigned_tx = await api.create_transaction(
                 from_address=request.from_address,
                 to_address=request.to_address,
@@ -406,11 +414,17 @@ async def add_signature(request: AddSignatureRequest):
 
 
 @router.post("/broadcast")
-async def broadcast_transaction(request: BroadcastTransactionRequest):
+async def broadcast_transaction(
+    request: BroadcastTransactionRequest,
+    settings: SettingsDepends
+):
     """
     Отправить транзакцию в TRON Mainnet
     """
     try:
+        network = settings.tron.network
+        api_key = settings.tron.api_key
+        
         if request.tx_id not in transactions_storage:
             raise HTTPException(status_code=404, detail="Transaction not found")
         
@@ -432,7 +446,7 @@ async def broadcast_transaction(request: BroadcastTransactionRequest):
             print(f"   Added visible={signed_tx['visible']} to transaction")
         
         # Log before broadcast
-        print(f"📡 Broadcasting transaction to TRON {TRON_NETWORK.upper()}...")
+        print(f"📡 Broadcasting transaction to TRON {network.upper()}...")
         print(f"   TX ID: {request.tx_id}")
         print(f"   Signatures: {transaction.signatures_count}/{transaction.config.required_signatures}")
         print(f"   Transaction structure:")
@@ -460,7 +474,7 @@ async def broadcast_transaction(request: BroadcastTransactionRequest):
             print(f"      transaction.contract_data: {transaction.contract_data}")
         
         # Broadcast to TRON network
-        async with TronAPIClient(network=TRON_NETWORK) as api:
+        async with TronAPIClient(network=network, api_key=api_key) as api:
             result = await api.broadcast_transaction(signed_tx)
             
             print(f"   Broadcast result: {result}")
