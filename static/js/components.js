@@ -810,6 +810,7 @@ Vue.component('Wallets', {
             loadingPermissions: false,
             permissionsData: null,
             addressUsernames: {}, // Cache for address -> username mapping
+            tronNetwork: 'mainnet', // TRON network (mainnet, shasta, nile)
             
             statusMessage: '',
             statusType: ''
@@ -817,6 +818,7 @@ Vue.component('Wallets', {
     },
     mounted() {
         this.loadWallets();
+        this.loadTronNetwork();
     },
     methods: {
         async loadWallets() {
@@ -1419,6 +1421,35 @@ Vue.component('Wallets', {
             this.showPermissionsModal = false;
             this.permissionsWallet = null;
             this.permissionsData = null;
+        },
+        
+        async loadTronNetwork() {
+            try {
+                const response = await fetch('/api/wallets/tron-network', {
+                    credentials: 'include'
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    this.tronNetwork = data.network || 'mainnet';
+                }
+            } catch (error) {
+                console.error('Error loading TRON network:', error);
+                // Default to mainnet
+                this.tronNetwork = 'mainnet';
+            }
+        },
+        
+        getTronscanUrl(address) {
+            if (!address) return '#';
+            
+            const baseUrls = {
+                'mainnet': 'https://tronscan.org',
+                'shasta': 'https://shasta.tronscan.org',
+                'nile': 'https://nile.tronscan.org'
+            };
+            
+            const baseUrl = baseUrls[this.tronNetwork] || baseUrls['mainnet'];
+            return `${baseUrl}/#/address/${address}/permissions`;
         }
     },
     template: `
@@ -1852,7 +1883,20 @@ Vue.component('Wallets', {
                         <div class="modal-body" style="padding: 2rem;">
                             <div v-if="permissionsWallet" class="mb-3">
                                 <p class="mb-1"><strong>Кошелек:</strong> [[ permissionsWallet.name ]]</p>
-                                <p class="mb-0"><strong>TRON адрес:</strong> <code>[[ permissionsWallet.tron_address ]]</code></p>
+                                <p class="mb-2">
+                                    <strong>TRON адрес:</strong> <code>[[ permissionsWallet.tron_address ]]</code>
+                                </p>
+                                <p class="mb-0">
+                                    <a 
+                                        :href="getTronscanUrl(permissionsWallet.tron_address)" 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        class="btn btn-sm btn-outline-primary"
+                                    >
+                                        <i class="fas fa-external-link-alt me-1"></i>
+                                        Открыть в Tronscan (Permissions)
+                                    </a>
+                                </p>
                             </div>
                             
                             <div v-if="loadingPermissions" class="text-center py-4">

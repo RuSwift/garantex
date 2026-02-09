@@ -365,3 +365,21 @@ async def get_username_by_address(
             detail=f"Error getting username: {str(e)}"
         )
 
+
+@router.get("/tron-network")
+async def get_tron_network(
+    settings: SettingsDepends,
+    admin: RequireAdminDepends
+):
+    """
+    Get TRON network configuration
+    
+    Args:
+        settings: Application settings
+        admin: Admin authentication
+        
+    Returns:
+        TRON network name
+    """
+    return {"network": settings.tron.network}
+
