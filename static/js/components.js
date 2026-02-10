@@ -830,6 +830,11 @@ Vue.component('Wallets', {
             updateTxBroadcasting: false, // Состояние broadcast
             updateTxFinalResult: null, // Результат broadcast
             
+            // DIDDoc modal
+            showDidDocModalFlag: false,
+            didDocUserId: null,
+            didDocOwnerInfo: null,
+            
             statusMessage: '',
             statusType: ''
         };
@@ -1845,6 +1850,68 @@ Vue.component('Wallets', {
                 console.error('Copy error:', err);
                 this.showStatus('Ошибка копирования', 'error');
             });
+        },
+        
+        async showDidDocModalForWallet(wallet) {
+            // Try to find user by wallet address (tron_address or ethereum_address)
+            try {
+                // First try TRON address
+                let searchAddress = wallet.tron_address;
+                let response = await fetch(`/api/admin/wallet-users?query=${encodeURIComponent(searchAddress)}`, {
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to search for user');
+                }
+                
+                let data = await response.json();
+                let user = null;
+                
+                // Find exact match
+                if (data.users && data.users.length > 0) {
+                    user = data.users.find(u => 
+                        u.wallet_address.toLowerCase() === searchAddress.toLowerCase()
+                    );
+                }
+                
+                // If not found, try Ethereum address
+                if (!user && wallet.ethereum_address) {
+                    searchAddress = wallet.ethereum_address;
+                    response = await fetch(`/api/admin/wallet-users?query=${encodeURIComponent(searchAddress)}`, {
+                        credentials: 'include'
+                    });
+                    
+                    if (response.ok) {
+                        data = await response.json();
+                        if (data.users && data.users.length > 0) {
+                            user = data.users.find(u => 
+                                u.wallet_address.toLowerCase() === searchAddress.toLowerCase()
+                            );
+                        }
+                    }
+                }
+                
+                if (user) {
+                    this.didDocUserId = user.id;
+                    this.didDocOwnerInfo = {
+                        nickname: user.nickname,
+                        avatar: user.avatar
+                    };
+                    this.showDidDocModalFlag = true;
+                } else {
+                    this.showStatus('Пользователь с таким адресом кошелька не найден', 'error');
+                }
+            } catch (error) {
+                console.error('Error finding user for wallet:', error);
+                this.showStatus('Ошибка поиска пользователя: ' + error.message, 'error');
+            }
+        },
+        
+        closeDidDocModal() {
+            this.showDidDocModalFlag = false;
+            this.didDocUserId = null;
+            this.didDocOwnerInfo = null;
         }
     },
     template: `
@@ -2007,13 +2074,22 @@ Vue.component('Wallets', {
                                             </td>
                                             <td>[[ formatDate(wallet.created_at) ]]</td>
                                             <td>
-                                                <button 
-                                                    class="btn btn-danger btn-sm" 
-                                                    @click="confirmDelete(wallet)"
-                                                    title="Удалить кошелек"
-                                                >
-                                                    <i class="fas fa-trash"></i>
-                                                </button>
+                                                <div class="d-flex gap-1">
+                                                    <button 
+                                                        class="btn btn-secondary btn-sm" 
+                                                        @click="showDidDocModalForWallet(wallet)"
+                                                        title="DIDDoc"
+                                                    >
+                                                        <i class="fas fa-id-card"></i>
+                                                    </button>
+                                                    <button 
+                                                        class="btn btn-danger btn-sm" 
+                                                        @click="confirmDelete(wallet)"
+                                                        title="Удалить кошелек"
+                                                    >
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     </tbody>
@@ -2676,6 +2752,15 @@ Vue.component('Wallets', {
                     </div>
                 </div>
             </div>
+            
+            <!-- DIDDoc Modal -->
+            <did-doc-modal 
+                :show="showDidDocModalFlag"
+                :user-id="didDocUserId"
+                :owner-info="didDocOwnerInfo"
+                :use-admin-endpoint="true"
+                @close="closeDidDocModal"
+            ></did-doc-modal>
         </div>
     `
 });
@@ -6658,6 +6743,11 @@ Vue.component('WalletUsers', {
             billingHistoryPage: 1,
             billingHistoryTotal: 0,
             
+            // DIDDoc modal
+            showDidDocModalFlag: false,
+            didDocUserId: null,
+            didDocOwnerInfo: null,
+            
             statusMessage: '',
             statusType: ''
         };
@@ -7072,6 +7162,21 @@ Vue.component('WalletUsers', {
             }
             
             return false;
+        },
+        
+        showDidDocModal(user) {
+            this.didDocUserId = user.id;
+            this.didDocOwnerInfo = {
+                nickname: user.nickname,
+                avatar: user.avatar
+            };
+            this.showDidDocModalFlag = true;
+        },
+        
+        closeDidDocModal() {
+            this.showDidDocModalFlag = false;
+            this.didDocUserId = null;
+            this.didDocOwnerInfo = null;
         }
     },
     
@@ -7190,30 +7295,37 @@ Vue.component('WalletUsers', {
                                     </td>
                                     <td class="small text-muted">[[ formatDate(user.created_at) ]]</td>
                                     <td class="text-end">
-                                        <div class="btn-group btn-group-sm">
+                                        <div class="d-flex gap-1">
                                             <button 
-                                                class="btn btn-outline-primary"
+                                                class="btn btn-outline-primary btn-sm"
                                                 @click="showEditModal(user)"
                                                 title="Редактировать"
                                             >
                                                 <i class="fas fa-edit"></i>
                                             </button>
                                             <button 
-                                                class="btn btn-outline-success"
+                                                class="btn btn-outline-success btn-sm"
                                                 @click="showBillingModalForUser(user)"
                                                 title="Пополнить/Списать баланс"
                                             >
                                                 <i class="fas fa-wallet"></i>
                                             </button>
                                             <button 
-                                                class="btn btn-outline-info"
+                                                class="btn btn-outline-info btn-sm"
                                                 @click="showBillingHistory(user)"
                                                 title="История операций"
                                             >
                                                 <i class="fas fa-history"></i>
                                             </button>
                                             <button 
-                                                class="btn btn-outline-danger"
+                                                class="btn btn-outline-secondary btn-sm"
+                                                @click="showDidDocModal(user)"
+                                                title="DIDDoc"
+                                            >
+                                                <i class="fas fa-id-card"></i>
+                                            </button>
+                                            <button 
+                                                class="btn btn-outline-danger btn-sm"
                                                 @click="confirmDelete(user)"
                                                 title="Удалить"
                                             >
@@ -7555,6 +7667,392 @@ Vue.component('WalletUsers', {
                                 Закрыть
                             </button>
                         </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- DIDDoc Modal -->
+            <did-doc-modal 
+                :show="showDidDocModalFlag"
+                :user-id="didDocUserId"
+                :owner-info="didDocOwnerInfo"
+                :use-admin-endpoint="true"
+                @close="closeDidDocModal"
+            ></did-doc-modal>
+        </div>
+    `
+});
+
+// DIDDoc Modal Component
+Vue.component('DidDocModal', {
+    delimiters: ['[[', ']]'],
+    props: {
+        show: {
+            type: Boolean,
+            default: false
+        },
+        userId: {
+            type: Number,
+            default: null
+        },
+        ownerInfo: {
+            type: Object,
+            default: null
+        },
+        useAdminEndpoint: {
+            type: Boolean,
+            default: false
+        }
+    },
+    data() {
+        return {
+            isLoadingDidDoc: false,
+            didDocData: null,
+            didDocError: null,
+            didDocOwnerInfo: null
+        };
+    },
+    watch: {
+        show(newVal) {
+            if (newVal && this.userId) {
+                this.loadUserDidDoc(this.userId, this.ownerInfo);
+            } else if (!newVal) {
+                this.closeDidDocModal();
+            }
+        },
+        userId(newVal) {
+            if (newVal && this.show) {
+                this.loadUserDidDoc(newVal, this.ownerInfo);
+            }
+        }
+    },
+    methods: {
+        async loadUserDidDoc(userId, ownerInfo = null) {
+            if (!userId) return;
+            
+            this.isLoadingDidDoc = true;
+            this.didDocError = null;
+            this.didDocData = null;
+            this.didDocOwnerInfo = ownerInfo;
+            
+            try {
+                // Use admin endpoint if specified, otherwise use public endpoint
+                const endpoint = this.useAdminEndpoint 
+                    ? `/api/admin/wallet-users/${userId}/did-doc`
+                    : `/api/profile/user/${userId}/did-doc`;
+                
+                const response = await fetch(endpoint, {
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to load DIDDoc: ${response.statusText}`);
+                }
+                
+                this.didDocData = await response.json();
+            } catch (error) {
+                console.error('Error loading DIDDoc:', error);
+                this.didDocError = error.message || 'Ошибка загрузки DIDDoc';
+            } finally {
+                this.isLoadingDidDoc = false;
+            }
+        },
+        closeDidDocModal() {
+            this.didDocData = null;
+            this.didDocError = null;
+            this.didDocOwnerInfo = null;
+            this.$emit('close');
+        },
+        formatDidDoc(data) {
+            if (!data) return '';
+            return JSON.stringify(data, null, 2);
+        },
+        formatDate(dateString) {
+            if (!dateString) return '';
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleString('ru-RU', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (e) {
+                return dateString;
+            }
+        },
+        isTronAddress(address) {
+            if (!address || typeof address !== 'string') return false;
+            // TRON адреса начинаются с 'T' и имеют длину 34 символа
+            return address.startsWith('T') && address.length === 34;
+        },
+        getTronScanUrl(address) {
+            if (!address) return '#';
+            return `https://tronscan.org/#/address/${address}`;
+        },
+        copyDidDocToClipboard() {
+            if (!this.didDocData) return;
+            
+            const jsonString = this.formatDidDoc(this.didDocData);
+            navigator.clipboard.writeText(jsonString).then(() => {
+                alert('DIDDoc скопирован в буфер обмена!');
+            }).catch(err => {
+                console.error('Ошибка копирования:', err);
+                // Fallback
+                const textarea = document.createElement('textarea');
+                textarea.value = jsonString;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                alert('DIDDoc скопирован в буфер обмена!');
+            });
+        }
+    },
+    template: `
+        <div v-if="show" class="modal fade show" style="display: block; background-color: rgba(0, 0, 0, 0.5);" tabindex="-1" @click.self="closeDidDocModal">
+            <div class="modal-dialog modal-dialog-centered modal-lg" style="max-width: 900px;">
+                <div class="modal-content" style="box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15); max-height: 90vh; display: flex; flex-direction: column;">
+                    <div class="modal-header bg-light">
+                        <h5 class="modal-title">
+                            <i class="fas fa-id-card me-2 text-primary"></i>
+                            DID Document
+                        </h5>
+                        <button type="button" class="btn-close" @click="closeDidDocModal"></button>
+                    </div>
+
+                    <div class="modal-body" style="padding: 2rem; overflow-y: auto; flex: 1;">
+                    <!-- Loading State -->
+                    <div v-if="isLoadingDidDoc" class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Загрузка...</span>
+                        </div>
+                        <p class="mt-3 text-muted">Загрузка DIDDoc...</p>
+                    </div>
+
+                    <!-- Error State -->
+                    <div v-else-if="didDocError" class="text-center py-5">
+                        <i class="fas fa-exclamation-triangle fa-3x text-danger mb-3"></i>
+                        <p class="text-danger fw-bold mb-2">Ошибка загрузки</p>
+                        <p class="text-muted">[[ didDocError ]]</p>
+                    </div>
+
+                    <!-- DIDDoc Content -->
+                    <div v-else-if="didDocData">
+                        <!-- Owner Info Header -->
+                        <div v-if="didDocOwnerInfo || didDocData.credential" class="card mb-4 border-primary">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="flex-shrink-0" style="width: 80px; height: 80px;">
+                                        <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold" style="width: 80px; height: 80px; font-size: 2rem;">
+                                            <img v-if="didDocOwnerInfo && didDocOwnerInfo.avatar" :src="didDocOwnerInfo.avatar" :alt="didDocOwnerInfo.nickname || 'Owner'" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                                            <span v-else>[[ ((didDocOwnerInfo && didDocOwnerInfo.nickname) || (didDocData.credential && didDocData.credential.nickname) || 'U').charAt(0).toUpperCase() ]]</span>
+                                        </div>
+                                    </div>
+                                    <div class="flex-grow-1 min-w-0">
+                                        <h4 class="mb-2 fw-bold">
+                                            [[ (didDocOwnerInfo && didDocOwnerInfo.nickname) || (didDocData.credential && didDocData.credential.nickname) || 'Пользователь' ]]
+                                        </h4>
+                                        <a v-if="didDocData.credential && didDocData.credential.walletAddress && isTronAddress(didDocData.credential.walletAddress)" 
+                                           :href="getTronScanUrl(didDocData.credential.walletAddress)" 
+                                           target="_blank" 
+                                           rel="noopener noreferrer"
+                                           class="text-decoration-none">
+                                            <code class="text-primary">[[ didDocData.credential.walletAddress ]]</code>
+                                            <i class="fas fa-external-link-alt ms-1 small"></i>
+                                        </a>
+                                        <p v-else-if="didDocData.credential && didDocData.credential.walletAddress" class="text-muted mb-0">
+                                            <code class="small">[[ didDocData.credential.walletAddress ]]</code>
+                                        </p>
+                                    </div>
+                                    <div class="flex-shrink-0">
+                                        <button 
+                                            @click="copyDidDocToClipboard"
+                                            class="btn btn-primary"
+                                        >
+                                            <i class="fas fa-copy me-2"></i>
+                                            Копировать JSON
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- DID Information -->
+                        <div class="card mb-4">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-info-circle text-primary me-2"></i>
+                                    Основная информация
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <small class="text-muted text-uppercase fw-bold d-block mb-1">DID</small>
+                                        <code class="small d-block" style="word-break: break-all;">[[ didDocData.id ]]</code>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <small class="text-muted text-uppercase fw-bold d-block mb-1">Controller</small>
+                                        <a v-if="isTronAddress(didDocData.controller)" 
+                                           :href="getTronScanUrl(didDocData.controller)" 
+                                           target="_blank" 
+                                           rel="noopener noreferrer"
+                                           class="text-decoration-none">
+                                            <code class="text-primary small d-block" style="word-break: break-all;">[[ didDocData.controller ]]</code>
+                                            <i class="fas fa-external-link-alt ms-1 small"></i>
+                                        </a>
+                                        <code v-else class="small d-block" style="word-break: break-all;">[[ didDocData.controller ]]</code>
+                                    </div>
+                                    <div v-if="didDocData.credential && didDocData.credential.blockchain" class="col-md-6 mb-3">
+                                        <small class="text-muted text-uppercase fw-bold d-block mb-1">Blockchain</small>
+                                        <span class="badge bg-info">[[ didDocData.credential.blockchain.toUpperCase() ]]</span>
+                                    </div>
+                                    <div v-if="didDocData.credential && didDocData.credential.ecCurve" class="col-md-6 mb-3">
+                                        <small class="text-muted text-uppercase fw-bold d-block mb-1">EC Curve</small>
+                                        <span class="fw-bold">[[ didDocData.credential.ecCurve ]]</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Verification Proofs -->
+                        <div v-if="didDocData.proof && didDocData.proof.length > 0" class="mb-4">
+                            <h6 class="mb-3 fw-bold">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                Доказательства и репутация
+                            </h6>
+                            
+                            <!-- Verification Proof -->
+                            <div v-for="proof in didDocData.proof" :key="proof.type" class="card mb-3">
+                                <div class="card-body">
+                                    <div v-if="proof.type === 'VerificationProof'">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <h6 class="mb-0 fw-bold">
+                                                <i class="fas fa-shield-alt text-primary me-2"></i>
+                                                Верификация
+                                            </h6>
+                                            <span :class="['badge', proof.verificationStatus ? 'bg-success' : 'bg-secondary']">
+                                                [[ proof.verificationStatus ? 'Проверен' : 'Не проверен' ]]
+                                            </span>
+                                        </div>
+                                        <p v-if="proof.verifiedAt" class="text-muted small mb-0">
+                                            Проверен: [[ formatDate(proof.verifiedAt) ]]
+                                        </p>
+                                    </div>
+
+                                    <div v-else-if="proof.type === 'RatingProof'">
+                                        <h6 class="mb-3 fw-bold">
+                                            <i class="fas fa-star text-warning me-2"></i>
+                                            Рейтинг и сделки
+                                        </h6>
+                                        <div class="row">
+                                            <div class="col-4">
+                                                <small class="text-muted d-block mb-1">Средний рейтинг</small>
+                                                <span class="fw-bold text-warning fs-5">[[ proof.averageRating || '0.0' ]]</span>
+                                            </div>
+                                            <div class="col-4">
+                                                <small class="text-muted d-block mb-1">Всего сделок</small>
+                                                <span class="fw-bold fs-5">[[ proof.totalDeals || 0 ]]</span>
+                                            </div>
+                                            <div class="col-4">
+                                                <small class="text-muted d-block mb-1">Транзакций</small>
+                                                <span class="fw-bold fs-5">[[ proof.totalTransactions || 0 ]]</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Verification Methods -->
+                        <div v-if="didDocData.verificationMethod && didDocData.verificationMethod.length > 0" class="card mb-4">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-key text-info me-2"></i>
+                                    Методы верификации
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div v-for="(method, index) in didDocData.verificationMethod" :key="index" class="mb-3" :class="{'border-bottom pb-3': index < didDocData.verificationMethod.length - 1}">
+                                    <small class="text-muted text-uppercase fw-bold d-block mb-1">ID</small>
+                                    <code class="small d-block mb-3" style="word-break: break-all;">[[ method.id ]]</code>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <small class="text-muted text-uppercase fw-bold d-block mb-1">Тип</small>
+                                            <span class="fw-bold">[[ method.type ]]</span>
+                                        </div>
+                                        <div v-if="method.blockchainAccountId" class="col-md-6">
+                                            <small class="text-muted text-uppercase fw-bold d-block mb-1">Blockchain Account</small>
+                                            <code class="small d-block" style="word-break: break-all;">[[ method.blockchainAccountId ]]</code>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Services -->
+                        <div v-if="didDocData.service && didDocData.service.length > 0" class="card mb-4">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-server text-info me-2"></i>
+                                    Сервисы
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div v-for="(service, index) in didDocData.service" :key="index" class="mb-3" :class="{'border-bottom pb-3': index < didDocData.service.length - 1}">
+                                    <small class="text-muted text-uppercase fw-bold d-block mb-1">Тип</small>
+                                    <span class="fw-bold d-block mb-2">[[ service.type ]]</span>
+                                    <small class="text-muted text-uppercase fw-bold d-block mb-1">Endpoint</small>
+                                    <code class="text-primary small d-block" style="word-break: break-all;">[[ service.serviceEndpoint ]]</code>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Credential Details -->
+                        <div v-if="didDocData.credential" class="card mb-4">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-user text-secondary me-2"></i>
+                                    Учетные данные
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div v-if="didDocData.credential.nickname" class="col-md-6 mb-3">
+                                        <small class="text-muted text-uppercase fw-bold d-block mb-1">Никнейм</small>
+                                        <span class="fw-bold">[[ didDocData.credential.nickname ]]</span>
+                                    </div>
+                                    <div v-if="didDocData.credential.walletAddress" class="col-md-6 mb-3">
+                                        <small class="text-muted text-uppercase fw-bold d-block mb-1">Адрес кошелька</small>
+                                        <a v-if="isTronAddress(didDocData.credential.walletAddress)" 
+                                           :href="getTronScanUrl(didDocData.credential.walletAddress)" 
+                                           target="_blank" 
+                                           rel="noopener noreferrer"
+                                           class="text-decoration-none">
+                                            <code class="text-primary small d-block" style="word-break: break-all;">[[ didDocData.credential.walletAddress ]]</code>
+                                            <i class="fas fa-external-link-alt ms-1 small"></i>
+                                        </a>
+                                        <code v-else class="small d-block" style="word-break: break-all;">[[ didDocData.credential.walletAddress ]]</code>
+                                    </div>
+                                    <div v-if="didDocData.credential.createdAt" class="col-md-6 mb-3">
+                                        <small class="text-muted text-uppercase fw-bold d-block mb-1">Создан</small>
+                                        <span>[[ formatDate(didDocData.credential.createdAt) ]]</span>
+                                    </div>
+                                    <div v-if="didDocData.credential.updatedAt" class="col-md-6 mb-3">
+                                        <small class="text-muted text-uppercase fw-bold d-block mb-1">Обновлен</small>
+                                        <span>[[ formatDate(didDocData.credential.updatedAt) ]]</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @click="closeDidDocModal">
+                            Закрыть
+                        </button>
                     </div>
                 </div>
             </div>
