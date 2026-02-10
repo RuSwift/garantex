@@ -491,10 +491,48 @@ async def create_update_permissions_transaction(
                     detail=f"Failed to create update transaction: {error_msg}"
                 )
             
+            # Extract transaction data (same format as USDT transaction)
+            logger.info(f"Update permissions API response keys: {list(update_tx.keys())}")
+            
+            transaction_data = update_tx
+            tx_id = update_tx.get("txID", "")
+            raw_data_hex = update_tx.get("raw_data_hex", "")
+            
+            # Check if transaction is wrapped in "transaction" key
+            if "transaction" in update_tx:
+                transaction_data = update_tx["transaction"]
+                tx_id = transaction_data.get("txID", update_tx.get("txID", ""))
+                raw_data_hex = update_tx.get("raw_data_hex", "")
+                logger.info(f"Transaction extracted from 'transaction' key. Has raw_data: {'raw_data' in transaction_data}")
+            else:
+                transaction_data = update_tx
+                tx_id = update_tx.get("txID", "")
+                raw_data_hex = update_tx.get("raw_data_hex", "")
+                logger.info("Transaction at root level")
+            
+            # Ensure transaction has raw_data for TronLink
+            if "raw_data" not in transaction_data:
+                logger.error(f"Transaction does not contain raw_data. Keys: {list(transaction_data.keys())}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Transaction from API does not contain raw_data. Check API response format."
+                )
+            
+            if "contract" not in transaction_data["raw_data"]:
+                logger.error(f"Transaction raw_data does not contain contract. raw_data keys: {list(transaction_data['raw_data'].keys())}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Transaction raw_data does not contain contract array"
+                )
+            
+            full_transaction = transaction_data
+            logger.info(f"Update permissions transaction prepared for signing. txID: {tx_id}, has raw_data.contract: {'contract' in transaction_data['raw_data']}")
+            
             return UpdatePermissionsResponse(
                 success=True,
-                tx_id=update_tx["txID"],
-                raw_data_hex=update_tx.get("raw_data_hex", ""),
+                tx_id=tx_id,
+                raw_data_hex=raw_data_hex,
+                unsigned_transaction=full_transaction,
                 message="Транзакция обновления permissions создана. Требуется подпись для отправки."
             )
             

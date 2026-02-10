@@ -59,6 +59,7 @@ class UpdatePermissionsResponse(BaseModel):
     success: bool = Field(..., description="Success status")
     tx_id: str = Field(..., description="Transaction ID")
     raw_data_hex: str = Field(..., description="Raw transaction data hex")
+    unsigned_transaction: Optional[Dict[str, Any]] = Field(None, description="Full unsigned transaction for signing")
     message: str = Field(..., description="Response message")
 
 

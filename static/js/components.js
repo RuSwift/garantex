@@ -825,6 +825,10 @@ Vue.component('Wallets', {
             },
             creatingUpdateTx: false,
             updateTxResult: null,
+            updateTxUnsignedTransaction: null, // Полная транзакция для подписи
+            updateTxSigning: false, // Состояние подписи
+            updateTxBroadcasting: false, // Состояние broadcast
+            updateTxFinalResult: null, // Результат broadcast
             
             statusMessage: '',
             statusType: ''
@@ -1035,6 +1039,11 @@ Vue.component('Wallets', {
                 console.error('Error copying to clipboard:', err);
                 this.showStatus('Ошибка копирования', 'error');
             });
+        },
+        
+        getTronScanUrl(txId) {
+            if (!txId) return '#';
+            return `https://tronscan.org/#/transaction/${txId}`;
         },
         
         formatDate(dateString) {
@@ -1675,6 +1684,8 @@ Vue.component('Wallets', {
             
             this.creatingUpdateTx = true;
             this.updateTxResult = null;
+            this.updateTxUnsignedTransaction = null;
+            this.updateTxFinalResult = null;
             
             try {
                 const response = await fetch(`/api/wallets/${this.updatePermissionsWallet.id}/update-permissions`, {
@@ -1701,6 +1712,8 @@ Vue.component('Wallets', {
                 
                 const data = await response.json();
                 this.updateTxResult = data;
+                this.updateTxUnsignedTransaction = data.unsigned_transaction || null;
+                this.updateTxFinalResult = null;
                 this.showStatus('Транзакция обновления permissions создана', 'success');
                 
             } catch (error) {
@@ -1708,6 +1721,99 @@ Vue.component('Wallets', {
                 this.showStatus('Ошибка создания транзакции: ' + error.message, 'error');
             } finally {
                 this.creatingUpdateTx = false;
+            }
+        },
+        
+        // Обработчики событий от TronSign компонента для updatePermissions
+        async onUpdatePermissionsSigning(data) {
+            this.updateTxSigning = true;
+            this.showStatus('Подписание транзакции updatePermissions через TronLink...', 'info');
+        },
+        
+        async onUpdatePermissionsSigned(data) {
+            this.updateTxSigning = false;
+            this.showStatus('Транзакция подписана. Отправка в блокчейн...', 'info');
+            
+            // Broadcast транзакции
+            try {
+                this.updateTxBroadcasting = true;
+                
+                const broadcastResponse = await fetch('/api/wallets/broadcast-usdt-transaction', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        signed_transaction: data.signedTransaction
+                    })
+                });
+                
+                if (!broadcastResponse.ok) {
+                    let errorMessage = 'Ошибка отправки транзакции';
+                    try {
+                        const errorData = await broadcastResponse.json();
+                        errorMessage = errorData.detail || errorData.message || errorMessage;
+                    } catch (parseError) {
+                        errorMessage = `Ошибка ${broadcastResponse.status}: ${broadcastResponse.statusText || 'Ошибка отправки транзакции'}`;
+                    }
+                    throw new Error(errorMessage);
+                }
+                
+                const broadcastData = await broadcastResponse.json();
+                
+                if (broadcastData.success && broadcastData.result) {
+                    this.updateTxFinalResult = {
+                        success: true,
+                        txId: broadcastData.txid || data.txId,
+                        message: 'Транзакция updatePermissions успешно отправлена!'
+                    };
+                    this.showStatus('Транзакция updatePermissions успешно отправлена!', 'success');
+                    
+                    // Обновить список кошельков через 2 секунды
+                    setTimeout(() => {
+                        this.loadWallets();
+                    }, 2000);
+                } else {
+                    throw new Error(broadcastData.message || 'Ошибка отправки транзакции');
+                }
+            } catch (error) {
+                const errorMessage = error.message || 'Ошибка отправки транзакции';
+                this.updateTxFinalResult = {
+                    success: false,
+                    message: errorMessage
+                };
+                this.showStatus('Ошибка: ' + errorMessage, 'error');
+            } finally {
+                this.updateTxBroadcasting = false;
+            }
+        },
+        
+        onUpdatePermissionsError(data) {
+            this.updateTxSigning = false;
+            this.updateTxBroadcasting = false;
+            
+            const errorMessage = data.message || 'Произошла ошибка';
+            this.updateTxFinalResult = {
+                success: false,
+                message: errorMessage
+            };
+            
+            this.showStatus('Ошибка: ' + errorMessage, 'error');
+        },
+        
+        // Метод для вызова подписи транзакции через TronSign
+        async signUpdatePermissionsTransaction() {
+            if (!this.updateTxUnsignedTransaction) {
+                this.showStatus('Транзакция не создана. Сначала создайте транзакцию', 'error');
+                return;
+            }
+            
+            try {
+                await this.$refs.updatePermissionsTronSign.signTransaction(this.updateTxUnsignedTransaction);
+            } catch (error) {
+                // Ошибка уже обработана через событие error
+                console.error('Error signing update permissions transaction:', error);
             }
         },
         
@@ -1721,6 +1827,24 @@ Vue.component('Wallets', {
                 operations: '7fff1fc0033e0000000000000000000000000000000000000000000000000000'
             };
             this.updateTxResult = null;
+            this.updateTxUnsignedTransaction = null;
+            this.updateTxSigning = false;
+            this.updateTxBroadcasting = false;
+            this.updateTxFinalResult = null;
+        },
+        
+        getTronScanUrl(txId) {
+            if (!txId) return '#';
+            return `https://tronscan.org/#/transaction/${txId}`;
+        },
+        
+        copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                this.showStatus('Скопировано в буфер обмена', 'success');
+            }).catch(err => {
+                console.error('Copy error:', err);
+                this.showStatus('Ошибка копирования', 'error');
+            });
         }
     },
     template: `
@@ -2305,10 +2429,75 @@ Vue.component('Wallets', {
                             </div>
                             
                             <!-- Transaction Result -->
-                            <div v-if="updateTxResult" class="alert alert-success mb-4">
+                            <div v-if="updateTxResult && !updateTxFinalResult" class="alert alert-success mb-4">
                                 <h6><i class="fas fa-check-circle me-2"></i>Транзакция создана успешно!</h6>
                                 <p class="mb-1"><strong>TX ID:</strong> <code>[[ updateTxResult.tx_id ]]</code></p>
                                 <p class="mb-0"><small>Транзакция требует подписи для отправки в блокчейн.</small></p>
+                            </div>
+                            
+                            <!-- TronSign Component (hidden, used only for logic) -->
+                            <tron-sign 
+                                ref="updatePermissionsTronSign"
+                                @signing="onUpdatePermissionsSigning"
+                                @signed="onUpdatePermissionsSigned"
+                                @error="onUpdatePermissionsError"
+                            ></tron-sign>
+                            
+                            <!-- Signing Section -->
+                            <div v-if="updateTxResult && updateTxUnsignedTransaction && !updateTxFinalResult" class="card border-primary mb-4">
+                                <div class="card-header bg-primary text-white">
+                                    <h6 class="mb-0">
+                                        <i class="fas fa-signature me-2"></i>
+                                        Подпись транзакции через TronLink
+                                    </h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="alert alert-info mb-3">
+                                        <p class="mb-1"><strong>TX ID:</strong> <code>[[ updateTxResult.tx_id ]]</code></p>
+                                        <p class="mb-0">Готово к подписанию через TronLink</p>
+                                    </div>
+                                    <button 
+                                        class="btn btn-success w-100"
+                                        @click="signUpdatePermissionsTransaction"
+                                        :disabled="updateTxSigning || updateTxBroadcasting"
+                                    >
+                                        <span v-if="updateTxSigning" class="spinner-border spinner-border-sm me-2"></span>
+                                        <span v-else-if="updateTxBroadcasting" class="spinner-border spinner-border-sm me-2"></span>
+                                        <i v-else class="fas fa-paper-plane me-2"></i>
+                                        [[ updateTxSigning ? 'Подписание...' : updateTxBroadcasting ? 'Отправка...' : 'Подписать и отправить транзакцию' ]]
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Final Result -->
+                            <div v-if="updateTxFinalResult" class="alert mb-4" :class="updateTxFinalResult.success ? 'alert-success' : 'alert-danger'">
+                                <h6>
+                                    <i :class="updateTxFinalResult.success ? 'fas fa-check-circle' : 'fas fa-times-circle'" class="me-2"></i>
+                                    [[ updateTxFinalResult.message ]]
+                                </h6>
+                                <div v-if="updateTxFinalResult.success && updateTxFinalResult.txId" class="mt-3">
+                                    <p class="mb-2"><strong>TX ID:</strong></p>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <code class="small">[[ updateTxFinalResult.txId ]]</code>
+                                        <button 
+                                            class="btn btn-sm btn-outline-primary ms-2"
+                                            @click="copyToClipboard(updateTxFinalResult.txId)"
+                                            title="Копировать TX ID"
+                                        >
+                                            <i class="fas fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="mt-3">
+                                        <a 
+                                            :href="getTronScanUrl(updateTxFinalResult.txId)"
+                                            target="_blank"
+                                            class="btn btn-primary"
+                                        >
+                                            <i class="fas fa-external-link-alt me-2"></i>
+                                            Посмотреть в TronScan
+                                        </a>
+                                    </div>
+                                </div>
                             </div>
                             
                             <!-- Configuration Form -->
