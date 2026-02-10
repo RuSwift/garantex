@@ -1153,39 +1153,107 @@ Vue.component('Wallets', {
             this.savingManager = true;
             
             try {
-                const url = this.editingManager 
-                    ? '/api/admin/wallet-users/' + this.editingManager.id
-                    : '/api/admin/wallet-users';
-                
-                const method = this.editingManager ? 'PUT' : 'POST';
-                
-                const body = this.editingManager
-                    ? {
+                // Если редактируем существующего менеджера
+                if (this.editingManager) {
+                    const url = '/api/admin/wallet-users/' + this.editingManager.id;
+                    const body = {
                         nickname: this.managerForm.nickname,
                         blockchain: this.managerForm.blockchain,
                         is_verified: this.managerForm.is_verified,
                         access_to_admin_panel: this.managerForm.access_to_admin_panel
+                    };
+                    
+                    const response = await fetch(url, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify(body)
+                    });
+                    
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Failed to update manager');
                     }
-                    : this.managerForm;
+                    
+                    this.showStatus('Менеджер обновлен', 'success');
+                    this.closeManagerModal();
+                    await this.loadManagers();
+                    return;
+                }
                 
-                const response = await fetch(url, {
-                    method: method,
+                // Если создаем нового менеджера - сначала пытаемся создать
+                let response = await fetch('/api/admin/wallet-users', {
+                    method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     credentials: 'include',
-                    body: JSON.stringify(body)
+                    body: JSON.stringify(this.managerForm)
                 });
                 
+                // Если пользователь уже существует, обновляем его access_to_admin_panel
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Failed to save manager');
+                    const errorData = await response.json();
+                    const errorMessage = errorData.detail || '';
+                    
+                    // Проверяем, что это ошибка "already exists"
+                    if (response.status === 400 && errorMessage.includes('already exists')) {
+                        // Ищем пользователя по wallet_address
+                        const searchResponse = await fetch(
+                            `/api/admin/wallet-users?query=${encodeURIComponent(this.managerForm.wallet_address)}&page_size=1`,
+                            {
+                                method: 'GET',
+                                credentials: 'include'
+                            }
+                        );
+                        
+                        if (!searchResponse.ok) {
+                            throw new Error('Failed to find existing user');
+                        }
+                        
+                        const searchData = await searchResponse.json();
+                        const existingUser = searchData.users && searchData.users.length > 0 
+                            ? searchData.users.find(u => u.wallet_address === this.managerForm.wallet_address)
+                            : null;
+                        
+                        if (!existingUser) {
+                            throw new Error('User exists but could not be found');
+                        }
+                        
+                        // Обновляем пользователя: устанавливаем access_to_admin_panel = True
+                        const updateResponse = await fetch('/api/admin/wallet-users/' + existingUser.id, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            credentials: 'include',
+                            body: JSON.stringify({
+                                nickname: this.managerForm.nickname,
+                                blockchain: this.managerForm.blockchain,
+                                is_verified: existingUser.is_verified || this.managerForm.is_verified,
+                                access_to_admin_panel: true  // Устанавливаем флаг менеджера
+                            })
+                        });
+                        
+                        if (!updateResponse.ok) {
+                            const updateError = await updateResponse.json();
+                            throw new Error(updateError.detail || 'Failed to update existing user');
+                        }
+                        
+                        this.showStatus('Пользователь найден. Права менеджера активированы', 'success');
+                        this.closeManagerModal();
+                        await this.loadManagers();
+                        return;
+                    } else {
+                        // Другая ошибка
+                        throw new Error(errorMessage || 'Failed to save manager');
+                    }
                 }
                 
-                this.showStatus(
-                    this.editingManager ? 'Менеджер обновлен' : 'Менеджер создан',
-                    'success'
-                );
+                // Успешное создание нового пользователя
+                this.showStatus('Менеджер создан', 'success');
                 this.closeManagerModal();
                 await this.loadManagers();
                 
@@ -1209,22 +1277,33 @@ Vue.component('Wallets', {
             if (!this.managerToDelete) return;
             
             try {
+                // Вместо удаления, устанавливаем access_to_admin_panel = False
                 const response = await fetch('/api/admin/wallet-users/' + this.managerToDelete.id, {
-                    method: 'DELETE',
-                    credentials: 'include'
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        nickname: this.managerToDelete.nickname,
+                        blockchain: this.managerToDelete.blockchain,
+                        is_verified: this.managerToDelete.is_verified,
+                        access_to_admin_panel: false  // Отключаем права менеджера
+                    })
                 });
                 
                 if (!response.ok) {
-                    throw new Error('Failed to delete manager');
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to remove manager access');
                 }
                 
-                this.showStatus('Менеджер удален', 'success');
+                this.showStatus('Права менеджера отключены. Пользователь сохранен в системе', 'success');
                 this.managerToDelete = null;
                 await this.loadManagers();
                 
             } catch (error) {
-                console.error('Error deleting manager:', error);
-                this.showStatus('Ошибка удаления: ' + error.message, 'error');
+                console.error('Error removing manager access:', error);
+                this.showStatus('Ошибка: ' + error.message, 'error');
             }
         },
         
@@ -2035,15 +2114,15 @@ Vue.component('Wallets', {
             <div v-if="managerToDelete" class="modal d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
                 <div class="modal-dialog modal-dialog-centered">
                     <div class="modal-content">
-                        <div class="modal-header bg-danger text-white">
+                        <div class="modal-header bg-warning text-dark">
                             <h5 class="modal-title">
-                                <i class="fas fa-exclamation-triangle me-2"></i>
-                                Подтверждение удаления
+                                <i class="fas fa-user-times me-2"></i>
+                                Отключение прав менеджера
                             </h5>
-                            <button type="button" class="btn-close btn-close-white" @click="cancelDeleteManager"></button>
+                            <button type="button" class="btn-close" @click="cancelDeleteManager"></button>
                         </div>
                         <div class="modal-body" style="padding: 2rem;">
-                            <p>Вы уверены, что хотите удалить менеджера?</p>
+                            <p>Вы уверены, что хотите отключить права менеджера?</p>
                             <div class="card">
                                 <div class="card-body">
                                     <p class="mb-1"><strong>Имя:</strong> [[ managerToDelete.nickname ]]</p>
@@ -2051,17 +2130,17 @@ Vue.component('Wallets', {
                                     <p class="mb-0"><strong>Блокчейн:</strong> [[ managerToDelete.blockchain ]]</p>
                                 </div>
                             </div>
-                            <div class="alert alert-warning mt-3 mb-0">
-                                <i class="fas fa-exclamation-circle me-2"></i>
-                                Это действие необратимо!
+                            <div class="alert alert-info mt-3 mb-0">
+                                <i class="fas fa-info-circle me-2"></i>
+                                Пользователь останется в системе, но потеряет права менеджера. Права можно будет восстановить позже.
                             </div>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" @click="cancelDeleteManager">
                                 Отмена
                             </button>
-                            <button type="button" class="btn btn-danger" @click="deleteManager">
-                                <i class="fas fa-trash me-1"></i> Удалить
+                            <button type="button" class="btn btn-warning" @click="deleteManager">
+                                <i class="fas fa-user-times me-1"></i> Отключить права
                             </button>
                         </div>
                     </div>
