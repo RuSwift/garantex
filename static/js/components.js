@@ -7783,7 +7783,8 @@ Vue.component('DealsChat', {
     `
 });
 
-// TRON Transaction Signing Component
+// TRON Transaction Signing Component (Universal)
+// Универсальный компонент для подписи любых TRON транзакций
 Vue.component('TronSign', {
     delimiters: ['[[', ']]'],
     data() {
@@ -7792,24 +7793,7 @@ Vue.component('TronSign', {
             walletAddress: null,
             isConnected: false,
             isConnecting: false,
-            
-            // Transaction form
-            recipientAddress: '',
-            amount: '',
-            
-            // Transaction state
-            isSigning: false,
-            isBroadcasting: false,
-            transactionResult: null,
-            
-            // UI state
-            statusMessage: '',
-            statusType: 'info',
-            statusVisible: false,
-            
-            // USDT contract address (Mainnet)
-            usdtContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
-            usdtDecimals: 6
+            isSigning: false
         };
     },
     
@@ -7817,13 +7801,6 @@ Vue.component('TronSign', {
         shortAddress() {
             if (!this.walletAddress) return '';
             return `${this.walletAddress.slice(0, 6)}...${this.walletAddress.slice(-4)}`;
-        },
-        isFormValid() {
-            return this.recipientAddress && 
-                   this.recipientAddress.trim().length === 34 &&
-                   this.recipientAddress.startsWith('T') &&
-                   this.amount && 
-                   parseFloat(this.amount) > 0;
         }
     },
     
@@ -7832,22 +7809,9 @@ Vue.component('TronSign', {
     },
     
     methods: {
-        showStatus(message, type = 'info') {
-            this.statusMessage = message;
-            this.statusType = type;
-            this.statusVisible = true;
-            
-            if (type === 'success') {
-                setTimeout(() => {
-                    this.statusVisible = false;
-                }, 5000);
-            }
-        },
-        
-        hideStatus() {
-            this.statusVisible = false;
-        },
-        
+        /**
+         * Проверка наличия TronLink и автоматическое подключение, если кошелек уже разблокирован
+         */
         async checkTronWeb() {
             // Wait for TronLink injection
             let attempts = 0;
@@ -7862,7 +7826,6 @@ Vue.component('TronSign', {
             }
             
             if (typeof window.tronWeb === 'undefined') {
-                this.showStatus('TronLink не установлен. Установите расширение TronLink.', 'error');
                 return;
             }
             
@@ -7874,12 +7837,15 @@ Vue.component('TronSign', {
             if (!isLocked) {
                 this.walletAddress = window.tronWeb.defaultAddress.base58;
                 this.isConnected = true;
+                this.$emit('connected', { address: this.walletAddress });
             }
         },
         
+        /**
+         * Подключение кошелька TronLink
+         */
         async connectWallet() {
             this.isConnecting = true;
-            this.hideStatus();
             
             try {
                 // Wait for TronLink injection
@@ -7895,7 +7861,9 @@ Vue.component('TronSign', {
                 }
                 
                 if (typeof window.tronWeb === 'undefined') {
-                    throw new Error('TronLink не установлен. Установите расширение TronLink.');
+                    const error = 'TronLink не установлен. Установите расширение TronLink.';
+                    this.$emit('error', { message: error, type: 'connection' });
+                    throw new Error(error);
                 }
                 
                 // Check if wallet is locked
@@ -7912,7 +7880,9 @@ Vue.component('TronSign', {
                             });
                         } catch (e) {
                             if (e.code === 4001) {
-                                throw new Error('Вы отклонили запрос на подключение');
+                                const error = 'Вы отклонили запрос на подключение';
+                                this.$emit('error', { message: error, type: 'connection' });
+                                throw new Error(error);
                             }
                         }
                     }
@@ -7931,7 +7901,7 @@ Vue.component('TronSign', {
                         
                         this.walletAddress = window.tronWeb.defaultAddress.base58;
                         this.isConnected = true;
-                        this.showStatus('Кошелек подключен', 'success');
+                        this.$emit('connected', { address: this.walletAddress });
                         return;
                     }
                     
@@ -7939,394 +7909,186 @@ Vue.component('TronSign', {
                     attempts++;
                 }
                 
-                throw new Error('TronLink не готов. Разблокируйте кошелек и попробуйте снова.');
+                const error = 'TronLink не готов. Разблокируйте кошелек и попробуйте снова.';
+                this.$emit('error', { message: error, type: 'connection' });
+                throw new Error(error);
                 
             } catch (error) {
-                this.showStatus('Ошибка подключения: ' + error.message, 'error');
+                const errorMessage = this.extractErrorMessage(error);
+                this.$emit('error', { message: errorMessage, type: 'connection' });
+                throw error;
             } finally {
                 this.isConnecting = false;
             }
         },
         
-        async signAndSendTransaction() {
+        /**
+         * Отключение кошелька
+         */
+        disconnect() {
+            this.walletAddress = null;
+            this.isConnected = false;
+            this.$emit('disconnected', {});
+        },
+        
+        /**
+         * Валидация формата транзакции TRON
+         * Выводит детальную диагностику в консоль при ошибках
+         */
+        validateTransactionFormat(transaction) {
+            console.group('🔍 TronSign: Валидация формата транзакции');
+            
+            // Проверка наличия transaction
+            if (!transaction) {
+                console.error('❌ Транзакция не передана (null/undefined)');
+                console.groupEnd();
+                return false;
+            }
+            
+            // Проверка типа
+            if (typeof transaction !== 'object') {
+                console.error('❌ Транзакция должна быть объектом, получен:', typeof transaction);
+                console.groupEnd();
+                return false;
+            }
+            
+            // Извлечение транзакции, если обернута в "transaction"
+            let tx = transaction;
+            if (transaction.transaction && typeof transaction.transaction === 'object') {
+                console.log('⚠️ Транзакция обернута в ключ "transaction", извлекаем...');
+                tx = transaction.transaction;
+            }
+            
+            // Проверка raw_data
+            if (!tx.raw_data) {
+                console.error('❌ Транзакция не содержит raw_data');
+                console.log('Ключи транзакции:', Object.keys(tx));
+                console.groupEnd();
+                return false;
+            }
+            
+            // Проверка contract
+            if (!tx.raw_data.contract || !Array.isArray(tx.raw_data.contract)) {
+                console.error('❌ Транзакция не содержит contract в raw_data');
+                console.log('raw_data ключи:', Object.keys(tx.raw_data));
+                console.groupEnd();
+                return false;
+            }
+            
+            // Успешная валидация
+            console.log('✅ Формат транзакции корректен');
+            console.log('TX ID:', tx.txID);
+            console.log('Contract type:', tx.raw_data.contract[0]?.type);
+            console.log('Contract count:', tx.raw_data.contract.length);
+            console.groupEnd();
+            return true;
+        },
+        
+        /**
+         * Извлечение сообщения об ошибке из разных форматов
+         */
+        extractErrorMessage(error) {
+            if (!error) {
+                return 'Неизвестная ошибка';
+            }
+            
+            if (typeof error === 'string') {
+                return error;
+            }
+            
+            if (error.message) {
+                return error.message;
+            }
+            
+            if (error.error) {
+                return error.error;
+            }
+            
+            if (error.toString && error.toString() !== '[object Object]') {
+                return error.toString();
+            }
+            
+            return 'Неизвестная ошибка';
+        },
+        
+        /**
+         * Подпись транзакции через TronLink
+         * @param {Object} unsignedTransaction - Неподписанная транзакция TRON
+         * @returns {Promise<Object>} Подписанная транзакция
+         */
+        async signTransaction(unsignedTransaction) {
+            // Валидация подключения
             if (!this.isConnected) {
-                this.showStatus('Сначала подключите кошелек', 'error');
-                return;
+                const error = 'Кошелек не подключен. Вызовите connectWallet() сначала.';
+                console.error('❌ TronSign:', error);
+                this.$emit('error', { message: error, type: 'connection' });
+                throw new Error(error);
             }
             
-            if (!this.isFormValid) {
-                this.showStatus('Заполните все поля корректно', 'error');
-                return;
+            // Валидация формата
+            if (!this.validateTransactionFormat(unsignedTransaction)) {
+                const error = 'Неверный формат транзакции. Проверьте консоль для деталей.';
+                this.$emit('error', { message: error, type: 'validation' });
+                throw new Error(error);
             }
             
+            // Извлечение транзакции
+            let transactionToSign = unsignedTransaction;
+            if (unsignedTransaction.transaction && typeof unsignedTransaction.transaction === 'object') {
+                transactionToSign = unsignedTransaction.transaction;
+            }
+            
+            // Эмит события signing
+            this.$emit('signing', { txId: transactionToSign.txID });
             this.isSigning = true;
-            this.hideStatus();
-            this.transactionResult = null;
             
             try {
-                // Step 1: Create transaction on backend
-                this.showStatus('Создание транзакции USDT на сервере...', 'info');
+                // Подпись через TronLink
+                const signedTx = await window.tronWeb.trx.sign(transactionToSign);
                 
-                const createResponse = await fetch('/api/wallets/create-usdt-transaction', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    credentials: 'include',
-                    body: JSON.stringify({
-                        from_address: this.walletAddress,
-                        to_address: this.recipientAddress.trim(),
-                        amount: parseFloat(this.amount),
-                        contract_address: this.usdtContract
-                    })
-                });
-                
-                if (!createResponse.ok) {
-                    let errorMessage = 'Ошибка создания транзакции';
-                    try {
-                        const errorData = await createResponse.json();
-                        errorMessage = errorData.detail || errorData.message || errorMessage;
-                    } catch (parseError) {
-                        // Если не удалось распарсить JSON, используем статус
-                        errorMessage = `Ошибка ${createResponse.status}: ${createResponse.statusText || 'Ошибка создания транзакции'}`;
-                    }
-                    throw new Error(errorMessage);
-                }
-                
-                const createData = await createResponse.json();
-                
-                if (!createData.success || !createData.unsigned_transaction) {
-                    throw new Error('Неверный формат ответа от сервера');
-                }
-                
-                // Step 2: Sign transaction with TronLink
-                this.showStatus('Подписание транзакции через TronLink...', 'info');
-                
-                // TronLink expects transaction object directly (not wrapped)
-                // The backend returns the transaction in the correct format
-                const unsignedTx = createData.unsigned_transaction;
-                
-                // Log transaction structure for debugging
-                console.log('Unsigned transaction structure:', {
-                    hasTransaction: 'transaction' in unsignedTx,
-                    hasRawData: 'raw_data' in unsignedTx,
-                    hasTxID: 'txID' in unsignedTx,
-                    keys: Object.keys(unsignedTx)
-                });
-                
-                // TronLink expects transaction with raw_data.contract structure
-                // Extract the actual transaction object
-                let transactionToSign = unsignedTx;
-                
-                // If wrapped in "transaction" key, extract it
-                if (unsignedTx.transaction && typeof unsignedTx.transaction === 'object') {
-                    transactionToSign = unsignedTx.transaction;
-                }
-                
-                // Verify transaction has required structure
-                if (!transactionToSign.raw_data) {
-                    throw new Error('Транзакция не содержит raw_data. Неверный формат транзакции.');
-                }
-                
-                if (!transactionToSign.raw_data.contract || !Array.isArray(transactionToSign.raw_data.contract)) {
-                    throw new Error('Транзакция не содержит contract в raw_data. Неверный формат транзакции.');
-                }
-                
-                console.log('Transaction ready for signing:', {
-                    hasRawData: !!transactionToSign.raw_data,
-                    hasContract: !!transactionToSign.raw_data.contract,
-                    contractCount: transactionToSign.raw_data.contract.length,
-                    txID: transactionToSign.txID
-                });
-                
-                let signedTx;
-                try {
-                    signedTx = await window.tronWeb.trx.sign(transactionToSign);
-                } catch (signError) {
-                    // Обработка ошибок подписи от TronLink
-                    console.error('Failed to sign transaction:', signError);
-                    
-                    // Извлекаем сообщение об ошибке из разных форматов
-                    let errorMessage = 'Ошибка подписи транзакции';
-                    
-                    if (signError) {
-                        if (typeof signError === 'string') {
-                            errorMessage = signError;
-                        } else if (signError.message) {
-                            errorMessage = signError.message;
-                        } else if (signError.error) {
-                            errorMessage = signError.error;
-                        } else if (signError.toString && signError.toString() !== '[object Object]') {
-                            errorMessage = signError.toString();
-                        }
-                    }
-                    
-                    // Проверяем типичные ошибки TronLink
-                    const errorStr = errorMessage.toLowerCase();
-                    if (errorStr.includes('declined') || errorStr.includes('rejected') || errorStr.includes('отклонен')) {
-                        errorMessage = 'Подпись транзакции отклонена пользователем';
-                    } else if (errorStr.includes('cancelled') || errorStr.includes('canceled')) {
-                        errorMessage = 'Подпись транзакции отменена';
-                    } else if (errorStr.includes('timeout')) {
-                        errorMessage = 'Время ожидания подписи истекло';
-                    } else if (errorStr.includes('locked') || errorStr.includes('not ready')) {
-                        errorMessage = 'Кошелек заблокирован. Разблокируйте TronLink и попробуйте снова';
-                    }
-                    
-                    throw new Error(errorMessage);
-                }
-                
+                // Проверка подписи
                 if (!signedTx || !signedTx.signature) {
                     throw new Error('Ошибка подписи транзакции: подпись не получена');
                 }
                 
-                // Step 3: Broadcast transaction via backend
-                this.isSigning = false;
-                this.isBroadcasting = true;
-                this.showStatus('Отправка транзакции в блокчейн...', 'info');
-                
-                const broadcastResponse = await fetch('/api/wallets/broadcast-usdt-transaction', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    credentials: 'include',
-                    body: JSON.stringify({
-                        signed_transaction: signedTx
-                    })
+                // Эмит события signed
+                const txId = signedTx.txID || transactionToSign.txID;
+                this.$emit('signed', {
+                    signedTransaction: signedTx,
+                    txId: txId
                 });
                 
-                if (!broadcastResponse.ok) {
-                    let errorMessage = 'Ошибка отправки транзакции';
-                    try {
-                        const errorData = await broadcastResponse.json();
-                        errorMessage = errorData.detail || errorData.message || errorMessage;
-                    } catch (parseError) {
-                        // Если не удалось распарсить JSON, используем статус
-                        errorMessage = `Ошибка ${broadcastResponse.status}: ${broadcastResponse.statusText || 'Ошибка отправки транзакции'}`;
-                    }
-                    throw new Error(errorMessage);
-                }
-                
-                const broadcastData = await broadcastResponse.json();
-                
-                if (broadcastData.success && broadcastData.result) {
-                    this.transactionResult = {
-                        success: true,
-                        txId: broadcastData.txid,
-                        message: 'Транзакция успешно отправлена!'
-                    };
-                    this.showStatus('Транзакция успешно отправлена!', 'success');
-                    
-                    // Reset form
-                    this.recipientAddress = '';
-                    this.amount = '';
-                } else {
-                    throw new Error(broadcastData.message || 'Ошибка отправки транзакции');
-                }
+                return signedTx;
                 
             } catch (error) {
-                console.error('Transaction error:', error);
+                // Обработка ошибок подписи
+                let errorMessage = this.extractErrorMessage(error);
                 
-                // Извлекаем сообщение об ошибке из разных форматов
-                let errorMessage = 'Ошибка выполнения транзакции';
-                
-                if (error) {
-                    if (typeof error === 'string') {
-                        errorMessage = error;
-                    } else if (error.message) {
-                        errorMessage = error.message;
-                    } else if (error.detail) {
-                        errorMessage = error.detail;
-                    } else if (error.error) {
-                        errorMessage = error.error;
-                    } else if (error.toString && error.toString() !== '[object Object]') {
-                        errorMessage = error.toString();
-                    }
+                // Проверяем типичные ошибки TronLink
+                const errorStr = errorMessage.toLowerCase();
+                if (errorStr.includes('declined') || errorStr.includes('rejected') || errorStr.includes('отклонен')) {
+                    errorMessage = 'Подпись транзакции отклонена пользователем';
+                } else if (errorStr.includes('cancelled') || errorStr.includes('canceled')) {
+                    errorMessage = 'Подпись транзакции отменена';
+                } else if (errorStr.includes('timeout')) {
+                    errorMessage = 'Время ожидания подписи истекло';
+                } else if (errorStr.includes('locked') || errorStr.includes('not ready')) {
+                    errorMessage = 'Кошелек заблокирован. Разблокируйте TronLink и попробуйте снова';
                 }
                 
-                // Если ошибка пришла с сервера (из errorData)
-                if (error.response || (error.status && error.statusText)) {
-                    errorMessage = error.detail || error.message || `${error.status} ${error.statusText}`;
-                }
+                console.error('❌ TronSign: Ошибка подписи:', errorMessage);
                 
-                // Устанавливаем сообщение в результат
-                this.transactionResult = {
-                    success: false,
-                    message: errorMessage
-                };
+                this.$emit('error', {
+                    message: errorMessage,
+                    type: 'signing'
+                });
                 
-                // Показываем соответствующее сообщение в UI
-                const errorLower = errorMessage.toLowerCase();
-                if (errorLower.includes('declined') || errorLower.includes('rejected') || errorLower.includes('отклонен')) {
-                    this.showStatus('Подпись транзакции отклонена пользователем', 'error');
-                } else if (errorLower.includes('insufficient') || errorLower.includes('недостаточно')) {
-                    this.showStatus('Недостаточно средств для выполнения транзакции', 'error');
-                } else if (errorLower.includes('revert') || errorLower.includes('откат')) {
-                    this.showStatus('Транзакция откатилась: ' + errorMessage, 'error');
-                } else {
-                    this.showStatus('Ошибка: ' + errorMessage, 'error');
-                }
+                throw new Error(errorMessage);
             } finally {
                 this.isSigning = false;
-                this.isBroadcasting = false;
             }
-        },
-        
-        getTronScanUrl(txId) {
-            if (!txId) return '#';
-            return `https://tronscan.org/#/transaction/${txId}`;
-        },
-        
-        copyToClipboard(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                this.showStatus('Скопировано в буфер обмена', 'success');
-            }).catch(err => {
-                console.error('Copy error:', err);
-            });
         }
     },
     
-    template: `
-        <div class="card">
-            <div class="card-header">
-                <h4 class="mb-0">
-                    <i class="fas fa-coins me-2"></i>
-                    Подпись транзакции USDT (TRC-20)
-                </h4>
-            </div>
-            <div class="card-body">
-                <!-- Status Message -->
-                <div v-if="statusVisible" :class="'alert alert-' + (statusType === 'error' ? 'danger' : statusType === 'success' ? 'success' : 'info')" role="alert">
-                    [[ statusMessage ]]
-                </div>
-                
-                <!-- Wallet Connection -->
-                <div v-if="!isConnected" class="mb-4">
-                    <div class="alert alert-warning">
-                        <h6><i class="fas fa-exclamation-triangle me-2"></i>TronLink не подключен</h6>
-                        <p class="mb-3">Подключите TronLink для подписи транзакций</p>
-                        <button 
-                            class="btn btn-primary"
-                            @click="connectWallet"
-                            :disabled="isConnecting"
-                        >
-                            <span v-if="isConnecting" class="spinner-border spinner-border-sm me-2"></span>
-                            <i v-else class="fas fa-plug me-2"></i>
-                            [[ isConnecting ? 'Подключение...' : 'Подключить TronLink' ]]
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- Connected State -->
-                <div v-else>
-                    <!-- Wallet Info -->
-                    <div class="alert alert-success mb-4">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <i class="fas fa-check-circle me-2"></i>
-                                <strong>Подключено:</strong>
-                                <code class="ms-2">[[ shortAddress ]]</code>
-                            </div>
-                            <button 
-                                class="btn btn-sm btn-outline-success"
-                                @click="copyToClipboard(walletAddress)"
-                                title="Копировать адрес"
-                            >
-                                <i class="fas fa-copy"></i>
-                            </button>
-                        </div>
-                        <div class="mt-2">
-                            <small>Полный адрес: <code>[[ walletAddress ]]</code></small>
-                        </div>
-                    </div>
-                    
-                    <!-- Transaction Form -->
-                    <div class="mb-4">
-                        <h5 class="mb-3">Перевод USDT</h5>
-                        
-                        <div class="mb-3">
-                            <label class="form-label">
-                                <i class="fas fa-user me-2"></i>
-                                Адрес получателя
-                            </label>
-                            <input 
-                                type="text" 
-                                class="form-control"
-                                v-model="recipientAddress"
-                                placeholder="TRecipientAddress..."
-                                :disabled="isSigning || isBroadcasting"
-                            />
-                            <small class="form-text text-muted">
-                                TRON адрес получателя (34 символа, начинается с 'T')
-                            </small>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label class="form-label">
-                                <i class="fas fa-coins me-2"></i>
-                                Сумма (USDT)
-                            </label>
-                            <input 
-                                type="number" 
-                                class="form-control"
-                                v-model="amount"
-                                placeholder="1.0"
-                                step="0.000001"
-                                min="0.000001"
-                                :disabled="isSigning || isBroadcasting"
-                            />
-                            <small class="form-text text-muted">
-                                1 USDT = 1,000,000 smallest units
-                            </small>
-                        </div>
-                        
-                        <button 
-                            class="btn btn-primary btn-lg w-100"
-                            @click="signAndSendTransaction"
-                            :disabled="!isFormValid || isSigning || isBroadcasting"
-                        >
-                            <span v-if="isSigning" class="spinner-border spinner-border-sm me-2"></span>
-                            <span v-else-if="isBroadcasting" class="spinner-border spinner-border-sm me-2"></span>
-                            <i v-else class="fas fa-paper-plane me-2"></i>
-                            [[ isSigning ? 'Подписание...' : isBroadcasting ? 'Отправка...' : 'Подписать и отправить' ]]
-                        </button>
-                    </div>
-                    
-                    <!-- Transaction Result -->
-                    <div v-if="transactionResult" class="mt-4">
-                        <div :class="'alert alert-' + (transactionResult.success ? 'success' : 'danger')">
-                            <h6>
-                                <i :class="transactionResult.success ? 'fas fa-check-circle' : 'fas fa-times-circle'" class="me-2"></i>
-                                [[ transactionResult.message ]]
-                            </h6>
-                            <div v-if="transactionResult.success && transactionResult.txId" class="mt-3">
-                                <p class="mb-2"><strong>TX ID:</strong></p>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <code class="small">[[ transactionResult.txId ]]</code>
-                                    <button 
-                                        class="btn btn-sm btn-outline-primary ms-2"
-                                        @click="copyToClipboard(transactionResult.txId)"
-                                        title="Копировать TX ID"
-                                    >
-                                        <i class="fas fa-copy"></i>
-                                    </button>
-                                </div>
-                                <div class="mt-3">
-                                    <a 
-                                        :href="getTronScanUrl(transactionResult.txId)"
-                                        target="_blank"
-                                        class="btn btn-primary"
-                                    >
-                                        <i class="fas fa-external-link-alt me-2"></i>
-                                        Посмотреть в TronScan
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `
+    template: `<div></div>`
 });
