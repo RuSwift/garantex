@@ -22,7 +22,7 @@ if env_file_path.exists():
 # Import settings and models
 from settings import DatabaseSettings
 from db import Base
-from db.models import NodeSettings, Storage, AdminUser, AdminTronAddress, WalletUser, Connection, EscrowModel, Advertisement  # Import all models here
+from db.models import NodeSettings, Storage, AdminUser, AdminTronAddress, WalletUser, Connection, EscrowModel, Advertisement, Deals  # Import all models here
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
