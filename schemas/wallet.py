@@ -61,3 +61,36 @@ class UpdatePermissionsResponse(BaseModel):
     raw_data_hex: str = Field(..., description="Raw transaction data hex")
     message: str = Field(..., description="Response message")
 
+
+class CreateUsdtTransactionRequest(BaseModel):
+    """Request to create USDT transaction"""
+    from_address: str = Field(..., description="Sender TRON address")
+    to_address: str = Field(..., description="Recipient TRON address")
+    amount: float = Field(..., gt=0, description="Amount in USDT")
+    contract_address: str = Field(
+        default="TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+        description="USDT contract address (default: mainnet)"
+    )
+
+
+class CreateUsdtTransactionResponse(BaseModel):
+    """Response for USDT transaction creation"""
+    success: bool = Field(..., description="Success status")
+    tx_id: str = Field(..., description="Transaction ID")
+    unsigned_transaction: Dict[str, Any] = Field(..., description="Full unsigned transaction for signing")
+    raw_data_hex: str = Field(..., description="Raw transaction data hex")
+    message: str = Field(..., description="Response message")
+
+
+class BroadcastUsdtTransactionRequest(BaseModel):
+    """Request to broadcast signed USDT transaction"""
+    signed_transaction: Dict[str, Any] = Field(..., description="Signed transaction from TronLink")
+
+
+class BroadcastUsdtTransactionResponse(BaseModel):
+    """Response for broadcasting USDT transaction"""
+    success: bool = Field(..., description="Success status")
+    result: bool = Field(..., description="Broadcast result")
+    txid: str = Field(..., description="Transaction ID")
+    message: str = Field(..., description="Response message")
+

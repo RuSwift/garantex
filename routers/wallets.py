@@ -1,6 +1,7 @@
 """
 Router for Wallet management API
 """
+import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, status
 from dependencies import RequireAdminDepends, DbDepends, SettingsDepends
@@ -15,7 +16,11 @@ from schemas.wallet import (
     WalletResponse,
     WalletListResponse,
     UpdatePermissionsRequest,
-    UpdatePermissionsResponse
+    UpdatePermissionsResponse,
+    CreateUsdtTransactionRequest,
+    CreateUsdtTransactionResponse,
+    BroadcastUsdtTransactionRequest,
+    BroadcastUsdtTransactionResponse
 )
 from schemas.node import ChangeResponse
 from services.wallet import WalletService
@@ -500,5 +505,246 @@ async def create_update_permissions_transaction(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error creating update permissions transaction: {str(e)}"
+        )
+
+
+@router.post("/create-usdt-transaction", response_model=CreateUsdtTransactionResponse)
+async def create_usdt_transaction(
+    request: CreateUsdtTransactionRequest,
+    settings: SettingsDepends,
+    admin: RequireAdminDepends
+):
+    """
+    Create unsigned USDT (TRC-20) transaction for signing
+    
+    Args:
+        request: USDT transaction parameters
+        settings: Application settings
+        admin: Admin authentication
+        
+    Returns:
+        Unsigned transaction for signing with TronLink
+    """
+    try:
+        network = settings.tron.network
+        api_key = settings.tron.api_key
+        
+        # USDT contract address (mainnet)
+        usdt_contract = request.contract_address
+        usdt_decimals = 6  # USDT has 6 decimals
+        
+        # Convert amount to smallest units
+        amount_in_smallest_units = int(request.amount * (10 ** usdt_decimals))
+        
+        logger.info(f"Creating USDT transaction: {request.from_address} -> {request.to_address}, amount: {request.amount} USDT")
+
+        async with TronAPIClient(network=network, api_key=api_key) as api:
+            # Check TRX balance before creating transaction
+            trx_balance = await api.get_balance(request.from_address)
+            logger.info(f"TRX balance: {trx_balance:.6f} TRX")
+            
+            # TRC-20 transfers require TRX for energy/bandwidth
+            # Minimum recommended: 1 TRX (1000000 SUN)
+            if trx_balance < 1.0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Недостаточно TRX на балансе для оплаты комиссии. Текущий баланс: {trx_balance:.6f} TRX. Рекомендуется минимум 1 TRX."
+                )
+            
+            # Check USDT balance
+            usdt_balance = await api.get_trc20_balance(request.from_address, usdt_contract, decimals=usdt_decimals)
+            logger.info(f"USDT balance: {usdt_balance:.6f} USDT")
+            
+            if usdt_balance < request.amount:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Недостаточно USDT на балансе. Текущий баланс: {usdt_balance:.6f} USDT, требуется: {request.amount:.6f} USDT"
+                )
+            
+            # Create TRC20 transaction
+            unsigned_tx = await api.create_trc20_transaction(
+                from_address=request.from_address,
+                to_address=request.to_address,
+                contract_address=usdt_contract,
+                amount=amount_in_smallest_units,
+                fee_limit=10_000_000  # 10 TRX fee limit
+            )
+            
+            if "txID" not in unsigned_tx and "transaction" not in unsigned_tx:
+                error_msg = unsigned_tx.get("Error", "Unknown error")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Failed to create USDT transaction: {error_msg}"
+                )
+            
+            # Extract transaction data
+            # API /wallet/triggersmartcontract can return in different formats:
+            # Format 1: {transaction: {raw_data: {...}, txID: "...", ...}, raw_data_hex: "...", energy_used: ...}
+            # Format 2: {raw_data: {...}, txID: "...", raw_data_hex: "...", ...}
+            
+            # Log API response structure for debugging
+            logger.info(f"API response keys: {list(unsigned_tx.keys())}")
+            
+            # Check if transaction is wrapped in "transaction" key (Format 1)
+            if "transaction" in unsigned_tx:
+                # Transaction is wrapped: extract it
+                transaction_data = unsigned_tx["transaction"]
+                tx_id = transaction_data.get("txID", "")
+                raw_data_hex = unsigned_tx.get("raw_data_hex", "")
+                logger.info(f"Transaction extracted from 'transaction' key. Has raw_data: {'raw_data' in transaction_data}")
+            else:
+                # Transaction is at root level (Format 2)
+                transaction_data = unsigned_tx
+                tx_id = unsigned_tx.get("txID", "")
+                raw_data_hex = unsigned_tx.get("raw_data_hex", "")
+                logger.info("Transaction at root level")
+            
+            # TronLink expects transaction with raw_data at root level
+            # Format: {raw_data: {...}, txID: "...", ...}
+            # Ensure transaction has raw_data
+            if "raw_data" not in transaction_data:
+                logger.error(f"Transaction does not contain raw_data. Keys: {list(transaction_data.keys())}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Transaction from API does not contain raw_data. Check API response format."
+                )
+            
+            # Verify raw_data has contract array
+            if "contract" not in transaction_data["raw_data"]:
+                logger.error(f"Transaction raw_data does not contain contract. raw_data keys: {list(transaction_data['raw_data'].keys())}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Transaction raw_data does not contain contract array"
+                )
+            
+            # Use transaction_data directly (it has raw_data, txID, etc.)
+            full_transaction = transaction_data
+            logger.info(f"Transaction prepared for signing. txID: {tx_id}, has raw_data.contract: {'contract' in transaction_data['raw_data']}")
+            
+            return CreateUsdtTransactionResponse(
+                success=True,
+                tx_id=tx_id,
+                unsigned_transaction=full_transaction,
+                raw_data_hex=raw_data_hex,
+                message="Транзакция USDT создана. Требуется подпись для отправки."
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating USDT transaction: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating USDT transaction: {str(e)}"
+        )
+
+
+@router.post("/broadcast-usdt-transaction", response_model=BroadcastUsdtTransactionResponse)
+async def broadcast_usdt_transaction(
+    request: BroadcastUsdtTransactionRequest,
+    settings: SettingsDepends,
+    admin: RequireAdminDepends
+):
+    """
+    Broadcast signed USDT transaction to TRON network
+    
+    Args:
+        request: Signed transaction from TronLink
+        settings: Application settings
+        admin: Admin authentication
+        
+    Returns:
+        Broadcast result
+    """
+    try:
+        network = settings.tron.network
+        api_key = settings.tron.api_key
+        
+        logger.info("Broadcasting signed USDT transaction")
+        
+        async with TronAPIClient(network=network, api_key=api_key) as api:
+            # Broadcast transaction
+            result = await api.broadcast_transaction(request.signed_transaction)
+            
+            if result.get("result") == True:
+                txid = result.get("txid", request.signed_transaction.get("txID", ""))
+                logger.info(f"USDT transaction broadcasted successfully: {txid}")
+                
+                # Wait a bit for transaction to be included in a block
+                await asyncio.sleep(3)
+                
+                # Check transaction status
+                try:
+                    tx_info = await api.get_transaction_info(txid)
+                    if tx_info:
+                        receipt = tx_info.get('receipt', {})
+                        receipt_result = receipt.get('result', 'UNKNOWN')
+                        
+                        if receipt_result == 'SUCCESS':
+                            logger.info(f"Transaction executed successfully: {txid}")
+                            return BroadcastUsdtTransactionResponse(
+                                success=True,
+                                result=True,
+                                txid=txid,
+                                message="Транзакция USDT успешно выполнена!"
+                            )
+                        elif receipt_result == 'FAILED' or receipt_result == 'REVERT':
+                            # Transaction was included but reverted
+                            error_msg = receipt.get('result_message', 'Transaction reverted')
+                            logger.error(f"Transaction reverted: {txid}, reason: {error_msg}")
+                            
+                            # Try to get more details
+                            contract_result = receipt.get('contractResult', [])
+                            if contract_result:
+                                error_msg = contract_result[0] if isinstance(contract_result, list) else str(contract_result)
+                            
+                            raise HTTPException(
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                                detail=f"Транзакция откатилась (Transaction Revert). Причина: {error_msg}. Возможные причины: недостаточно TRX для оплаты энергии, недостаточно USDT на балансе, или ошибка в смарт-контракте."
+                            )
+                        else:
+                            # Transaction is pending or unknown status
+                            logger.warning(f"Transaction status unknown: {receipt_result}")
+                            return BroadcastUsdtTransactionResponse(
+                                success=True,
+                                result=True,
+                                txid=txid,
+                                message=f"Транзакция отправлена в блокчейн. Статус: {receipt_result}. Проверьте статус в TronScan через несколько секунд."
+                            )
+                    else:
+                        # Transaction not yet confirmed
+                        logger.warning(f"Transaction not yet confirmed: {txid}")
+                        return BroadcastUsdtTransactionResponse(
+                            success=True,
+                            result=True,
+                            txid=txid,
+                            message="Транзакция отправлена в блокчейн. Ожидается подтверждение. Проверьте статус в TronScan через несколько секунд."
+                        )
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    logger.warning(f"Could not check transaction status: {str(e)}")
+                    # Still return success if broadcast was successful
+                    return BroadcastUsdtTransactionResponse(
+                        success=True,
+                        result=True,
+                        txid=txid,
+                        message="Транзакция отправлена в блокчейн. Проверьте статус в TronScan."
+                    )
+            else:
+                error_msg = result.get("message", result.get("Error", "Unknown error"))
+                logger.error(f"Failed to broadcast USDT transaction: {error_msg}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Ошибка отправки USDT транзакции: {error_msg}"
+                )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error broadcasting USDT transaction: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error broadcasting USDT transaction: {str(e)}"
         )
 

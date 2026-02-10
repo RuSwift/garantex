@@ -70,6 +70,12 @@ app.include_router(wallets.router)
 app.include_router(admin.router)
 
 
+@app.get("/tron-sign-test", response_class=HTMLResponse)
+async def tron_sign_test(request: Request):
+    """Тестовая страница для компонента TronSign"""
+    return templates.TemplateResponse("tron-sign-test.html", {"request": request})
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root(
     request: Request,

@@ -210,14 +210,25 @@ class TronAPIClient:
         Returns:
             Unsigned transaction object
         """
-        # Convert address to hex format (remove 'T', add '41' prefix)
-        to_address_hex = "41" + base58.b58decode_check(to_address.encode()).hex()[2:]
+        # Convert address to hex format for ABI encoding
+        # base58.b58decode_check returns bytes: [0x41 prefix] + [20 bytes address]
+        decoded_address = base58.b58decode_check(to_address)
+        
+        # Extract 20 bytes of address (skip the 0x41 prefix)
+        # decoded_address[0] = 0x41 (TRON prefix)
+        # decoded_address[1:] = 20 bytes of actual address
+        address_bytes = decoded_address[1:]  # Take last 20 bytes
+        
+        # Convert to hex and pad with zeros on the left to 32 bytes (64 hex chars)
+        # ABI requires address in 32 bytes (64 hex chars) with right alignment
+        to_address_hex = address_bytes.hex().zfill(64)
         
         # Encode amount as 32-byte hex (uint256)
         amount_hex = f"{amount:064x}"
         
         # Parameter: recipient address (32 bytes) + amount (32 bytes)
-        parameter = to_address_hex.ljust(64, '0') + amount_hex
+        # ABI encoding: address right-aligned, uint256 right-aligned
+        parameter = to_address_hex + amount_hex
         
         return await self._post(
             "/wallet/triggersmartcontract",
