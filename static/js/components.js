@@ -821,7 +821,7 @@ Vue.component('Wallets', {
                 threshold: 2,
                 permission_name: 'multisig',
                 keys: [], // Array of {address: '', weight: 1}
-                operations: 'c0000000000000000000000000000000000000000000000000000000000000000' // Only token transfers
+                operations: '7fff1fc0033e0000000000000000000000000000000000000000000000000000' // Canonical operations mask
             },
             creatingUpdateTx: false,
             updateTxResult: null,
@@ -1469,11 +1469,19 @@ Vue.component('Wallets', {
         // Update permissions wizard methods
         async showUpdatePermissionsWizard(wallet) {
             this.updatePermissionsWallet = wallet;
+            
+            // Initialize form with Owner address as first key
+            const ownerKey = {
+                address: wallet.tron_address,
+                weight: 1,
+                isOwner: true // Mark as owner key
+            };
+            
             this.updatePermissionsForm = {
                 threshold: 2,
                 permission_name: 'multisig',
-                keys: [],
-                operations: 'c0000000000000000000000000000000000000000000000000000000000000000'
+                keys: [ownerKey], // Owner всегда первый
+                operations: '7fff1fc0033e0000000000000000000000000000000000000000000000000000'
             };
             this.updateTxResult = null;
             this.showUpdatePermissionsModal = true;
@@ -1525,6 +1533,11 @@ Vue.component('Wallets', {
         },
         
         removePermissionKey(index) {
+            // Нельзя удалить Owner ключ (первый ключ)
+            if (this.updatePermissionsForm.keys[index] && this.updatePermissionsForm.keys[index].isOwner) {
+                this.showStatus('Нельзя удалить ключ владельца (Owner)', 'error');
+                return;
+            }
             this.updatePermissionsForm.keys.splice(index, 1);
         },
         
@@ -1572,6 +1585,15 @@ Vue.component('Wallets', {
                 }
             }
             
+            // Проверка: Owner должен быть в списке
+            const hasOwner = this.updatePermissionsForm.keys.some(key => 
+                key.isOwner && key.address === this.updatePermissionsWallet.tron_address
+            );
+            if (!hasOwner) {
+                this.showStatus('Ключ владельца (Owner) должен присутствовать в списке', 'error');
+                return;
+            }
+            
             this.creatingUpdateTx = true;
             this.updateTxResult = null;
             
@@ -1588,7 +1610,7 @@ Vue.component('Wallets', {
                         keys: this.updatePermissionsForm.keys.map(k => ({
                             address: k.address.trim(),
                             weight: parseInt(k.weight)
-                        })),
+                        })), // isOwner не отправляется на сервер, только для UI
                         operations: this.updatePermissionsForm.operations
                     })
                 });
@@ -1617,7 +1639,7 @@ Vue.component('Wallets', {
                 threshold: 2,
                 permission_name: 'multisig',
                 keys: [],
-                operations: 'c0000000000000000000000000000000000000000000000000000000000000000'
+                operations: '7fff1fc0033e0000000000000000000000000000000000000000000000000000'
             };
             this.updateTxResult = null;
         }
@@ -2280,6 +2302,7 @@ Vue.component('Wallets', {
                                                 <td>[[ index + 1 ]]</td>
                                                 <td>
                                                     <select 
+                                                        v-if="!key.isOwner"
                                                         class="form-select form-select-sm"
                                                         v-model="key.address"
                                                     >
@@ -2292,6 +2315,12 @@ Vue.component('Wallets', {
                                                             [[ manager.is_owner ? '👑 Owner: ' : '' ]][[ manager.nickname ]] ([[ manager.wallet_address ]])
                                                         </option>
                                                     </select>
+                                                    <div v-else class="d-flex align-items-center">
+                                                        <code class="small me-2">[[ key.address ]]</code>
+                                                        <span class="badge bg-warning text-dark">
+                                                            <i class="fas fa-crown"></i> Owner
+                                                        </span>
+                                                    </div>
                                                     <small v-if="key.address && !validateWalletAddress(key.address, 'tron')" class="text-danger">
                                                         Неверный формат TRON адреса
                                                     </small>
@@ -2307,12 +2336,16 @@ Vue.component('Wallets', {
                                                 </td>
                                                 <td>
                                                     <button 
+                                                        v-if="!key.isOwner"
                                                         class="btn btn-sm btn-danger"
                                                         @click="removePermissionKey(index)"
                                                         title="Удалить"
                                                     >
                                                         <i class="fas fa-trash"></i>
                                                     </button>
+                                                    <span v-else class="badge bg-warning text-dark" title="Ключ владельца (Owner) - нельзя удалить">
+                                                        <i class="fas fa-crown"></i> Owner
+                                                    </span>
                                                 </td>
                                             </tr>
                                         </tbody>
@@ -2330,7 +2363,7 @@ Vue.component('Wallets', {
                                         </h6>
                                         <p class="card-text mb-0">
                                             <small>
-                                                Настроено: <strong>только перевод токенов</strong> (TransferContract, TransferAssetContract, TriggerSmartContract для TRC20)
+                                                Настроено: <strong>каноническая маска операций</strong> (стандартный набор разрешенных операций TRON)
                                             </small>
                                         </p>
                                         <input 
@@ -2338,7 +2371,7 @@ Vue.component('Wallets', {
                                             class="form-control form-control-sm mt-2 font-monospace"
                                             v-model="updatePermissionsForm.operations"
                                             readonly
-                                            title="Hex строка операций (только переводы токенов)"
+                                            title="Hex строка операций (каноническая маска)"
                                         />
                                     </div>
                                 </div>
@@ -2352,7 +2385,7 @@ Vue.component('Wallets', {
                                         <li>Ключей: [[ updatePermissionsForm.keys.length ]]</li>
                                         <li>Сумма весов: [[ getTotalWeight() ]]</li>
                                         <li>Threshold: [[ updatePermissionsForm.threshold ]]</li>
-                                        <li>Операции: только перевод токенов</li>
+                                        <li>Операции: каноническая маска</li>
                                     </ul>
                                 </div>
                             </div>

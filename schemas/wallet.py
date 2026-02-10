@@ -49,8 +49,8 @@ class UpdatePermissionsRequest(BaseModel):
     keys: List[PermissionKey] = Field(..., min_length=1, description="List of keys with addresses and weights")
     permission_name: str = Field(default="multisig", description="Permission name")
     operations: str = Field(
-        default="c0000000000000000000000000000000000000000000000000000000000000000",
-        description="Operations hex string (default: only token transfers)"
+        default="7fff1fc0033e0000000000000000000000000000000000000000000000000000",
+        description="Operations hex string (canonical operations mask)"
     )
 
 

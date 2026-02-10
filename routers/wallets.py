@@ -473,6 +473,7 @@ async def create_update_permissions_transaction(
             }
             
             # Create update transaction
+            #permission_data['actives'][0]['operations'] = '7fff1fc0033e0000000000000000000000000000000000000000000000000000'
             update_tx = await api.update_account_permission(
                 owner_address=wallet.tron_address,
                 permission_data=permission_data

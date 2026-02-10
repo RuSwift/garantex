@@ -115,7 +115,12 @@ async def root(
                     "label": "Дашборд",
                     "sub": [],
                     "page": "Dashboard"
-                },
+                }
+            ]
+        },
+        {
+            "header": "Маркетплейс",
+            "items": [
                 {
                     "id": "wallet-users",
                     "href": "/wallet-users",
