@@ -8,6 +8,7 @@ from routers import tron_multisig
 from routers.wallet_users import profile_router, router as wallet_users_router
 from routers.advertisements import marketplace_router, my_ads_router, admin_ads_router
 from routers.billing import router as billing_router
+from routers.chat import router as chat_router
 from dependencies import UserDepends
 from settings import Settings
 from db import init_db
@@ -46,6 +47,7 @@ app.include_router(marketplace_router)
 app.include_router(my_ads_router)
 app.include_router(admin_ads_router)
 app.include_router(billing_router)
+app.include_router(chat_router)
 
 
 @app.get("/", response_class=HTMLResponse)

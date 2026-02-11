@@ -122,6 +122,60 @@ class ChatMessage(BaseModel):
     # Дополнительные данные
     metadata: Optional[dict] = Field(None, description="Дополнительные метаданные (JSON)")
     
+    @field_validator('sender_id', 'receiver_id')
+    @classmethod
+    def validate_did_format(cls, v):
+        """
+        Проверка формата DID для sender_id и receiver_id
+        
+        Поддерживаемые форматы:
+        - did:tron:{address}
+        - did:ethr:{address} (для Ethereum)
+        - did:bitcoin:{address}
+        - did:polkadot:{address} (для Polkadot/Substrate)
+        """
+        if not v:
+            raise ValueError("DID cannot be empty")
+        
+        # Проверяем что строка начинается с "did:"
+        if not v.startswith("did:"):
+            raise ValueError(f"Invalid DID format: must start with 'did:' (got: {v})")
+        
+        # Разбиваем на части: did:{method}:{address}
+        parts = v.split(":", 2)
+        if len(parts) != 3:
+            raise ValueError(f"Invalid DID format: expected 'did:method:address' (got: {v})")
+        
+        did_prefix, method, address = parts
+        
+        # Проверяем что первая часть - "did"
+        if did_prefix != "did":
+            raise ValueError(f"Invalid DID format: must start with 'did:' (got: {v})")
+        
+        # Проверяем что method не пустой
+        if not method or not method.strip():
+            raise ValueError(f"Invalid DID format: method cannot be empty (got: {v})")
+        
+        # Проверяем что address не пустой
+        if not address or not address.strip():
+            raise ValueError(f"Invalid DID format: address cannot be empty (got: {v})")
+        
+        return v
+    
+    @field_validator('contact_id')
+    @classmethod
+    def validate_contact_id_did_format(cls, v):
+        """
+        Проверка формата DID для contact_id (опциональное поле)
+        
+        Если contact_id указан, он должен быть в формате DID
+        """
+        if v is None:
+            return v
+        
+        # Используем ту же логику валидации что и для sender_id/receiver_id
+        return cls.validate_did_format(v)
+    
     @model_validator(mode='after')
     def validate_content(self):
         """Проверка что сообщение содержит либо текст, либо вложения"""
@@ -247,6 +301,60 @@ class ChatMessageCreate(BaseModel):
     
     # Подпись будет добавлена после создания сообщения
     signature: Optional[MessageSignature] = None
+    
+    @field_validator('sender_id', 'receiver_id')
+    @classmethod
+    def validate_did_format(cls, v):
+        """
+        Проверка формата DID для sender_id и receiver_id
+        
+        Поддерживаемые форматы:
+        - did:tron:{address}
+        - did:ethr:{address} (для Ethereum)
+        - did:bitcoin:{address}
+        - did:polkadot:{address} (для Polkadot/Substrate)
+        """
+        if not v:
+            raise ValueError("DID cannot be empty")
+        
+        # Проверяем что строка начинается с "did:"
+        if not v.startswith("did:"):
+            raise ValueError(f"Invalid DID format: must start with 'did:' (got: {v})")
+        
+        # Разбиваем на части: did:{method}:{address}
+        parts = v.split(":", 2)
+        if len(parts) != 3:
+            raise ValueError(f"Invalid DID format: expected 'did:method:address' (got: {v})")
+        
+        did_prefix, method, address = parts
+        
+        # Проверяем что первая часть - "did"
+        if did_prefix != "did":
+            raise ValueError(f"Invalid DID format: must start with 'did:' (got: {v})")
+        
+        # Проверяем что method не пустой
+        if not method or not method.strip():
+            raise ValueError(f"Invalid DID format: method cannot be empty (got: {v})")
+        
+        # Проверяем что address не пустой
+        if not address or not address.strip():
+            raise ValueError(f"Invalid DID format: address cannot be empty (got: {v})")
+        
+        return v
+    
+    @field_validator('contact_id')
+    @classmethod
+    def validate_contact_id_did_format(cls, v):
+        """
+        Проверка формата DID для contact_id (опциональное поле)
+        
+        Если contact_id указан, он должен быть в формате DID
+        """
+        if v is None:
+            return v
+        
+        # Используем ту же логику валидации что и для sender_id/receiver_id
+        return cls.validate_did_format(v)
 
 
 class ChatMessageResponse(ChatMessage):

@@ -10,6 +10,7 @@ from routers import wallet_users
 from routers.billing import router as billing_router
 from routers import wallets
 from routers import admin
+from routers.chat import router as chat_router
 from dependencies import UserDepends, AdminDepends, RequireAdminDepends, SettingsDepends, PrivKeyDepends, DbDepends, get_admin_from_cookie
 from schemas.node import (
     NodeInitRequest, NodeInitPemRequest, NodeInitResponse,
@@ -68,6 +69,7 @@ app.include_router(wallet_users.router)
 app.include_router(billing_router)
 app.include_router(wallets.router)
 app.include_router(admin.router)
+app.include_router(chat_router)
 
 
 @app.get("/tron-sign-test", response_class=HTMLResponse)
