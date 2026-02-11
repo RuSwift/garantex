@@ -8858,3 +8858,172 @@ Vue.component('TronSign', {
     
     template: `<div></div>`
 });
+
+// Deal Conversation Component - Wrapper for Chat with event logging
+Vue.component('DealConversation', {
+    delimiters: ['[[', ']]'],
+    props: {
+        show: {
+            type: Boolean,
+            default: false
+        },
+        walletAddress: {
+            type: String,
+            default: ''
+        },
+        isAuthenticated: {
+            type: Boolean,
+            default: false
+        },
+        dealId: {
+            type: [String, Number],
+            default: null
+        }
+    },
+    data() {
+        return {
+            mockHistory: []
+        }
+    },
+    mounted() {
+        // Generate mock history when component is mounted
+        this.generateMockHistory();
+    },
+    watch: {
+        show(newVal) {
+            if (newVal) {
+                // Load mock history when modal opens
+                this.$nextTick(() => {
+                    if (this.$refs.chatComponent) {
+                        this.$refs.chatComponent.load_history(this.mockHistory);
+                    }
+                });
+            }
+        }
+    },
+    methods: {
+        close() {
+            this.$emit('close');
+        },
+        
+        generateMockHistory() {
+            // Generate mock conversation history
+            const now = Date.now();
+            const contactId = 'agent-1';
+            
+            this.mockHistory = [
+                {
+                    id: 'msg-1',
+                    contactId: contactId,
+                    contactName: 'Агент по переводам',
+                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
+                    text: 'Здравствуйте! Я готов помочь вам с переводом.',
+                    sender: 'bot',
+                    timestamp: now - 3600000, // 1 hour ago
+                    status: 'read'
+                },
+                {
+                    id: 'msg-2',
+                    contactId: contactId,
+                    contactName: 'Агент по переводам',
+                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
+                    text: 'Привет! Мне нужно перевести 1000 USDT на счет в банке.',
+                    sender: 'user',
+                    timestamp: now - 3300000, // 55 minutes ago
+                    status: 'read'
+                },
+                {
+                    id: 'msg-3',
+                    contactId: contactId,
+                    contactName: 'Агент по переводам',
+                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
+                    text: 'Отлично! Я могу помочь с этим переводом. Какие реквизиты получателя?',
+                    sender: 'bot',
+                    timestamp: now - 3000000, // 50 minutes ago
+                    status: 'read'
+                },
+                {
+                    id: 'msg-4',
+                    contactId: contactId,
+                    contactName: 'Агент по переводам',
+                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
+                    text: 'Реквизиты:\nБанк: Сбербанк\nСчет: 40817810099910004312\nПолучатель: Иванов Иван Иванович',
+                    sender: 'user',
+                    timestamp: now - 2700000, // 45 minutes ago
+                    status: 'read'
+                },
+                {
+                    id: 'msg-5',
+                    contactId: contactId,
+                    contactName: 'Агент по переводам',
+                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
+                    text: 'Понял. Комиссия составит 2.5% от суммы. Это 25 USDT. Подтверждаете?',
+                    sender: 'bot',
+                    timestamp: now - 2400000, // 40 minutes ago
+                    status: 'read'
+                },
+                {
+                    id: 'msg-6',
+                    contactId: contactId,
+                    contactName: 'Агент по переводам',
+                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
+                    text: 'Да, подтверждаю. Когда будет выполнен перевод?',
+                    sender: 'user',
+                    timestamp: now - 2100000, // 35 minutes ago
+                    status: 'read'
+                },
+                {
+                    id: 'msg-7',
+                    contactId: contactId,
+                    contactName: 'Агент по переводам',
+                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
+                    text: 'Перевод будет выполнен в течение 24 часов после поступления средств на эскроу счет.',
+                    sender: 'bot',
+                    timestamp: now - 1800000, // 30 minutes ago
+                    status: 'read'
+                }
+            ];
+        },
+        
+        // Event handlers that log to console and can be extended
+        handleSendTextMessage(data) {
+            console.log('DealConversation: on_send_text_message', data);
+            // Here you can add API call to send message
+        },
+        
+        handleSendDocuments(data) {
+            console.log('DealConversation: on_send_documents', data);
+            // Here you can add API call to upload documents
+        },
+        
+        handleSign(data) {
+            console.log('DealConversation: on_sign', data);
+            // Here you can add signature logic
+            // After signing, call: this.$refs.chatComponent.onSignatureResult(data.messageId, signature)
+        },
+        
+        handleAudio(data) {
+            console.log('DealConversation: on_audio', data);
+            // Here you can add audio recording logic
+        },
+        
+        handleVideo(data) {
+            console.log('DealConversation: on_video', data);
+            // Here you can add video recording logic
+        }
+    },
+    template: `
+        <chat
+            ref="chatComponent"
+            :show="show"
+            :wallet-address="walletAddress"
+            :is-authenticated="isAuthenticated"
+            @close="close"
+            @on_send_text_message="handleSendTextMessage"
+            @on_send_documents="handleSendDocuments"
+            @on_sign="handleSign"
+            @on_audio="handleAudio"
+            @on_video="handleVideo"
+        ></chat>
+    `
+});

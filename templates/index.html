@@ -404,7 +404,10 @@
                                     <span :class="['text-xs font-medium transition-colors', ad.is_active ? 'text-green-600 group-hover:text-green-100' : 'text-gray-500 group-hover:text-gray-300']">
                                         [[ ad.is_active ? 'Активно' : 'Неактивно' ]]
                                     </span>
-                                    <button class="flex items-center gap-2 bg-white text-blue-600 px-4 py-2 rounded-lg font-bold text-sm shadow-sm group-hover:shadow-md transition-all">
+                                    <button 
+                                        @click="openDealConversation(ad.id)"
+                                        class="flex items-center gap-2 bg-white text-blue-600 px-4 py-2 rounded-lg font-bold text-sm shadow-sm group-hover:shadow-md transition-all"
+                                    >
                                         Создать сделку
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
@@ -841,6 +844,15 @@
             @close="showDealsChat = false"
         ></deals-chat>
 
+        <!-- Deal Conversation Modal -->
+        <deal-conversation 
+            :show="showDealConversation"
+            :wallet-address="walletAddress"
+            :is-authenticated="isAuthenticated"
+            :deal-id="currentDealId"
+            @close="closeDealConversation"
+        ></deal-conversation>
+
         <!-- Advertisement Form Modal -->
         <div v-if="showAdForm" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeAdForm">
             <div class="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -1268,6 +1280,7 @@
         </div>
     </div>
 
+    <script src="/static/js/chat.js"></script>
     <script src="/static/js/components.js"></script>
     <script>
         new Vue({
@@ -1320,6 +1333,8 @@
                 },
                 // Chat/Deals
                 showDealsChat: false,
+                showDealConversation: false,
+                currentDealId: null,
                 menuItems: [
                     {
                         id: 'marketplace',
@@ -2026,6 +2041,14 @@
                     } else {
                         this.openEscrowTooltip = adId;
                     }
+                },
+                openDealConversation(adId) {
+                    this.currentDealId = adId;
+                    this.showDealConversation = true;
+                },
+                closeDealConversation() {
+                    this.showDealConversation = false;
+                    this.currentDealId = null;
                 }
             }
         });

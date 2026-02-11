@@ -1,0 +1,252 @@
+"""
+Pydantic модели для хранения и передачи объектов сообщений в чате
+
+Поддерживает:
+- Текстовые сообщения
+- Передачу файлов (кодируются в base64) + размеры файлов и имена
+- Аудио/видео (кодируются в base64) + размеры файлов и имена
+- Подписи текстовых сообщений или сообщений с файлами
+"""
+from pydantic import BaseModel, Field, validator, root_validator
+from typing import Optional, List, Literal
+from datetime import datetime
+from enum import Enum
+
+
+class MessageType(str, Enum):
+    """Тип сообщения"""
+    TEXT = "text"
+    FILE = "file"
+    AUDIO = "audio"
+    VIDEO = "video"
+    MIXED = "mixed"  # Текст + файлы/медиа
+    REPLY = "reply"  # Ответ на сообщение
+    DEAL = "deal"  # Индикация начала сделки
+
+
+class AttachmentType(str, Enum):
+    """Тип вложения"""
+    DOCUMENT = "document"
+    PHOTO = "photo"
+    VIDEO = "video"
+    AUDIO = "audio"
+
+
+class MessageSignature(BaseModel):
+    """Подпись сообщения"""
+    signature: str = Field(..., description="Подпись в hex формате (начинается с 0x)")
+    signer_address: str = Field(..., description="Адрес подписавшего (wallet address)")
+    signed_at: datetime = Field(default_factory=datetime.utcnow, description="Время подписи")
+    message_hash: Optional[str] = Field(None, description="Хеш подписанного сообщения (опционально)")
+    
+    @validator('signature')
+    def validate_signature_format(cls, v):
+        """Проверка формата подписи"""
+        if not v.startswith('0x'):
+            raise ValueError("Signature must start with '0x'")
+        if len(v) < 10:
+            raise ValueError("Signature too short")
+        return v
+
+
+class FileAttachment(BaseModel):
+    """Модель файлового вложения"""
+    id: str = Field(..., description="Уникальный идентификатор вложения")
+    type: AttachmentType = Field(..., description="Тип вложения: document, photo, video, audio")
+    name: str = Field(..., description="Имя файла")
+    size: int = Field(..., description="Размер файла в байтах")
+    mime_type: str = Field(..., description="MIME тип файла (например, image/png, application/pdf)")
+    data: str = Field(..., description="Содержимое файла в base64")
+    thumbnail: Optional[str] = Field(None, description="Превью в base64 (для изображений/видео)")
+    
+    @validator('size')
+    def validate_size(cls, v):
+        """Проверка размера файла (максимум 50MB)"""
+        max_size = 50 * 1024 * 1024  # 50MB
+        if v > max_size:
+            raise ValueError(f"File size exceeds maximum allowed size of {max_size} bytes")
+        if v <= 0:
+            raise ValueError("File size must be positive")
+        return v
+    
+    @validator('data')
+    def validate_base64(cls, v):
+        """Базовая проверка base64 формата"""
+        if not v:
+            raise ValueError("Base64 data cannot be empty")
+        # Проверка что это base64 строка
+        try:
+            import base64
+            base64.b64decode(v, validate=True)
+        except Exception:
+            raise ValueError("Invalid base64 format")
+        return v
+
+
+class ChatMessage(BaseModel):
+    """Универсальная модель сообщения чата"""
+    
+    # Базовые поля
+    id: str = Field(..., description="Уникальный идентификатор сообщения")
+    uuid: str = Field(..., description="UUID сообщения (дублер для id)")
+    message_type: MessageType = Field(..., description="Тип сообщения")
+    sender_id: str = Field(..., description="ID отправителя (DID или wallet address)")
+    receiver_id: str = Field(..., description="ID получателя (DID или wallet address)")
+    contact_id: Optional[str] = Field(None, description="ID контакта/чата (для группировки)")
+    deal_id: Optional[int] = Field(None, description="ID сделки (если сообщение относится к сделке, устаревшее поле)")
+    
+    # Ссылка на Deal (для типа DEAL)
+    deal_uid: Optional[str] = Field(None, description="UID сделки (base58 UUID) для типа DEAL")
+    deal_label: Optional[str] = Field(None, description="Label сделки для типа DEAL")
+    
+    # Ответ на сообщение (для типа REPLY)
+    reply_to_message_uuid: Optional[str] = Field(None, description="UUID сообщения, на которое ссылается ответ")
+    
+    # Текстовое содержимое
+    text: Optional[str] = Field(None, description="Текст сообщения (может быть пустым для файловых сообщений)")
+    
+    # Вложения (файлы, аудио, видео)
+    attachments: Optional[List[FileAttachment]] = Field(None, description="Список вложений")
+    
+    # Подпись
+    signature: Optional[MessageSignature] = Field(None, description="Подпись сообщения (для текста или файлов)")
+    
+    # Метаданные
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Время отправки сообщения")
+    status: Literal["sent", "delivered", "read", "failed"] = Field("sent", description="Статус доставки")
+    edited_at: Optional[datetime] = Field(None, description="Время последнего редактирования")
+    
+    # Дополнительные данные
+    metadata: Optional[dict] = Field(None, description="Дополнительные метаданные (JSON)")
+    
+    @root_validator
+    def validate_content(cls, values):
+        """Проверка что сообщение содержит либо текст, либо вложения"""
+        message_type = values.get('message_type')
+        text = values.get('text')
+        attachments = values.get('attachments')
+        
+        if message_type == MessageType.TEXT:
+            if not text or not text.strip():
+                raise ValueError("Text message must contain text")
+            if attachments:
+                raise ValueError("Text message cannot contain attachments")
+        
+        elif message_type == MessageType.FILE:
+            if not attachments or len(attachments) == 0:
+                raise ValueError("File message must contain at least one attachment")
+            # Проверка что все вложения - файлы (не аудио/видео)
+            for att in attachments:
+                if att.type in [AttachmentType.AUDIO, AttachmentType.VIDEO]:
+                    raise ValueError("File message cannot contain audio/video attachments")
+        
+        elif message_type == MessageType.AUDIO:
+            if not attachments or len(attachments) == 0:
+                raise ValueError("Audio message must contain at least one audio attachment")
+            # Проверка что все вложения - аудио
+            for att in attachments:
+                if att.type != AttachmentType.AUDIO:
+                    raise ValueError("Audio message can only contain audio attachments")
+        
+        elif message_type == MessageType.VIDEO:
+            if not attachments or len(attachments) == 0:
+                raise ValueError("Video message must contain at least one video attachment")
+            # Проверка что все вложения - видео
+            for att in attachments:
+                if att.type != AttachmentType.VIDEO:
+                    raise ValueError("Video message can only contain video attachments")
+        
+        elif message_type == MessageType.MIXED:
+            if (not text or not text.strip()) and (not attachments or len(attachments) == 0):
+                raise ValueError("Mixed message must contain either text or attachments (or both)")
+        
+        elif message_type == MessageType.REPLY:
+            # REPLY может содержать текст и/или вложения, но должен ссылаться на другое сообщение
+            reply_to_uuid = values.get('reply_to_message_uuid')
+            if not reply_to_uuid:
+                raise ValueError("Reply message must contain reply_to_message_uuid")
+            if (not text or not text.strip()) and (not attachments or len(attachments) == 0):
+                raise ValueError("Reply message must contain either text or attachments (or both)")
+        
+        elif message_type == MessageType.DEAL:
+            # DEAL должен иметь deal_uid и deal_label, может содержать текст и/или вложения
+            deal_uid = values.get('deal_uid')
+            deal_label = values.get('deal_label')
+            if not deal_uid:
+                raise ValueError("Deal message must contain deal_uid")
+            if not deal_label:
+                raise ValueError("Deal message must contain deal_label")
+            # DEAL может содержать текст и/или вложения (опционально)
+            # Если нет ни текста, ни вложений - это допустимо (просто индикация начала сделки)
+        
+        return values
+    
+    @root_validator
+    def validate_signature_target(cls, values):
+        """Проверка что подпись соответствует содержимому"""
+        signature = values.get('signature')
+        if signature is None:
+            return values
+        
+        message_type = values.get('message_type')
+        text = values.get('text')
+        attachments = values.get('attachments')
+        
+        # Подпись может быть для текста или для файлов
+        # Если есть подпись, должен быть либо текст, либо файлы
+        if message_type == MessageType.TEXT:
+            if not text or not text.strip():
+                raise ValueError("Cannot sign empty text message")
+        
+        elif message_type in [MessageType.FILE, MessageType.AUDIO, MessageType.VIDEO]:
+            if not attachments or len(attachments) == 0:
+                raise ValueError("Cannot sign message without attachments")
+        
+        elif message_type == MessageType.MIXED:
+            # Для смешанных сообщений подпись может быть для текста или для всех файлов
+            if not text and not attachments:
+                raise ValueError("Cannot sign empty mixed message")
+        
+        elif message_type == MessageType.REPLY:
+            # Для ответов подпись может быть для текста или для всех файлов
+            if not text and not attachments:
+                raise ValueError("Cannot sign empty reply message")
+        
+        elif message_type == MessageType.DEAL:
+            # Для сделок подпись может быть для текста или для всех файлов
+            # Если есть подпись, должен быть либо текст, либо файлы
+            if signature and not text and not attachments:
+                raise ValueError("Cannot sign deal message without text or attachments")
+        
+        return values
+    
+    class Config:
+        use_enum_values = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class ChatMessageCreate(BaseModel):
+    """Модель для создания нового сообщения (без id и timestamp)"""
+    message_type: MessageType
+    sender_id: str
+    receiver_id: str
+    contact_id: Optional[str] = None
+    deal_id: Optional[int] = Field(None, description="ID сделки (устаревшее поле)")
+    deal_uid: Optional[str] = Field(None, description="UID сделки (base58 UUID) для типа DEAL")
+    deal_label: Optional[str] = Field(None, description="Label сделки для типа DEAL")
+    text: Optional[str] = None
+    attachments: Optional[List[FileAttachment]] = None
+    reply_to_message_uuid: Optional[str] = Field(None, description="UUID сообщения, на которое ссылается ответ")
+    metadata: Optional[dict] = None
+    
+    # Подпись будет добавлена после создания сообщения
+    signature: Optional[MessageSignature] = None
+
+
+class ChatMessageResponse(ChatMessage):
+    """Модель ответа API (расширенная версия с дополнительными полями)"""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = None
+

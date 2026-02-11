@@ -124,6 +124,9 @@ class Storage(Base):
     # Schema version
     schema_ver = Column(String(10), nullable=False, default="1", server_default="1", comment="Schema version")
     
+    # Deal UID reference (for linking storage entries to deals)
+    deal_uid = Column(String(255), nullable=True, index=True, comment="Deal UID (base58 UUID) reference")
+    
     # JSON payload
     payload = Column(JSONB, nullable=False, comment="JSON payload data")
     
@@ -266,6 +269,37 @@ class Deals(Base):
     
     def __repr__(self):
         return f"<Deals(order_id={self.order_id}, title={self.title}, sender_did={self.sender_did}, receiver_did={self.receiver_did})>"
+
+
+class Deal(Base):
+    """Model for storing deals with base58 UUID identifier"""
+    
+    __tablename__ = "deal"
+    
+    # Primary key - autoincrement bigint
+    pk = Column(BigInteger, primary_key=True, autoincrement=True, index=True, comment="Autoincrement primary key")
+    
+    # Base58 UUID identifier (unique, indexed)
+    uid = Column(String(255), unique=True, nullable=False, index=True, comment="Base58 UUID identifier (primary identifier)")
+    
+    # Participants - array of participant DID (stored as JSONB for flexibility)
+    participants = Column(JSONB, nullable=False, comment="Array of participant DID identifiers")
+    
+    # Label - text description of the deal
+    label = Column(Text, nullable=False, comment="Text description of the deal")
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="Last update timestamp (UTC)")
+    
+    # Indexes for efficient queries
+    __table_args__ = (
+        # GIN index on participants for efficient JSONB queries
+        Index('ix_deal_participants', 'participants', postgresql_using='gin'),
+    )
+    
+    def __repr__(self):
+        return f"<Deal(pk={self.pk}, uid={self.uid}, label={self.label[:50] if self.label else None}...)>"
 
 
 class Advertisement(Base):
