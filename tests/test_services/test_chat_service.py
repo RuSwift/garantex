@@ -1,0 +1,533 @@
+"""
+Tests for ChatService
+"""
+import pytest
+from datetime import datetime
+from sqlalchemy import select
+
+from services.chat.service import ChatService
+from db.models import Storage, Deal
+from ledgers.chat.models import (
+    ChatMessageCreate,
+    MessageType,
+    AttachmentType,
+    FileAttachment,
+    MessageSignature
+)
+
+
+class TestChatServiceAddMessage:
+    """Test add_message method"""
+    
+    @pytest.mark.asyncio
+    async def test_add_message_without_deal_uid(self, test_db):
+        """Test adding message without deal_uid - should create 2 storage records"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        message = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:sender1",
+            receiver_id="did:test:receiver1",
+            text="Hello, world!"
+        )
+        
+        # Add message without deal_uid
+        created_messages = await service.add_message(message, deal_uid=None)
+        
+        # Should return list of messages (one for each owner_did)
+        assert len(created_messages) == 2
+        
+        # Check that 2 storage records were created (one for sender, one for receiver)
+        result = await test_db.execute(
+            select(Storage).where(Storage.space == "chat")
+        )
+        storage_records = result.scalars().all()
+        assert len(storage_records) == 2
+        
+        # Check owner_dids
+        owner_dids = {record.owner_did for record in storage_records}
+        assert owner_dids == {"did:test:sender1", "did:test:receiver1"}
+        
+        # Check that all records have the same payload
+        for record in storage_records:
+            assert record.space == "chat"
+            assert record.deal_uid is None
+            assert record.payload["text"] == "Hello, world!"
+            assert record.payload["sender_id"] == "did:test:sender1"
+            assert record.payload["receiver_id"] == "did:test:receiver1"
+    
+    @pytest.mark.asyncio
+    async def test_add_message_with_deal_uid(self, test_db):
+        """Test adding message with deal_uid - should create records for all participants"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        # Create a Deal with participants
+        deal_uid = "deal123"
+        deal = Deal(
+            uid=deal_uid,
+            participants=["did:test:participant1", "did:test:participant2", "did:test:arbiter"],
+            label="Test Deal"
+        )
+        test_db.add(deal)
+        await test_db.commit()
+        
+        message = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:sender1",
+            receiver_id="did:test:receiver1",
+            text="Deal message"
+        )
+        
+        # Add message with deal_uid
+        created_messages = await service.add_message(message, deal_uid=deal_uid)
+        
+        # Should return list of messages (one for each participant)
+        assert len(created_messages) == 3
+        
+        # Check that 3 storage records were created (one for each participant)
+        result = await test_db.execute(
+            select(Storage).where(Storage.space == "chat")
+        )
+        storage_records = result.scalars().all()
+        assert len(storage_records) == 3
+        
+        # Check owner_dids
+        owner_dids = {record.owner_did for record in storage_records}
+        assert owner_dids == {
+            "did:test:participant1",
+            "did:test:participant2",
+            "did:test:arbiter"
+        }
+        
+        # Check that all records have deal_uid
+        for record in storage_records:
+            assert record.space == "chat"
+            assert record.deal_uid == deal_uid
+            assert record.payload["text"] == "Deal message"
+    
+    @pytest.mark.asyncio
+    async def test_add_message_with_nonexistent_deal_uid(self, test_db):
+        """Test adding message with nonexistent deal_uid - should fallback to sender/receiver"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        message = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:sender1",
+            receiver_id="did:test:receiver1",
+            text="Message with nonexistent deal"
+        )
+        
+        # Add message with nonexistent deal_uid
+        created_messages = await service.add_message(message, deal_uid="nonexistent_deal")
+        
+        # Should fallback to sender and receiver
+        assert len(created_messages) == 2
+        
+        # Check that 2 storage records were created
+        result = await test_db.execute(
+            select(Storage).where(Storage.space == "chat")
+        )
+        storage_records = result.scalars().all()
+        assert len(storage_records) == 2
+        
+        # Check owner_dids (should be sender and receiver)
+        owner_dids = {record.owner_did for record in storage_records}
+        assert owner_dids == {"did:test:sender1", "did:test:receiver1"}
+    
+    @pytest.mark.asyncio
+    async def test_add_message_atomicity(self, test_db):
+        """Test that add_message is atomic - all or nothing"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        message = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:sender1",
+            receiver_id="did:test:receiver1",
+            text="Atomic test"
+        )
+        
+        # Add message
+        await service.add_message(message, deal_uid=None)
+        
+        # Check that records were committed
+        result = await test_db.execute(
+            select(Storage).where(Storage.space == "chat")
+        )
+        storage_records = result.scalars().all()
+        assert len(storage_records) == 2
+        
+        # Verify commit was successful
+        await test_db.commit()
+        result = await test_db.execute(
+            select(Storage).where(Storage.space == "chat")
+        )
+        storage_records_after = result.scalars().all()
+        assert len(storage_records_after) == 2
+    
+    @pytest.mark.asyncio
+    async def test_add_message_with_file_attachment(self, test_db):
+        """Test adding message with file attachment"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        attachment = FileAttachment(
+            id="att1",
+            type=AttachmentType.DOCUMENT,
+            name="test.pdf",
+            size=1024,
+            mime_type="application/pdf",
+            data="dGVzdCBkYXRh"  # base64 encoded "test data"
+        )
+        
+        message = ChatMessageCreate(
+            message_type=MessageType.FILE,
+            sender_id="did:test:sender1",
+            receiver_id="did:test:receiver1",
+            attachments=[attachment]
+        )
+        
+        created_messages = await service.add_message(message, deal_uid=None)
+        
+        assert len(created_messages) == 2
+        
+        # Check that attachment is stored in payload
+        result = await test_db.execute(
+            select(Storage).where(Storage.space == "chat")
+        )
+        storage_records = result.scalars().all()
+        assert len(storage_records) == 2
+        
+        for record in storage_records:
+            assert record.payload["message_type"] == "file"
+            assert len(record.payload["attachments"]) == 1
+            assert record.payload["attachments"][0]["name"] == "test.pdf"
+
+
+class TestChatServiceGetHistory:
+    """Test get_history method"""
+    
+    @pytest.mark.asyncio
+    async def test_get_history_empty(self, test_db):
+        """Test getting history when no messages exist"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        result = await service.get_history()
+        
+        assert result["messages"] == []
+        assert result["total"] == 0
+        assert result["page"] == 1
+        assert result["page_size"] == 50
+        assert result["total_pages"] == 0
+    
+    @pytest.mark.asyncio
+    async def test_get_history_with_messages(self, test_db):
+        """Test getting history with messages"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        # Add some messages
+        message1 = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:sender1",
+            receiver_id=owner_did,
+            text="Message 1"
+        )
+        await service.add_message(message1, deal_uid=None)
+        
+        # Create service for receiver to add message from their perspective
+        service2 = ChatService(session=test_db, owner_did="did:test:sender1")
+        message2 = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:sender1",
+            receiver_id=owner_did,
+            text="Message 2"
+        )
+        await service2.add_message(message2, deal_uid=None)
+        
+        # Get history for owner_did
+        result = await service.get_history()
+        
+        assert len(result["messages"]) == 2
+        assert result["total"] == 2
+        # Messages should be ordered by created_at descending (newest first)
+        assert result["messages"][0].text == "Message 2"
+        assert result["messages"][1].text == "Message 1"
+    
+    @pytest.mark.asyncio
+    async def test_get_history_with_deal_uid_filter(self, test_db):
+        """Test getting history filtered by deal_uid"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        # Create a Deal
+        deal_uid = "deal123"
+        deal = Deal(
+            uid=deal_uid,
+            participants=[owner_did, "did:test:participant2"],
+            label="Test Deal"
+        )
+        test_db.add(deal)
+        await test_db.commit()
+        
+        # Add message without deal_uid
+        message1 = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:sender1",
+            receiver_id=owner_did,
+            text="General message"
+        )
+        await service.add_message(message1, deal_uid=None)
+        
+        # Add message with deal_uid
+        message2 = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:sender1",
+            receiver_id=owner_did,
+            text="Deal message"
+        )
+        await service.add_message(message2, deal_uid=deal_uid)
+        
+        # Get history without deal_uid
+        result = await service.get_history(deal_uid=None)
+        assert len(result["messages"]) == 1
+        assert result["messages"][0].text == "General message"
+        
+        # Get history with deal_uid
+        result = await service.get_history(deal_uid=deal_uid)
+        assert len(result["messages"]) == 1
+        assert result["messages"][0].text == "Deal message"
+    
+    @pytest.mark.asyncio
+    async def test_get_history_with_pagination(self, test_db):
+        """Test getting history with pagination"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        # Add 5 messages
+        for i in range(5):
+            message = ChatMessageCreate(
+                message_type=MessageType.TEXT,
+                sender_id="did:test:sender1",
+                receiver_id=owner_did,
+                text=f"Message {i+1}"
+            )
+            await service.add_message(message, deal_uid=None)
+        
+        # Get first page (2 messages)
+        result = await service.get_history(page=1, page_size=2)
+        assert len(result["messages"]) == 2
+        assert result["total"] == 5
+        assert result["page"] == 1
+        assert result["page_size"] == 2
+        assert result["total_pages"] == 3
+        
+        # Get second page
+        result = await service.get_history(page=2, page_size=2)
+        assert len(result["messages"]) == 2
+        assert result["page"] == 2
+    
+    @pytest.mark.asyncio
+    async def test_get_history_with_contact_id_filter(self, test_db):
+        """Test getting history filtered by contact_id (where contact_id == sender_id OR receiver_id)"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        # Add messages where contact_id matches sender_id or receiver_id
+        # Message 1: contact_id matches sender_id, owner_did is receiver
+        message1 = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:contact1",  # contact_id will match this
+            receiver_id=owner_did,
+            text="From contact1 as sender"
+        )
+        await service.add_message(message1, deal_uid=None)
+        
+        # Message 2: contact_id matches receiver_id, owner_did is sender
+        message2 = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id=owner_did,
+            receiver_id="did:test:contact2",  # contact_id will match this
+            text="From contact2 as receiver"
+        )
+        await service.add_message(message2, deal_uid=None)
+        
+        # Message 3: contact_id doesn't match sender_id or receiver_id, owner_did is receiver
+        message3 = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:sender3",
+            receiver_id=owner_did,
+            text="Should not appear when filtering by contact_id"
+        )
+        await service.add_message(message3, deal_uid=None)
+        
+        # Filter by contact_id="did:test:contact1" - should match message1 (sender_id matches)
+        result = await service.get_history(contact_id="did:test:contact1")
+        assert len(result["messages"]) == 1
+        assert result["messages"][0].text == "From contact1 as sender"
+        assert result["messages"][0].sender_id == "did:test:contact1"
+        
+        # Filter by contact_id="did:test:contact2" - should match message2 (receiver_id matches)
+        result = await service.get_history(contact_id="did:test:contact2")
+        assert len(result["messages"]) == 1
+        assert result["messages"][0].text == "From contact2 as receiver"
+        assert result["messages"][0].receiver_id == "did:test:contact2"
+        
+        # Filter by contact_id that matches owner_did - should match all messages where owner_did is sender or receiver
+        result = await service.get_history(contact_id=owner_did)
+        assert len(result["messages"]) == 3  # message1 (receiver), message2 (sender), message3 (receiver)
+
+
+class TestChatServiceGetLastSessions:
+    """Test get_last_sessions method"""
+    
+    @pytest.mark.asyncio
+    async def test_get_last_sessions_empty(self, test_db):
+        """Test getting last sessions when no messages exist"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        sessions = await service.get_last_sessions()
+        
+        assert sessions == []
+    
+    @pytest.mark.asyncio
+    async def test_get_last_sessions_grouped_by_deal_uid(self, test_db):
+        """Test getting last sessions grouped by deal_uid"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        # Create deals
+        deal1_uid = "deal1"
+        deal1 = Deal(
+            uid=deal1_uid,
+            participants=[owner_did, "did:test:participant2"],
+            label="Deal 1"
+        )
+        test_db.add(deal1)
+        
+        deal2_uid = "deal2"
+        deal2 = Deal(
+            uid=deal2_uid,
+            participants=[owner_did, "did:test:participant3"],
+            label="Deal 2"
+        )
+        test_db.add(deal2)
+        await test_db.commit()
+        
+        # Add messages to different deals and general chat
+        # General chat message
+        message1 = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:sender1",
+            receiver_id=owner_did,
+            text="General message 1"
+        )
+        await service.add_message(message1, deal_uid=None)
+        
+        # Deal 1 message
+        message2 = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:sender1",
+            receiver_id=owner_did,
+            text="Deal 1 message"
+        )
+        await service.add_message(message2, deal_uid=deal1_uid)
+        
+        # Deal 2 message
+        message3 = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id="did:test:sender1",
+            receiver_id=owner_did,
+            text="Deal 2 message"
+        )
+        await service.add_message(message3, deal_uid=deal2_uid)
+        
+        # Get last sessions
+        sessions = await service.get_last_sessions()
+        
+        # Should have 3 sessions (general, deal1, deal2)
+        assert len(sessions) == 3
+        
+        # Check that sessions are sorted by last_message_time descending
+        for i in range(len(sessions) - 1):
+            assert sessions[i]["last_message_time"] >= sessions[i+1]["last_message_time"]
+        
+        # Check session structure
+        for session in sessions:
+            assert "deal_uid" in session
+            assert "last_message_time" in session
+            assert "message_count" in session
+            assert "last_message" in session
+            # last_message is a ChatMessage object (Pydantic model)
+            assert hasattr(session["last_message"], "text")
+            assert hasattr(session["last_message"], "sender_id")
+    
+    @pytest.mark.asyncio
+    async def test_get_last_sessions_with_limit(self, test_db):
+        """Test getting last sessions with limit"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        # Create multiple deals and add messages
+        for i in range(5):
+            deal_uid = f"deal{i}"
+            deal = Deal(
+                uid=deal_uid,
+                participants=[owner_did, f"did:test:participant{i}"],
+                label=f"Deal {i}"
+            )
+            test_db.add(deal)
+            await test_db.commit()
+            
+            message = ChatMessageCreate(
+                message_type=MessageType.TEXT,
+                sender_id="did:test:sender1",
+                receiver_id=owner_did,
+                text=f"Deal {i} message"
+            )
+            await service.add_message(message, deal_uid=deal_uid)
+        
+        # Get last sessions with limit
+        sessions = await service.get_last_sessions(limit=3)
+        
+        assert len(sessions) == 3
+    
+    @pytest.mark.asyncio
+    async def test_get_last_sessions_message_count(self, test_db):
+        """Test that message_count is correct for each session"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        # Create a deal
+        deal_uid = "deal1"
+        deal = Deal(
+            uid=deal_uid,
+            participants=[owner_did, "did:test:participant2"],
+            label="Deal 1"
+        )
+        test_db.add(deal)
+        await test_db.commit()
+        
+        # Add 3 messages to the deal
+        for i in range(3):
+            message = ChatMessageCreate(
+                message_type=MessageType.TEXT,
+                sender_id="did:test:sender1",
+                receiver_id=owner_did,
+                text=f"Deal message {i+1}"
+            )
+            await service.add_message(message, deal_uid=deal_uid)
+        
+        # Get last sessions
+        sessions = await service.get_last_sessions()
+        
+        # Find the deal session
+        deal_session = next((s for s in sessions if s["deal_uid"] == deal_uid), None)
+        assert deal_session is not None
+        assert deal_session["message_count"] == 3
+

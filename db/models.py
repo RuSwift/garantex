@@ -127,6 +127,9 @@ class Storage(Base):
     # Deal UID reference (for linking storage entries to deals)
     deal_uid = Column(String(255), nullable=True, index=True, comment="Deal UID (base58 UUID) reference")
     
+    # Owner DID - пользователь, которому принадлежит ledger
+    owner_did = Column(String(255), nullable=True, index=True, comment="Owner DID - пользователь, которому принадлежит ledger")
+    
     # JSON payload
     payload = Column(JSONB, nullable=False, comment="JSON payload data")
     

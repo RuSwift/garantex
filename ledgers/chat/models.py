@@ -7,7 +7,7 @@ Pydantic модели для хранения и передачи объекто
 - Аудио/видео (кодируются в base64) + размеры файлов и имена
 - Подписи текстовых сообщений или сообщений с файлами
 """
-from pydantic import BaseModel, Field, validator, root_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Literal
 from datetime import datetime
 from enum import Enum
@@ -39,7 +39,8 @@ class MessageSignature(BaseModel):
     signed_at: datetime = Field(default_factory=datetime.utcnow, description="Время подписи")
     message_hash: Optional[str] = Field(None, description="Хеш подписанного сообщения (опционально)")
     
-    @validator('signature')
+    @field_validator('signature')
+    @classmethod
     def validate_signature_format(cls, v):
         """Проверка формата подписи"""
         if not v.startswith('0x'):
@@ -59,7 +60,8 @@ class FileAttachment(BaseModel):
     data: str = Field(..., description="Содержимое файла в base64")
     thumbnail: Optional[str] = Field(None, description="Превью в base64 (для изображений/видео)")
     
-    @validator('size')
+    @field_validator('size')
+    @classmethod
     def validate_size(cls, v):
         """Проверка размера файла (максимум 50MB)"""
         max_size = 50 * 1024 * 1024  # 50MB
@@ -69,7 +71,8 @@ class FileAttachment(BaseModel):
             raise ValueError("File size must be positive")
         return v
     
-    @validator('data')
+    @field_validator('data')
+    @classmethod
     def validate_base64(cls, v):
         """Базовая проверка base64 формата"""
         if not v:
@@ -119,12 +122,12 @@ class ChatMessage(BaseModel):
     # Дополнительные данные
     metadata: Optional[dict] = Field(None, description="Дополнительные метаданные (JSON)")
     
-    @root_validator
-    def validate_content(cls, values):
+    @model_validator(mode='after')
+    def validate_content(self):
         """Проверка что сообщение содержит либо текст, либо вложения"""
-        message_type = values.get('message_type')
-        text = values.get('text')
-        attachments = values.get('attachments')
+        message_type = self.message_type
+        text = self.text
+        attachments = self.attachments
         
         if message_type == MessageType.TEXT:
             if not text or not text.strip():
@@ -162,7 +165,7 @@ class ChatMessage(BaseModel):
         
         elif message_type == MessageType.REPLY:
             # REPLY может содержать текст и/или вложения, но должен ссылаться на другое сообщение
-            reply_to_uuid = values.get('reply_to_message_uuid')
+            reply_to_uuid = self.reply_to_message_uuid
             if not reply_to_uuid:
                 raise ValueError("Reply message must contain reply_to_message_uuid")
             if (not text or not text.strip()) and (not attachments or len(attachments) == 0):
@@ -170,8 +173,8 @@ class ChatMessage(BaseModel):
         
         elif message_type == MessageType.DEAL:
             # DEAL должен иметь deal_uid и deal_label, может содержать текст и/или вложения
-            deal_uid = values.get('deal_uid')
-            deal_label = values.get('deal_label')
+            deal_uid = self.deal_uid
+            deal_label = self.deal_label
             if not deal_uid:
                 raise ValueError("Deal message must contain deal_uid")
             if not deal_label:
@@ -179,18 +182,18 @@ class ChatMessage(BaseModel):
             # DEAL может содержать текст и/или вложения (опционально)
             # Если нет ни текста, ни вложений - это допустимо (просто индикация начала сделки)
         
-        return values
+        return self
     
-    @root_validator
-    def validate_signature_target(cls, values):
+    @model_validator(mode='after')
+    def validate_signature_target(self):
         """Проверка что подпись соответствует содержимому"""
-        signature = values.get('signature')
+        signature = self.signature
         if signature is None:
-            return values
+            return self
         
-        message_type = values.get('message_type')
-        text = values.get('text')
-        attachments = values.get('attachments')
+        message_type = self.message_type
+        text = self.text
+        attachments = self.attachments
         
         # Подпись может быть для текста или для файлов
         # Если есть подпись, должен быть либо текст, либо файлы
@@ -218,13 +221,14 @@ class ChatMessage(BaseModel):
             if signature and not text and not attachments:
                 raise ValueError("Cannot sign deal message without text or attachments")
         
-        return values
+        return self
     
-    class Config:
-        use_enum_values = True
-        json_encoders = {
+    model_config = {
+        "use_enum_values": True,
+        "json_encoders": {
             datetime: lambda v: v.isoformat()
         }
+    }
 
 
 class ChatMessageCreate(BaseModel):
