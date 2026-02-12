@@ -27,6 +27,8 @@ async def _advertisement_to_response(advertisement, db):
     user_is_verified = user.is_verified if user else False
     owner_nickname = user.nickname if user else None
     owner_avatar = user.avatar if user else None
+    owner_wallet_address = user.wallet_address if user else None
+    owner_blockchain = user.blockchain if user else None
     
     # Create response dict
     ad_dict = {
@@ -46,6 +48,8 @@ async def _advertisement_to_response(advertisement, db):
         "deals_count": advertisement.deals_count,
         "owner_nickname": owner_nickname,
         "owner_avatar": owner_avatar,
+        "owner_wallet_address": owner_wallet_address,
+        "owner_blockchain": owner_blockchain,
         "created_at": advertisement.created_at,
         "updated_at": advertisement.updated_at,
     }

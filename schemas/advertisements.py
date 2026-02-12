@@ -45,6 +45,8 @@ class AdvertisementResponse(AdvertisementBase):
     deals_count: int = Field(..., description="Number of completed deals")
     owner_nickname: Optional[str] = Field(None, description="Owner's nickname")
     owner_avatar: Optional[str] = Field(None, description="Owner's avatar (base64 data URI)")
+    owner_wallet_address: Optional[str] = Field(None, description="Owner's wallet address")
+    owner_blockchain: Optional[str] = Field(None, description="Owner's blockchain type")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Update timestamp")
     
