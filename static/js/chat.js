@@ -725,51 +725,8 @@ Vue.component('Chat', {
                                 </div>
                             </div>
 
-                            <!-- Escrow Status Panel -->
-                            <div v-if="escrowData.wallet" class="bg-light border-bottom px-4 py-3" style="flex-shrink: 0;">
-                                <div class="d-flex align-items-center justify-content-between" style="cursor: pointer;" @click="isStatusPanelCollapsed = !isStatusPanelCollapsed">
-                                    <div class="d-flex align-items-center" style="gap: 8px;">
-                                        <span style="font-size: 18px;">💼</span>
-                                        <span class="fw-semibold">Статус эскроу</span>
-                                    </div>
-                                    <svg 
-                                        style="width: 20px; height: 20px; color: #6b7280; transition: transform 0.3s;"
-                                        :style="{ transform: isStatusPanelCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }"
-                                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                                    >
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                                    </svg>
-                                </div>
-                                <div v-show="!isStatusPanelCollapsed" class="mt-3" style="display: flex; flex-direction: column; gap: 8px; font-size: 14px;">
-                                    <div class="d-flex justify-content-between">
-                                        <span class="text-muted">Кошелек эскроу:</span>
-                                        <span class="font-monospace fw-semibold">[[ formatWallet(escrowData.wallet) ]]</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <span class="text-muted">Баланс:</span>
-                                        <span class="fw-semibold">[[ escrowData.balance ]] USDT</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <span class="text-muted">Сумма:</span>
-                                        <span class="fw-semibold">[[ escrowData.amount ]] USDT</span>
-                                    </div>
-                                    <div v-if="escrowData.guarantor" class="d-flex justify-content-between">
-                                        <span class="text-muted">Гарант:</span>
-                                        <span class="font-monospace fw-semibold">[[ formatWallet(escrowData.guarantor) ]]</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <span class="text-muted">Статус:</span>
-                                        <span :class="[
-                                            'badge',
-                                            escrowData.status === 'success' ? 'bg-success' :
-                                            escrowData.status === 'rejected' ? 'bg-danger' :
-                                            'bg-warning'
-                                        ]" style="text-transform: uppercase; font-size: 11px;">
-                                            [[ escrowData.status === 'success' ? 'Успешно' : escrowData.status === 'rejected' ? 'Отклонено' : 'В ожидании' ]]
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
+                            <!-- Custom Header Addon Slot -->
+                            <slot name="chat-header-addon"></slot>
 
                             <!-- Messages - Telegram Style -->
                             <div ref="messageList" style="flex: 1; overflow-y: auto; padding: 8px 12px; z-index: 0;" class="telegram-scrollbar">

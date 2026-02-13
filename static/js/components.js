@@ -8079,50 +8079,19 @@ Vue.component('DealsChat', {
     },
     data() {
         return {
-            chatSearchQuery: '',
-            chatInputText: '',
-            selectedContactId: null,
-            isSigning: false,
-            pendingSignature: null,
             escrowData: {
                 wallet: null,
                 balance: '0',
                 amount: '0',
                 status: 'pending',
                 guarantor: null
-            },
-            isStatusPanelCollapsed: false,
-            contacts: [
-                {
-                    id: 'gemini',
-                    name: 'Gemini AI Assistant',
-                    avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Gemini',
-                    status: 'online',
-                    lastMessage: 'Привет! Я ваш AI помощник.',
-                    isTyping: false
-                }
-            ],
-            messages: {}
-        }
-    },
-    computed: {
-        filteredContacts() {
-            const q = this.chatSearchQuery.toLowerCase();
-            return this.contacts.filter(c =>
-                c.name.toLowerCase().includes(q)
-            );
-        },
-        selectedContact() {
-            return this.contacts.find(c => c.id === this.selectedContactId);
-        },
-        currentMessages() {
-            return this.messages[this.selectedContactId] || [];
+            }
         }
     },
     watch: {
         show(newVal) {
             if (newVal) {
-                this.initChat();
+                this.loadEscrowData();
             }
         }
     },
@@ -8130,25 +8099,13 @@ Vue.component('DealsChat', {
         close() {
             this.$emit('close');
         },
-        initChat() {
-            if (!this.messages['gemini']) {
-                this.$set(this.messages, 'gemini', [
-                    {
-                        id: 'init',
-                        text: 'Привет! Как я могу помочь вам?',
-                        sender: 'bot',
-                        timestamp: Date.now() - 60000
-                    }
-                ]);
-            }
-            this.loadEscrowData();
-        },
         async loadEscrowData() {
             if (!this.isAuthenticated || !this.walletAddress) {
                 return;
             }
             
             try {
+                // TODO: Replace with actual API call
                 this.escrowData = {
                     wallet: this.walletAddress,
                     balance: '1.5',
@@ -8159,393 +8116,95 @@ Vue.component('DealsChat', {
             } catch (error) {
                 console.error('Error loading escrow data:', error);
             }
-        },
-        formatWallet(address) {
-            if (!address) return '-';
-            return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
-        },
-        async signMessage() {
-            if (!this.chatInputText.trim()) {
-                alert('Введите сообщение для подписи');
-                return;
-            }
-            
-            if (!this.isAuthenticated) {
-                alert('Пожалуйста, авторизуйтесь');
-                return;
-            }
-            
-            if (typeof window.tronWeb === 'undefined') {
-                alert('TronLink не установлен');
-                return;
-            }
-            
-            try {
-                this.isSigning = true;
-                
-                const address = window.tronWeb.defaultAddress.base58;
-                if (!address) {
-                    alert('Пожалуйста, подключите TronLink');
-                    return;
-                }
-                
-                const cleanMessage = this.chatInputText.replace(/\n\n\[Подписано: .+?\]/, '').trim();
-                const message = cleanMessage;
-                
-                const signedMessage = await window.tronWeb.trx.signMessage(message);
-                
-                this.pendingSignature = signedMessage;
-                
-                const signedText = `${message}\n\n[Подписано: ${signedMessage.substring(0, 10)}...${signedMessage.substring(signedMessage.length - 8)}]`;
-                this.chatInputText = signedText;
-                
-            } catch (error) {
-                if (error.code === 4001) {
-                    alert('Подпись сообщения была отклонена');
-                } else {
-                    alert(`Ошибка подписи: ${error.message}`);
-                }
-            } finally {
-                this.isSigning = false;
-            }
-        },
-        async signExistingMessage(message) {
-            if (!this.isAuthenticated) {
-                alert('Пожалуйста, авторизуйтесь');
-                return;
-            }
-            
-            if (typeof window.tronWeb === 'undefined') {
-                alert('TronLink не установлен');
-                return;
-            }
-            
-            if (message.signature && message.signature.startsWith('0x')) {
-                alert('Сообщение уже подписано');
-                return;
-            }
-            
-            try {
-                const address = window.tronWeb.defaultAddress.base58;
-                if (!address) {
-                    alert('Пожалуйста, подключите TronLink');
-                    return;
-                }
-                
-                const messageText = message.text;
-                const signature = await window.tronWeb.trx.signMessage(messageText);
-                this.$set(message, 'signature', signature);
-                
-            } catch (error) {
-                if (error.code === 4001) {
-                    alert('Подпись сообщения была отклонена');
-                } else {
-                    alert(`Ошибка подписи: ${error.message}`);
-                }
-            }
-        },
-        selectContact(contact) {
-            this.selectedContactId = contact.id;
-            if (!this.messages[contact.id]) {
-                this.$set(this.messages, contact.id, []);
-            }
-            this.$nextTick(this.scrollToBottom);
-        },
-        formatTime(ts) {
-            return new Date(ts).toLocaleTimeString('ru-RU', {
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-        },
-        scrollToBottom() {
-            const el = this.$refs.messageList;
-            if (el) el.scrollTop = el.scrollHeight;
-        },
-        clearPendingSignatureIfTextChanged() {
-            if (this.pendingSignature && !this.chatInputText.includes('[Подписано:')) {
-                this.pendingSignature = null;
-            }
-        },
-        async handleSend() {
-            const text = this.chatInputText.trim();
-            if (!text || !this.selectedContactId) return;
-            
-            let messageText = text;
-            let signature = null;
-            
-            if (this.pendingSignature) {
-                messageText = text.replace(/\n\n\[Подписано: .+?\]/, '').trim();
-                signature = this.pendingSignature;
-                this.pendingSignature = null;
-            } else {
-                const signatureMatch = text.match(/\[Подписано: (.+?)\]/);
-                if (signatureMatch) {
-                    messageText = text.replace(/\n\n\[Подписано: .+?\]/, '').trim();
-                }
-            }
-            
-            const contact = this.selectedContact;
-            const cid = contact.id;
-            const ts = Date.now();
-            const userMsg = {
-                id: 'u-' + ts,
-                text: messageText,
-                sender: 'user',
-                timestamp: ts,
-                status: 'sent',
-                signature: signature
-            };
-            
-            if (!this.messages[cid]) {
-                this.$set(this.messages, cid, []);
-            }
-            this.messages[cid].push(userMsg);
-            this.chatInputText = '';
-            contact.lastMessage = messageText;
-            this.$nextTick(this.scrollToBottom);
-            
-            try {
-                contact.isTyping = true;
-                const botMsg = {
-                    id: 'b-' + Date.now(),
-                    text: '',
-                    sender: 'bot',
-                    timestamp: Date.now()
-                };
-                this.messages[cid].push(botMsg);
-                
-                const reply = 'Это заглушка ответа AI.';
-                for (let i = 0; i < reply.length; i++) {
-                    botMsg.text += reply[i];
-                    await new Promise(r => setTimeout(r, 15));
-                    this.$nextTick(this.scrollToBottom);
-                }
-                userMsg.status = 'read';
-            } finally {
-                contact.isTyping = false;
-            }
         }
     },
     template: `
         <modal-window v-if="show" :width="'90%'" :height="'100%'" @close="close">
             <template #header>
-                <div class="d-flex justify-content-between align-items-center w-100">
-                    <h3 class="mb-0">Сделки</h3>
-                    <button 
-                        @click="close"
-                        class="btn btn-sm btn-outline-secondary"
-                        title="Закрыть"
-                    >
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width: 20px; height: 20px;">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                        </svg>
-                    </button>
-                </div>
+                <h3>Сделки</h3>
             </template>
             <template #body>
-                <!-- Chat Container -->
-                <div class="d-flex h-100" style="height: 100%; overflow: hidden;">
-                    <!-- Sidebar -->
-                    <div class="border-end" style="width: 320px; display: flex; flex-direction: column; flex-shrink: 0; background: white;">
-                        <div class="p-3 border-bottom">
-                            <div class="position-relative">
-                                <svg class="position-absolute" style="left: 12px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; color: #9ca3af;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                                </svg>
-                                <input 
-                                    type="text" 
-                                    v-model="chatSearchQuery"
-                                    placeholder="Поиск чатов..."
-                                    class="form-control ps-5"
-                                    style="border-radius: 12px;"
-                                />
-                            </div>
-                        </div>
-                        
-                        <div style="flex: 1; overflow-y: auto;">
-                            <div 
-                                v-for="c in filteredContacts"
-                                :key="c.id"
-                                @click="selectContact(c)"
-                                :class="[
-                                    'p-3 border-bottom',
-                                    selectedContactId === c.id ? 'bg-light' : ''
-                                ]"
-                                style="cursor: pointer; transition: background 0.2s;"
-                                @mouseenter="$event.target.style.backgroundColor = selectedContactId === c.id ? '' : '#f9fafb'"
-                                @mouseleave="$event.target.style.backgroundColor = selectedContactId === c.id ? '#f8f9fa' : ''"
-                            >
-                                <div class="d-flex align-items-center" style="gap: 12px;">
-                                    <div style="width: 48px; height: 48px; border-radius: 50%; background: #dbeafe; display: flex; align-items: center; justify-content: center; color: #2563eb; font-weight: bold; flex-shrink: 0;">
-                                        <img v-if="c.avatar" :src="c.avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />
-                                        <span v-else>[[ c.name.charAt(0).toUpperCase() ]]</span>
-                                    </div>
-                                    <div style="flex: 1; min-width: 0;">
-                                        <div class="d-flex align-items-center justify-content-between mb-1">
-                                            <p class="mb-0 fw-semibold text-truncate" style="font-size: 15px;">[[ c.name ]]</p>
-                                            <span v-if="c.status === 'online'" style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></span>
-                                        </div>
-                                        <p class="mb-0 text-muted text-truncate" style="font-size: 13px;">
-                                            [[ c.isTyping ? 'печатает...' : c.lastMessage ]]
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Chat Area -->
-                    <div style="flex: 1; display: flex; flex-direction: column; background: white;">
-                        <div v-if="!selectedContact" class="d-flex align-items-center justify-content-center h-100 text-muted">
-                            <div class="text-center">
-                                <svg style="width: 64px; height: 64px; margin: 0 auto 16px; color: #d1d5db;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
-                                </svg>
-                                <p style="font-size: 18px;">Выберите чат для начала общения</p>
-                            </div>
-                        </div>
-
-                        <template v-else>
-                            <!-- Chat Header -->
-                            <div class="border-bottom px-4 py-3 d-flex align-items-center justify-content-between bg-white" style="min-height: 64px;">
-                                <div class="d-flex align-items-center" style="gap: 12px;">
-                                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #dbeafe; display: flex; align-items: center; justify-content: center; color: #2563eb; font-weight: bold;">
-                                        <img v-if="selectedContact.avatar" :src="selectedContact.avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />
-                                        <span v-else>[[ selectedContact.name.charAt(0).toUpperCase() ]]</span>
-                                    </div>
-                                    <div>
-                                        <p class="mb-0 fw-semibold">[[ selectedContact.name ]]</p>
-                                        <p class="mb-0 text-muted" style="font-size: 12px;">[[ selectedContact.status === 'online' ? 'В сети' : 'Не в сети' ]]</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Escrow Status Panel -->
-                            <div v-if="escrowData.wallet" class="bg-light border-bottom px-4 py-3" style="flex-shrink: 0;">
-                                <div class="d-flex align-items-center justify-content-between" style="cursor: pointer;" @click="isStatusPanelCollapsed = !isStatusPanelCollapsed">
-                                    <div class="d-flex align-items-center" style="gap: 8px;">
-                                        <span style="font-size: 18px;">💼</span>
-                                        <span class="fw-semibold">Статус эскроу</span>
-                                    </div>
-                                    <svg 
-                                        style="width: 20px; height: 20px; color: #6b7280; transition: transform 0.3s;"
-                                        :style="{ transform: isStatusPanelCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }"
-                                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                                    >
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                                    </svg>
-                                </div>
-                                <div v-show="!isStatusPanelCollapsed" class="mt-3" style="display: flex; flex-direction: column; gap: 8px; font-size: 14px;">
-                                    <div class="d-flex justify-content-between">
-                                        <span class="text-muted">Кошелек эскроу:</span>
-                                        <span class="font-monospace fw-semibold">[[ formatWallet(escrowData.wallet) ]]</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <span class="text-muted">Баланс:</span>
-                                        <span class="fw-semibold">[[ escrowData.balance ]] USDT</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <span class="text-muted">Сумма:</span>
-                                        <span class="fw-semibold">[[ escrowData.amount ]] USDT</span>
-                                    </div>
-                                    <div v-if="escrowData.guarantor" class="d-flex justify-content-between">
-                                        <span class="text-muted">Гарант:</span>
-                                        <span class="font-monospace fw-semibold">[[ formatWallet(escrowData.guarantor) ]]</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <span class="text-muted">Статус:</span>
-                                        <span :class="[
-                                            'badge',
-                                            escrowData.status === 'success' ? 'bg-success' :
-                                            escrowData.status === 'rejected' ? 'bg-danger' :
-                                            'bg-warning'
-                                        ]" style="text-transform: uppercase; font-size: 11px;">
-                                            [[ escrowData.status === 'success' ? 'Успешно' : escrowData.status === 'rejected' ? 'Отклонено' : 'В ожидании' ]]
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Messages -->
-                            <div ref="messageList" style="flex: 1; overflow-y: auto; padding: 24px; background: #f3f4f6; background-image: url('data:image/svg+xml,%3Csvg width=\'100\' height=\'100\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cdefs%3E%3Cpattern id=\'grid\' width=\'100\' height=\'100\' patternUnits=\'userSpaceOnUse\'%3E%3Cpath d=\'M 100 0 L 0 0 0 100\' fill=\'none\' stroke=\'%23d4d4d4\' stroke-width=\'0.5\' opacity=\'0.3\'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width=\'100\' height=\'100\' fill=\'url(%23grid)\' /%3E%3C/svg%3E');">
-                                <div 
-                                    v-for="m in currentMessages"
-                                    :key="m.id"
-                                    :class="['d-flex mb-3', m.sender === 'user' ? 'justify-content-end' : 'justify-content-start']"
-                                >
-                                    <div 
-                                        :class="[
-                                            'px-3 py-2 rounded',
-                                            m.sender === 'user' 
-                                                ? 'bg-primary text-white' 
-                                                : 'bg-white text-dark border'
-                                        ]"
-                                        style="max-width: 65%; border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);"
-                                    >
-                                        <p class="mb-1" style="font-size: 15px; white-space: pre-wrap;">[[ m.text ]]</p>
-                                        <div v-if="m.signature && m.signature.startsWith('0x')" 
-                                             :class="['mt-2 pt-2', m.sender === 'user' ? 'border-top border-light border-opacity-25' : 'border-top']"
-                                             style="font-size: 11px;"
-                                        >
-                                            ✓ Подписано через TronLink<br>
-                                            <span class="font-monospace opacity-75" style="font-size: 10px;">[[ m.signature.substring(0, 20) ]]...[[ m.signature.substring(m.signature.length - 10) ]]</span>
-                                        </div>
-                                        <div v-if="m.sender === 'user' && isAuthenticated" class="mt-2">
-                                            <button 
-                                                v-if="!m.signature || !m.signature.startsWith('0x')"
-                                                @click="signExistingMessage(m)"
-                                                class="btn btn-sm"
-                                                :class="m.sender === 'user' ? 'btn-light' : 'btn-outline-secondary'"
-                                                title="Подписать сообщение через TronLink"
-                                                style="font-size: 11px; padding: 2px 8px;"
-                                            >
-                                                🔐 Подписать
-                                            </button>
-                                        </div>
-                                        <p :class="['mt-2 mb-0', m.sender === 'user' ? 'text-white-50' : 'text-muted']" style="font-size: 11px;">
-                                            [[ formatTime(m.timestamp) ]]
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Chat Input -->
-                            <form @submit.prevent="handleSend" class="border-top p-3 bg-white" style="flex-shrink: 0;">
-                                <div class="d-flex" style="gap: 8px;">
-                                    <input 
-                                        type="text"
-                                        v-model="chatInputText"
-                                        @input="clearPendingSignatureIfTextChanged"
-                                        placeholder="Введите сообщение..."
-                                        class="form-control"
-                                        style="border-radius: 22px;"
-                                    />
-                                    <button 
-                                        v-if="isAuthenticated"
-                                        type="button"
-                                        @click="signMessage"
-                                        :disabled="isSigning || !chatInputText.trim()"
-                                        class="btn btn-outline-secondary"
-                                        title="Подписать сообщение через TronLink"
-                                        style="border-radius: 22px;"
-                                    >
-                                        <span v-if="!isSigning">🔐</span>
-                                        <span v-else>...</span>
-                                    </button>
-                                    <button 
-                                        type="submit"
-                                        class="btn btn-primary"
-                                        style="border-radius: 22px;"
-                                    >
-                                        Отправить
-                                    </button>
-                                </div>
-                            </form>
-                        </template>
-                    </div>
-                </div>
+                <chat
+                    :wallet-address="walletAddress"
+                    :is-authenticated="isAuthenticated"
+                >
+                    <template #chat-header-addon>
+                        <escrow-status-panel
+                            v-if="escrowData.wallet"
+                            :escrow-data="escrowData"
+                        ></escrow-status-panel>
+                    </template>
+                </chat>
             </template>
         </modal-window>
+    `
+});
+
+// Escrow Status Panel Component
+Vue.component('EscrowStatusPanel', {
+    delimiters: ['[[', ']]'],
+    props: {
+        escrowData: {
+            type: Object,
+            required: true
+        }
+    },
+    data() {
+        return {
+            isCollapsed: false
+        };
+    },
+    methods: {
+        formatWallet(address) {
+            if (!address) return '-';
+            return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+        }
+    },
+    template: `
+        <div class="bg-light border-bottom px-4 py-3" style="flex-shrink: 0;">
+            <div class="d-flex align-items-center justify-content-between" style="cursor: pointer;" @click="isCollapsed = !isCollapsed">
+                <div class="d-flex align-items-center" style="gap: 8px;">
+                    <span style="font-size: 18px;">💼</span>
+                    <span class="fw-semibold">Статус эскроу</span>
+                </div>
+                <svg 
+                    style="width: 20px; height: 20px; color: #6b7280; transition: transform 0.3s;"
+                    :style="{ transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                >
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+            </div>
+            <div v-show="!isCollapsed" class="mt-3" style="display: flex; flex-direction: column; gap: 8px; font-size: 14px;">
+                <div class="d-flex justify-content-between">
+                    <span class="text-muted">Кошелек эскроу:</span>
+                    <span class="font-monospace fw-semibold">[[ formatWallet(escrowData.wallet) ]]</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span class="text-muted">Баланс:</span>
+                    <span class="fw-semibold">[[ escrowData.balance ]] USDT</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span class="text-muted">Сумма:</span>
+                    <span class="fw-semibold">[[ escrowData.amount ]] USDT</span>
+                </div>
+                <div v-if="escrowData.guarantor" class="d-flex justify-content-between">
+                    <span class="text-muted">Гарант:</span>
+                    <span class="font-monospace fw-semibold">[[ formatWallet(escrowData.guarantor) ]]</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span class="text-muted">Статус:</span>
+                    <span :class="[
+                        'badge',
+                        escrowData.status === 'success' ? 'bg-success' :
+                        escrowData.status === 'rejected' ? 'bg-danger' :
+                        'bg-warning'
+                    ]" style="text-transform: uppercase; font-size: 11px;">
+                        [[ escrowData.status === 'success' ? 'Успешно' : escrowData.status === 'rejected' ? 'Отклонено' : 'В ожидании' ]]
+                    </span>
+                </div>
+            </div>
+        </div>
     `
 });
 
