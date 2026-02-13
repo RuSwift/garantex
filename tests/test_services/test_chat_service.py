@@ -413,6 +413,38 @@ class TestChatServiceGetHistory:
         assert len(result["messages"]) == 1
         assert result["messages"][0].text == "Message related to deal"
         assert result["messages"][0].conversation_id == deal_uid
+    
+    @pytest.mark.asyncio
+    async def test_conversation_id_per_owner_did(self, test_db):
+        """Test that conversation_id is calculated correctly for each owner_did"""
+        alice_did = "did:test:alice"
+        bob_did = "did:test:bob"
+        
+        # Create message from Alice to Bob
+        service_alice = ChatService(session=test_db, owner_did=alice_did)
+        message = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id=alice_did,
+            receiver_id=bob_did,
+            text="Hello Bob"
+        )
+        await service_alice.add_message(message, deal_uid=None)
+        
+        # Check Alice's storage: conversation_id should be Bob
+        service_alice = ChatService(session=test_db, owner_did=alice_did)
+        alice_history = await service_alice.get_history()
+        assert len(alice_history["messages"]) == 1
+        assert alice_history["messages"][0].conversation_id == bob_did
+        
+        # Check Bob's storage: conversation_id should be Alice
+        service_bob = ChatService(session=test_db, owner_did=bob_did)
+        bob_history = await service_bob.get_history()
+        assert len(bob_history["messages"]) == 1
+        assert bob_history["messages"][0].conversation_id == alice_did
+        
+        # Both should see the same message text
+        assert alice_history["messages"][0].text == "Hello Bob"
+        assert bob_history["messages"][0].text == "Hello Bob"
 
 
 class TestChatServiceGetLastSessions:

@@ -376,6 +376,41 @@ Vue.component('Chat', {
             return null;
         },
         
+        async downloadAttachment(messageUuid, attachmentId, attachmentName, mimeType) {
+            try {
+                const response = await fetch(`/chat/api/attachment/${messageUuid}/${attachmentId}`);
+                
+                if (!response.ok) {
+                    throw new Error('Failed to download attachment');
+                }
+                
+                const attachment = await response.json();
+                
+                // Преобразуем base64 в Blob и скачиваем
+                const byteCharacters = atob(attachment.data);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: mimeType || attachment.mime_type });
+                
+                // Создаем ссылку для скачивания
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = attachmentName || attachment.name;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+            } catch (error) {
+                console.error('Error downloading attachment:', error);
+                alert('Ошибка загрузки файла');
+            }
+        },
+        
         // Internal methods
         selectContact(contact) {
             this.selectedContactId = contact.id;

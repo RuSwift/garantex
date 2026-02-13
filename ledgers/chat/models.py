@@ -98,8 +98,30 @@ class MessageSignature(BaseModel):
         return v
 
 
+class FileAttachmentMetadata(BaseModel):
+    """Метаданные файла БЕЗ данных (для списков сообщений)"""
+    id: str = Field(..., description="Уникальный идентификатор вложения")
+    type: AttachmentType = Field(..., description="Тип вложения: document, photo, video, audio")
+    name: str = Field(..., description="Имя файла")
+    size: int = Field(..., description="Размер файла в байтах")
+    mime_type: str = Field(..., description="MIME тип файла (например, image/png, application/pdf)")
+    thumbnail: Optional[str] = Field(None, description="Превью в base64 (для изображений/видео, небольшой размер)")
+    download_url: Optional[str] = Field(None, description="URL для загрузки полного файла")
+    
+    @field_validator('size')
+    @classmethod
+    def validate_size(cls, v):
+        """Проверка размера файла (максимум 50MB)"""
+        max_size = 50 * 1024 * 1024  # 50MB
+        if v > max_size:
+            raise ValueError(f"File size exceeds maximum allowed size of {max_size} bytes")
+        if v <= 0:
+            raise ValueError("File size must be positive")
+        return v
+
+
 class FileAttachment(BaseModel):
-    """Модель файлового вложения"""
+    """Модель файлового вложения (полная версия с данными)"""
     id: str = Field(..., description="Уникальный идентификатор вложения")
     type: AttachmentType = Field(..., description="Тип вложения: document, photo, video, audio")
     name: str = Field(..., description="Имя файла")

@@ -106,6 +106,10 @@ async def get_history(
     conversation_id: Optional[str] = Query(None, description="Filter by conversation ID"),
     page: int = Query(1, ge=1, description="Page number (1-based)"),
     page_size: int = Query(50, ge=1, le=100, description="Number of messages per page"),
+    exclude_file_data: bool = Query(
+        True,
+        description="Exclude file data from attachments (recommended for performance). Use /api/attachment/{message_uuid}/{attachment_id} to download files."
+    ),
     chat_service: ChatService = Depends(get_chat_service)
 ):
     """
@@ -115,16 +119,19 @@ async def get_history(
         conversation_id: Фильтр по ID беседы (опционально). Может быть DID контрагента или deal_uid.
         page: Номер страницы (начиная с 1)
         page_size: Количество сообщений на странице
+        exclude_file_data: Исключить данные файлов из вложений (рекомендуется для производительности)
         chat_service: ChatService instance (автоматически создается с owner_did текущего пользователя)
         
     Returns:
-        История сообщений с информацией о пагинации
+        История сообщений с информацией о пагинации.
+        Для загрузки файлов используйте /api/attachment/{message_uuid}/{attachment_id}
     """
     try:
         result = await chat_service.get_history(
             conversation_id=conversation_id,
             page=page,
-            page_size=page_size
+            page_size=page_size,
+            exclude_file_data=exclude_file_data
         )
         
         return GetHistoryResponse(**result)
@@ -132,6 +139,42 @@ async def get_history(
         raise HTTPException(
             status_code=500,
             detail=f"Error getting history: {str(e)}"
+        )
+
+
+@router.get("/api/attachment/{message_uuid}/{attachment_id}")
+async def get_attachment(
+    message_uuid: str,
+    attachment_id: str,
+    chat_service: ChatService = Depends(get_chat_service)
+):
+    """
+    Получить конкретное вложение с данными
+    
+    Args:
+        message_uuid: UUID сообщения
+        attachment_id: ID вложения
+        
+    Returns:
+        FileAttachment with base64 data
+    """
+    try:
+        attachment = await chat_service.get_attachment(message_uuid, attachment_id)
+        
+        if not attachment:
+            raise HTTPException(
+                status_code=404,
+                detail="Attachment not found or access denied"
+            )
+        
+        return attachment
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting attachment: {str(e)}"
         )
 
 

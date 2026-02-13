@@ -8,7 +8,7 @@ from sqlalchemy import select, func, desc, and_
 from uuid import uuid1
 
 from db.models import Storage, Deal
-from ledgers.chat.models import ChatMessage, ChatMessageCreate
+from ledgers.chat.models import ChatMessage, ChatMessageCreate, FileAttachment
 
 
 class ChatService:
@@ -45,24 +45,14 @@ class ChatService:
         # Generate uuid for the message
         message_uuid = str(uuid1())
         
-        # Auto-generate conversation_id
-        if deal_uid:
-            # Если сообщение связано со сделкой, conversation_id = deal_uid
-            conversation_id = deal_uid
-        else:
-            # Иначе conversation_id = контрагент (тот, кто не является owner_did)
-            if self.owner_did == message.sender_id:
-                conversation_id = message.receiver_id
-            else:
-                conversation_id = message.sender_id
-        
         # Create full ChatMessage from ChatMessageCreate
+        # Note: conversation_id will be calculated per owner_did later
         full_message = ChatMessage(
             uuid=message_uuid,
             message_type=message.message_type,
             sender_id=message.sender_id,
             receiver_id=message.receiver_id,
-            conversation_id=conversation_id,
+            conversation_id=None,  # Будет рассчитан для каждого owner_did
             deal_uid=message.deal_uid,
             deal_label=message.deal_label,
             reply_to_message_uuid=message.reply_to_message_uuid,
@@ -117,12 +107,27 @@ class ChatService:
         created_messages = []
         try:
             for owner_did_value in owner_dids:
+                # Рассчитываем conversation_id для каждого owner_did
+                if deal_uid:
+                    # Если сообщение связано со сделкой, conversation_id = deal_uid
+                    conversation_id = deal_uid
+                else:
+                    # Иначе conversation_id = контрагент (тот, кто не является owner_did_value)
+                    if owner_did_value == message.sender_id:
+                        conversation_id = message.receiver_id
+                    else:
+                        conversation_id = message.sender_id
+                
+                # Обновляем conversation_id в message_dict для этого owner_did
+                message_dict_copy = message_dict.copy()
+                message_dict_copy['conversation_id'] = conversation_id
+                
                 storage = Storage(
                     space=self.SPACE,
                     deal_uid=deal_uid,
                     owner_did=owner_did_value,
                     conversation_id=conversation_id,
-                    payload=message_dict,
+                    payload=message_dict_copy,
                     schema_ver="1"
                 )
                 self.session.add(storage)
@@ -137,11 +142,36 @@ class ChatService:
             await self.session.rollback()
             raise
     
+    def _strip_file_data_from_message(self, message: ChatMessage, base_url: str = "/chat/api/attachment") -> Dict[str, Any]:
+        """
+        Удаляет поле data из attachments и добавляет download_url
+        
+        Args:
+            message: Полное сообщение с файлами
+            base_url: Базовый URL для загрузки файлов
+            
+        Returns:
+            Словарь сообщения без file data
+        """
+        message_dict = message.model_dump()
+        
+        if message_dict.get('attachments'):
+            for attachment in message_dict['attachments']:
+                # Удаляем data
+                if 'data' in attachment:
+                    del attachment['data']
+                
+                # Добавляем URL для загрузки
+                attachment['download_url'] = f"{base_url}/{message.uuid}/{attachment['id']}"
+        
+        return message_dict
+    
     async def get_history(
         self,
         conversation_id: Optional[str] = None,
         page: int = 1,
-        page_size: int = 50
+        page_size: int = 50,
+        exclude_file_data: bool = False
     ) -> Dict[str, Any]:
         """
         Get chat history with pagination (always filtered by owner_did)
@@ -150,6 +180,7 @@ class ChatService:
             conversation_id: Filter by conversation ID (optional). If not specified, returns all messages.
             page: Page number (1-based)
             page_size: Number of messages per page
+            exclude_file_data: If True, excludes file data from attachments (only metadata)
             
         Returns:
             Dictionary with 'messages' (list of ChatMessage) and 'total' (total count)
@@ -194,7 +225,14 @@ class ChatService:
                         )
                 
                 message = ChatMessage(**payload)
-                messages.append(message)
+                
+                # Если нужно исключить file data, преобразуем сообщение
+                if exclude_file_data:
+                    message_dict = self._strip_file_data_from_message(message)
+                    messages.append(message_dict)
+                else:
+                    messages.append(message)
+                    
             except Exception as e:
                 # Skip invalid messages
                 print(f"Error parsing message from storage {storage.id}: {e}")
@@ -205,8 +243,54 @@ class ChatService:
             "total": total,
             "page": page,
             "page_size": page_size,
-            "total_pages": (total + page_size - 1) // page_size if total > 0 else 0
+            "total_pages": (total + page_size - 1) // page_size if total > 0 else 0,
+            "exclude_file_data": exclude_file_data
         }
+    
+    async def get_attachment(
+        self,
+        message_uuid: str,
+        attachment_id: str
+    ) -> Optional[FileAttachment]:
+        """
+        Get specific attachment with data
+        
+        Args:
+            message_uuid: UUID сообщения
+            attachment_id: ID вложения
+            
+        Returns:
+            FileAttachment with data or None if not found
+        """
+        # Находим сообщение по UUID (owner_did проверяется для безопасности)
+        query = select(Storage).where(
+            Storage.space == self.SPACE,
+            Storage.owner_did == self.owner_did,
+            Storage.payload['uuid'].astext == message_uuid
+        )
+        
+        result = await self.session.execute(query)
+        storage = result.scalar_one_or_none()
+        
+        if not storage:
+            return None
+        
+        # Парсим сообщение и ищем нужный attachment
+        try:
+            payload = storage.payload
+            
+            # Ищем нужный attachment
+            attachments = payload.get('attachments', [])
+            for att in attachments:
+                if att.get('id') == attachment_id:
+                    # Возвращаем полный attachment с data
+                    return FileAttachment(**att)
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error getting attachment: {e}")
+            return None
     
     async def get_last_sessions(
         self,
