@@ -66,6 +66,7 @@ class ProfileResponse(BaseModel):
     """Response model for user profile"""
     wallet_address: str = Field(..., description="Wallet address")
     blockchain: str = Field(..., description="Blockchain type")
+    did: Optional[str] = Field(None, description="Decentralized Identifier (DID)")
     nickname: str = Field(..., description="User display name")
     avatar: Optional[str] = Field(None, description="User avatar in base64 format")
     access_to_admin_panel: bool = Field(..., description="Access to admin panel")

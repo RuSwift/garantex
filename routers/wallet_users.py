@@ -7,6 +7,7 @@ from dependencies import RequireAdminDepends, DbDepends
 
 logger = logging.getLogger(__name__)
 from routers.auth import get_current_tron_user, get_current_user
+from ledgers import get_user_did
 from schemas.node import ChangeResponse
 from schemas.users import (
     WalletUserItem, 
@@ -471,6 +472,7 @@ async def get_my_profile(
         return ProfileResponse(
             wallet_address=user.wallet_address,
             blockchain=user.blockchain,
+            did=get_user_did(user.wallet_address, user.blockchain),
             nickname=user.nickname,
             avatar=user.avatar,
             access_to_admin_panel=user.access_to_admin_panel,
@@ -536,6 +538,7 @@ async def update_my_profile(
         return ProfileResponse(
             wallet_address=user.wallet_address,
             blockchain=user.blockchain,
+            did=get_user_did(user.wallet_address, user.blockchain),
             nickname=user.nickname,
             avatar=user.avatar,
             access_to_admin_panel=user.access_to_admin_panel,

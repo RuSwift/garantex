@@ -13,6 +13,7 @@ from schemas.advertisements import (
 )
 from services.advertisement import AdvertisementService
 from services.wallet_user import WalletUserService
+from ledgers import get_user_did
 from db.models import WalletUser
 from sqlalchemy import select
 
@@ -27,6 +28,7 @@ async def _advertisement_to_response(advertisement, db):
     user_is_verified = user.is_verified if user else False
     owner_nickname = user.nickname if user else None
     owner_avatar = user.avatar if user else None
+    owner_did = get_user_did(user.wallet_address, user.blockchain) if user else None
     owner_wallet_address = user.wallet_address if user else None
     owner_blockchain = user.blockchain if user else None
     
@@ -48,6 +50,7 @@ async def _advertisement_to_response(advertisement, db):
         "deals_count": advertisement.deals_count,
         "owner_nickname": owner_nickname,
         "owner_avatar": owner_avatar,
+        "owner_did": owner_did,
         "owner_wallet_address": owner_wallet_address,
         "owner_blockchain": owner_blockchain,
         "created_at": advertisement.created_at,

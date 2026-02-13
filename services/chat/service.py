@@ -174,9 +174,9 @@ class ChatService:
         total_result = await self.session.execute(count_query)
         total = total_result.scalar() or 0
         
-        # Apply pagination and ordering (newest first)
+        # Apply pagination and ordering (oldest first for history)
         offset = (page - 1) * page_size
-        query = query.order_by(desc(Storage.created_at)).offset(offset).limit(page_size)
+        query = query.order_by(Storage.id.asc()).offset(offset).limit(page_size)
         
         # Execute query
         result = await self.session.execute(query)

@@ -10,38 +10,12 @@ from dependencies import DbDepends
 from services.chat.service import ChatService
 from services.wallet_user import WalletUserService
 from ledgers.chat.models import ChatMessage, ChatMessageCreate, ChatMessageResponse
+from ledgers import get_user_did
 
 router = APIRouter(
-    prefix="/api/chat",
+    prefix="/chat",
     tags=["chat"]
 )
-
-
-def get_user_did(wallet_address: str, blockchain: str) -> str:
-    """
-    Формирует DID из wallet_address и blockchain
-    
-    Args:
-        wallet_address: Адрес кошелька пользователя
-        blockchain: Тип блокчейна (tron, ethereum, bitcoin, etc.)
-        
-    Returns:
-        DID строка в формате did:{method}:{address}
-    """
-    blockchain_lower = blockchain.lower()
-    
-    if blockchain_lower in ['tron', 'ethereum', 'bitcoin']:
-        # TRON, Ethereum, Bitcoin use secp256k1
-        did_method = "ethr" if blockchain_lower == "ethereum" else blockchain_lower
-        did = f"did:{did_method}:{wallet_address.lower()}"
-    elif blockchain_lower in ['polkadot', 'substrate']:
-        # Polkadot uses Ed25519
-        did = f"did:polkadot:{wallet_address.lower()}"
-    else:
-        # Default to secp256k1 for unknown blockchains
-        did = f"did:ethr:{wallet_address.lower()}"
-    
-    return did
 
 
 async def get_chat_service(
@@ -86,7 +60,7 @@ class AddMessageResponse(BaseModel):
     success: bool = True
 
 
-@router.post("/messages", response_model=AddMessageResponse)
+@router.post("/api/messages", response_model=AddMessageResponse)
 async def add_message(
     request: AddMessageRequest,
     chat_service: ChatService = Depends(get_chat_service)
@@ -127,7 +101,7 @@ class GetHistoryResponse(BaseModel):
     total_pages: int
 
 
-@router.get("/history", response_model=GetHistoryResponse)
+@router.get("/api/history", response_model=GetHistoryResponse)
 async def get_history(
     deal_uid: Optional[str] = Query(None, description="Filter by deal UID"),
     contact_id: Optional[str] = Query(None, description="Filter by contact ID"),
@@ -177,7 +151,7 @@ class GetSessionsResponse(BaseModel):
     sessions: List[SessionInfo]
 
 
-@router.get("/sessions", response_model=GetSessionsResponse)
+@router.get("/api/sessions", response_model=GetSessionsResponse)
 async def get_last_sessions(
     limit: int = Query(50, ge=1, le=100, description="Maximum number of sessions to return"),
     chat_service: ChatService = Depends(get_chat_service)
