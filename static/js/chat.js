@@ -765,7 +765,7 @@ Vue.component('Chat', {
                                             display: 'flex', 
                                             width: '100%', 
                                             justifyContent: m.sender === 'user' ? 'flex-end' : 'flex-start',
-                                            marginTop: (idx > 0 && currentMessages[idx-1].sender === m.sender) ? '-4px' : '4px'
+                                            marginTop: (idx > 0 && currentMessages[idx-1].sender === m.sender) ? '2px' : '4px'
                                         }"
                                     >
                                         <div 
