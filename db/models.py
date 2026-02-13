@@ -130,6 +130,9 @@ class Storage(Base):
     # Owner DID - пользователь, которому принадлежит ledger
     owner_did = Column(String(255), nullable=True, index=True, comment="Owner DID - пользователь, которому принадлежит ledger")
     
+    # Conversation ID - для группировки сообщений в одну беседу
+    conversation_id = Column(String(255), nullable=True, index=True, comment="Conversation ID для группировки сообщений")
+    
     # JSON payload
     payload = Column(JSONB, nullable=False, comment="JSON payload data")
     

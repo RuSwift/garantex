@@ -254,13 +254,13 @@ class TestChatServiceGetHistory:
         
         assert len(result["messages"]) == 2
         assert result["total"] == 2
-        # Messages should be ordered by created_at descending (newest first)
-        assert result["messages"][0].text == "Message 2"
-        assert result["messages"][1].text == "Message 1"
+        # Messages should be ordered by id ascending (oldest first)
+        assert result["messages"][0].text == "Message 1"
+        assert result["messages"][1].text == "Message 2"
     
     @pytest.mark.asyncio
-    async def test_get_history_with_deal_uid_filter(self, test_db):
-        """Test getting history filtered by deal_uid"""
+    async def test_get_history_with_mixed_conversations(self, test_db):
+        """Test getting history with both regular and deal-based conversations"""
         owner_did = "did:test:owner1"
         service = ChatService(session=test_db, owner_did=owner_did)
         
@@ -274,7 +274,7 @@ class TestChatServiceGetHistory:
         test_db.add(deal)
         await test_db.commit()
         
-        # Add message without deal_uid
+        # Add message without deal_uid (conversation_id = контрагент)
         message1 = ChatMessageCreate(
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
@@ -283,7 +283,7 @@ class TestChatServiceGetHistory:
         )
         await service.add_message(message1, deal_uid=None)
         
-        # Add message with deal_uid
+        # Add message with deal_uid (conversation_id = deal_uid)
         message2 = ChatMessageCreate(
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
@@ -292,15 +292,19 @@ class TestChatServiceGetHistory:
         )
         await service.add_message(message2, deal_uid=deal_uid)
         
-        # Get history without deal_uid
-        result = await service.get_history(deal_uid=None)
+        # Get history for regular conversation (conversation_id = sender)
+        result = await service.get_history(conversation_id="did:test:sender1")
         assert len(result["messages"]) == 1
         assert result["messages"][0].text == "General message"
         
-        # Get history with deal_uid
-        result = await service.get_history(deal_uid=deal_uid)
+        # Get history for deal conversation (conversation_id = deal_uid)
+        result = await service.get_history(conversation_id=deal_uid)
         assert len(result["messages"]) == 1
         assert result["messages"][0].text == "Deal message"
+        
+        # Get all messages without filter
+        result = await service.get_history()
+        assert len(result["messages"]) == 2
     
     @pytest.mark.asyncio
     async def test_get_history_with_pagination(self, test_db):
@@ -332,54 +336,83 @@ class TestChatServiceGetHistory:
         assert result["page"] == 2
     
     @pytest.mark.asyncio
-    async def test_get_history_with_contact_id_filter(self, test_db):
-        """Test getting history filtered by contact_id (where contact_id == sender_id OR receiver_id)"""
+    async def test_get_history_with_conversation_id_filter(self, test_db):
+        """Test getting history filtered by conversation_id (auto-generated as counterparty DID)"""
         owner_did = "did:test:owner1"
         service = ChatService(session=test_db, owner_did=owner_did)
         
-        # Add messages where contact_id matches sender_id or receiver_id
-        # Message 1: contact_id matches sender_id, owner_did is receiver
+        # Add messages - conversation_id will be auto-generated as counterparty (not owner_did)
+        # Message 1: from contact1 to owner1 → conversation_id = contact1
         message1 = ChatMessageCreate(
             message_type=MessageType.TEXT,
-            sender_id="did:test:contact1",  # contact_id will match this
+            sender_id="did:test:contact1",
             receiver_id=owner_did,
             text="From contact1 as sender"
         )
         await service.add_message(message1, deal_uid=None)
         
-        # Message 2: contact_id matches receiver_id, owner_did is sender
+        # Message 2: from owner1 to contact2 → conversation_id = contact2
         message2 = ChatMessageCreate(
             message_type=MessageType.TEXT,
             sender_id=owner_did,
-            receiver_id="did:test:contact2",  # contact_id will match this
+            receiver_id="did:test:contact2",
             text="From contact2 as receiver"
         )
         await service.add_message(message2, deal_uid=None)
         
-        # Message 3: contact_id doesn't match sender_id or receiver_id, owner_did is receiver
+        # Message 3: from sender3 to owner1 → conversation_id = sender3
         message3 = ChatMessageCreate(
             message_type=MessageType.TEXT,
             sender_id="did:test:sender3",
             receiver_id=owner_did,
-            text="Should not appear when filtering by contact_id"
+            text="Third conversation"
         )
         await service.add_message(message3, deal_uid=None)
         
-        # Filter by contact_id="did:test:contact1" - should match message1 (sender_id matches)
-        result = await service.get_history(contact_id="did:test:contact1")
+        # Filter by conversation_id = "did:test:contact1" (counterparty)
+        result = await service.get_history(conversation_id="did:test:contact1")
         assert len(result["messages"]) == 1
         assert result["messages"][0].text == "From contact1 as sender"
-        assert result["messages"][0].sender_id == "did:test:contact1"
         
-        # Filter by contact_id="did:test:contact2" - should match message2 (receiver_id matches)
-        result = await service.get_history(contact_id="did:test:contact2")
+        # Filter by conversation_id = "did:test:contact2" (counterparty)
+        result = await service.get_history(conversation_id="did:test:contact2")
         assert len(result["messages"]) == 1
         assert result["messages"][0].text == "From contact2 as receiver"
-        assert result["messages"][0].receiver_id == "did:test:contact2"
         
-        # Filter by contact_id that matches owner_did - should match all messages where owner_did is sender or receiver
-        result = await service.get_history(contact_id=owner_did)
-        assert len(result["messages"]) == 3  # message1 (receiver), message2 (sender), message3 (receiver)
+        # Get all messages - without conversation_id filter
+        result = await service.get_history()
+        assert len(result["messages"]) == 3
+    
+    @pytest.mark.asyncio
+    async def test_conversation_id_with_deal_uid(self, test_db):
+        """Test that conversation_id = deal_uid when message is related to a deal"""
+        owner_did = "did:test:owner1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        # Create a deal
+        deal_uid = "test-deal-uid-123"
+        deal = Deal(
+            uid=deal_uid,
+            participants=[owner_did, "did:test:participant2"],
+            label="Test Deal"
+        )
+        test_db.add(deal)
+        await test_db.commit()
+        
+        # Add message related to deal - conversation_id should be deal_uid
+        message = ChatMessageCreate(
+            message_type=MessageType.TEXT,
+            sender_id=owner_did,
+            receiver_id="did:test:participant2",
+            text="Message related to deal"
+        )
+        await service.add_message(message, deal_uid=deal_uid)
+        
+        # Filter by conversation_id = deal_uid
+        result = await service.get_history(conversation_id=deal_uid)
+        assert len(result["messages"]) == 1
+        assert result["messages"][0].text == "Message related to deal"
+        assert result["messages"][0].conversation_id == deal_uid
 
 
 class TestChatServiceGetLastSessions:
@@ -396,8 +429,8 @@ class TestChatServiceGetLastSessions:
         assert sessions == []
     
     @pytest.mark.asyncio
-    async def test_get_last_sessions_grouped_by_deal_uid(self, test_db):
-        """Test getting last sessions grouped by deal_uid"""
+    async def test_get_last_sessions_grouped_by_conversation_id(self, test_db):
+        """Test getting last sessions grouped by conversation_id"""
         owner_did = "did:test:owner1"
         service = ChatService(session=test_db, owner_did=owner_did)
         
@@ -419,8 +452,8 @@ class TestChatServiceGetLastSessions:
         test_db.add(deal2)
         await test_db.commit()
         
-        # Add messages to different deals and general chat
-        # General chat message
+        # Add messages to different conversations
+        # General chat message (conversation_id = sender)
         message1 = ChatMessageCreate(
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
@@ -429,7 +462,7 @@ class TestChatServiceGetLastSessions:
         )
         await service.add_message(message1, deal_uid=None)
         
-        # Deal 1 message
+        # Deal 1 message (conversation_id = deal1_uid)
         message2 = ChatMessageCreate(
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
@@ -438,7 +471,7 @@ class TestChatServiceGetLastSessions:
         )
         await service.add_message(message2, deal_uid=deal1_uid)
         
-        # Deal 2 message
+        # Deal 2 message (conversation_id = deal2_uid)
         message3 = ChatMessageCreate(
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
@@ -450,7 +483,7 @@ class TestChatServiceGetLastSessions:
         # Get last sessions
         sessions = await service.get_last_sessions()
         
-        # Should have 3 sessions (general, deal1, deal2)
+        # Should have 3 sessions (general with sender1, deal1, deal2)
         assert len(sessions) == 3
         
         # Check that sessions are sorted by last_message_time descending
@@ -459,13 +492,19 @@ class TestChatServiceGetLastSessions:
         
         # Check session structure
         for session in sessions:
-            assert "deal_uid" in session
+            assert "conversation_id" in session
             assert "last_message_time" in session
             assert "message_count" in session
             assert "last_message" in session
             # last_message is a ChatMessage object (Pydantic model)
             assert hasattr(session["last_message"], "text")
             assert hasattr(session["last_message"], "sender_id")
+        
+        # Verify conversation_ids
+        conversation_ids = [s["conversation_id"] for s in sessions]
+        assert "did:test:sender1" in conversation_ids  # General chat
+        assert deal1_uid in conversation_ids  # Deal 1
+        assert deal2_uid in conversation_ids  # Deal 2
     
     @pytest.mark.asyncio
     async def test_get_last_sessions_with_limit(self, test_db):
@@ -526,8 +565,8 @@ class TestChatServiceGetLastSessions:
         # Get last sessions
         sessions = await service.get_last_sessions()
         
-        # Find the deal session
-        deal_session = next((s for s in sessions if s["deal_uid"] == deal_uid), None)
+        # Find the deal session (conversation_id = deal_uid)
+        deal_session = next((s for s in sessions if s["conversation_id"] == deal_uid), None)
         assert deal_session is not None
         assert deal_session["message_count"] == 3
 

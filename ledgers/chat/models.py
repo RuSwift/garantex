@@ -13,6 +13,54 @@ from datetime import datetime
 from enum import Enum
 
 
+def validate_did_format(v: str) -> str:
+    """
+    Универсальная валидация формата DID
+    
+    Поддерживаемые форматы:
+    - did:tron:{address}
+    - did:ethr:{address} (для Ethereum)
+    - did:bitcoin:{address}
+    - did:polkadot:{address} (для Polkadot/Substrate)
+    
+    Args:
+        v: Строка для валидации
+        
+    Returns:
+        Валидированная строка
+        
+    Raises:
+        ValueError: Если формат DID невалиден
+    """
+    if not v:
+        raise ValueError("DID cannot be empty")
+    
+    # Проверяем что строка начинается с "did:"
+    if not v.startswith("did:"):
+        raise ValueError(f"Invalid DID format: must start with 'did:' (got: {v})")
+    
+    # Разбиваем на части: did:{method}:{address}
+    parts = v.split(":", 2)
+    if len(parts) != 3:
+        raise ValueError(f"Invalid DID format: expected 'did:method:address' (got: {v})")
+    
+    did_prefix, method, address = parts
+    
+    # Проверяем что первая часть - "did"
+    if did_prefix != "did":
+        raise ValueError(f"Invalid DID format: must start with 'did:' (got: {v})")
+    
+    # Проверяем что method не пустой
+    if not method or not method.strip():
+        raise ValueError(f"Invalid DID format: method cannot be empty (got: {v})")
+    
+    # Проверяем что address не пустой
+    if not address or not address.strip():
+        raise ValueError(f"Invalid DID format: address cannot be empty (got: {v})")
+    
+    return v
+
+
 class MessageType(str, Enum):
     """Тип сообщения"""
     TEXT = "text"
@@ -90,13 +138,11 @@ class ChatMessage(BaseModel):
     """Универсальная модель сообщения чата"""
     
     # Базовые поля
-    id: str = Field(..., description="Уникальный идентификатор сообщения")
-    uuid: str = Field(..., description="UUID сообщения (дублер для id)")
+    uuid: str = Field(..., description="UUID сообщения (уникальный идентификатор)")
     message_type: MessageType = Field(..., description="Тип сообщения")
     sender_id: str = Field(..., description="ID отправителя (DID или wallet address)")
     receiver_id: str = Field(..., description="ID получателя (DID или wallet address)")
-    contact_id: Optional[str] = Field(None, description="ID контакта/чата (для группировки)")
-    deal_id: Optional[int] = Field(None, description="ID сделки (если сообщение относится к сделке, устаревшее поле)")
+    conversation_id: Optional[str] = Field(None, description="ID беседы (для группировки сообщений)")
     
     # Ссылка на Deal (для типа DEAL)
     deal_uid: Optional[str] = Field(None, description="UID сделки (base58 UUID) для типа DEAL")
@@ -124,57 +170,9 @@ class ChatMessage(BaseModel):
     
     @field_validator('sender_id', 'receiver_id')
     @classmethod
-    def validate_did_format(cls, v):
-        """
-        Проверка формата DID для sender_id и receiver_id
-        
-        Поддерживаемые форматы:
-        - did:tron:{address}
-        - did:ethr:{address} (для Ethereum)
-        - did:bitcoin:{address}
-        - did:polkadot:{address} (для Polkadot/Substrate)
-        """
-        if not v:
-            raise ValueError("DID cannot be empty")
-        
-        # Проверяем что строка начинается с "did:"
-        if not v.startswith("did:"):
-            raise ValueError(f"Invalid DID format: must start with 'did:' (got: {v})")
-        
-        # Разбиваем на части: did:{method}:{address}
-        parts = v.split(":", 2)
-        if len(parts) != 3:
-            raise ValueError(f"Invalid DID format: expected 'did:method:address' (got: {v})")
-        
-        did_prefix, method, address = parts
-        
-        # Проверяем что первая часть - "did"
-        if did_prefix != "did":
-            raise ValueError(f"Invalid DID format: must start with 'did:' (got: {v})")
-        
-        # Проверяем что method не пустой
-        if not method or not method.strip():
-            raise ValueError(f"Invalid DID format: method cannot be empty (got: {v})")
-        
-        # Проверяем что address не пустой
-        if not address or not address.strip():
-            raise ValueError(f"Invalid DID format: address cannot be empty (got: {v})")
-        
-        return v
-    
-    @field_validator('contact_id')
-    @classmethod
-    def validate_contact_id_did_format(cls, v):
-        """
-        Проверка формата DID для contact_id (опциональное поле)
-        
-        Если contact_id указан, он должен быть в формате DID
-        """
-        if v is None:
-            return v
-        
-        # Используем ту же логику валидации что и для sender_id/receiver_id
-        return cls.validate_did_format(v)
+    def validate_sender_receiver_did(cls, v):
+        """Валидация DID формата для sender_id и receiver_id"""
+        return validate_did_format(v)
     
     @model_validator(mode='after')
     def validate_content(self):
@@ -286,12 +284,10 @@ class ChatMessage(BaseModel):
 
 
 class ChatMessageCreate(BaseModel):
-    """Модель для создания нового сообщения (без id и timestamp)"""
+    """Модель для создания нового сообщения (без uuid, timestamp и conversation_id)"""
     message_type: MessageType
     sender_id: str
     receiver_id: str
-    contact_id: Optional[str] = None
-    deal_id: Optional[int] = Field(None, description="ID сделки (устаревшее поле)")
     deal_uid: Optional[str] = Field(None, description="UID сделки (base58 UUID) для типа DEAL")
     deal_label: Optional[str] = Field(None, description="Label сделки для типа DEAL")
     text: Optional[str] = None
@@ -304,57 +300,9 @@ class ChatMessageCreate(BaseModel):
     
     @field_validator('sender_id', 'receiver_id')
     @classmethod
-    def validate_did_format(cls, v):
-        """
-        Проверка формата DID для sender_id и receiver_id
-        
-        Поддерживаемые форматы:
-        - did:tron:{address}
-        - did:ethr:{address} (для Ethereum)
-        - did:bitcoin:{address}
-        - did:polkadot:{address} (для Polkadot/Substrate)
-        """
-        if not v:
-            raise ValueError("DID cannot be empty")
-        
-        # Проверяем что строка начинается с "did:"
-        if not v.startswith("did:"):
-            raise ValueError(f"Invalid DID format: must start with 'did:' (got: {v})")
-        
-        # Разбиваем на части: did:{method}:{address}
-        parts = v.split(":", 2)
-        if len(parts) != 3:
-            raise ValueError(f"Invalid DID format: expected 'did:method:address' (got: {v})")
-        
-        did_prefix, method, address = parts
-        
-        # Проверяем что первая часть - "did"
-        if did_prefix != "did":
-            raise ValueError(f"Invalid DID format: must start with 'did:' (got: {v})")
-        
-        # Проверяем что method не пустой
-        if not method or not method.strip():
-            raise ValueError(f"Invalid DID format: method cannot be empty (got: {v})")
-        
-        # Проверяем что address не пустой
-        if not address or not address.strip():
-            raise ValueError(f"Invalid DID format: address cannot be empty (got: {v})")
-        
-        return v
-    
-    @field_validator('contact_id')
-    @classmethod
-    def validate_contact_id_did_format(cls, v):
-        """
-        Проверка формата DID для contact_id (опциональное поле)
-        
-        Если contact_id указан, он должен быть в формате DID
-        """
-        if v is None:
-            return v
-        
-        # Используем ту же логику валидации что и для sender_id/receiver_id
-        return cls.validate_did_format(v)
+    def validate_sender_receiver_did(cls, v):
+        """Валидация DID формата для sender_id и receiver_id"""
+        return validate_did_format(v)
 
 
 class ChatMessageResponse(ChatMessage):

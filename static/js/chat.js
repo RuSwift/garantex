@@ -289,14 +289,20 @@ Vue.component('Chat', {
             // Clear existing messages
             this.messages = {};
             
-            // Group messages by contactId
+            // Group messages by conversationId
             const messagesByContact = {};
             
             history.forEach(msg => {
-                const contactId = msg.contactId || msg.contact_id || 'default';
+                const conversationId = msg.conversation_id;
                 
-                if (!messagesByContact[contactId]) {
-                    messagesByContact[contactId] = [];
+                // Skip messages without conversation_id
+                if (!conversationId) {
+                    console.warn('Message without conversation_id:', msg);
+                    return;
+                }
+                
+                if (!messagesByContact[conversationId]) {
+                    messagesByContact[conversationId] = [];
                 }
                 
                 // Convert history message to chat message format
@@ -310,26 +316,26 @@ Vue.component('Chat', {
                     type: msg.type || 'text'
                 };
                 
-                messagesByContact[contactId].push(chatMessage);
+                messagesByContact[conversationId].push(chatMessage);
             });
             
             // Sort messages by timestamp and set them
-            Object.keys(messagesByContact).forEach(contactId => {
-                messagesByContact[contactId].sort((a, b) => a.timestamp - b.timestamp);
-                this.$set(this.messages, contactId, messagesByContact[contactId]);
+            Object.keys(messagesByContact).forEach(conversationId => {
+                messagesByContact[conversationId].sort((a, b) => a.timestamp - b.timestamp);
+                this.$set(this.messages, conversationId, messagesByContact[conversationId]);
             });
             
             // Create or update contacts from history
-            Object.keys(messagesByContact).forEach(contactId => {
-                let contact = this.contacts.find(c => c.id === contactId);
+            Object.keys(messagesByContact).forEach(conversationId => {
+                let contact = this.contacts.find(c => c.id === conversationId);
                 
                 if (!contact) {
                     // Find contact info from first message
-                    const firstMsg = history.find(m => (m.contactId || m.contact_id) === contactId);
+                    const firstMsg = history.find(m => m.conversation_id === conversationId);
                     // Create new contact if it doesn't exist
                     contact = {
-                        id: contactId,
-                        name: (firstMsg && firstMsg.contactName) || `Contact ${contactId}`,
+                        id: conversationId,
+                        name: (firstMsg && firstMsg.contactName) || `Contact ${conversationId}`,
                         avatar: (firstMsg && firstMsg.contactAvatar) || null,
                         status: 'online',
                         lastMessage: '',
@@ -339,19 +345,19 @@ Vue.component('Chat', {
                 }
                 
                 // Update last message
-                if (messagesByContact[contactId].length > 0) {
-                    const lastMsg = messagesByContact[contactId][messagesByContact[contactId].length - 1];
+                if (messagesByContact[conversationId].length > 0) {
+                    const lastMsg = messagesByContact[conversationId][messagesByContact[conversationId].length - 1];
                     contact.lastMessage = lastMsg.text.substring(0, 50);
                 }
             });
             
             // Auto-select first contact if none selected and history exists
             this.$nextTick(() => {
-                const contactIds = Object.keys(messagesByContact);
-                if (contactIds.length > 0 && !this.selectedContactId) {
+                const conversationIds = Object.keys(messagesByContact);
+                if (conversationIds.length > 0 && !this.selectedContactId) {
                     // Select first contact
-                    const firstContactId = contactIds[0];
-                    const contact = this.contacts.find(c => c.id === firstContactId);
+                    const firstConversationId = conversationIds[0];
+                    const contact = this.contacts.find(c => c.id === firstConversationId);
                     if (contact) {
                         this.selectContact(contact);
                     }
@@ -363,8 +369,8 @@ Vue.component('Chat', {
         
         // Helper methods
         findMessageById(messageId) {
-            for (const contactId in this.messages) {
-                const message = this.messages[contactId].find(m => m.id === messageId);
+            for (const conversationId in this.messages) {
+                const message = this.messages[conversationId].find(m => m.id === messageId);
                 if (message) return message;
             }
             return null;
@@ -563,31 +569,6 @@ Vue.component('Chat', {
     },
     template: `
         <div>
-            <style>
-                @keyframes pulse {
-                    0%, 100% {
-                        opacity: 1;
-                        transform: scale(1);
-                    }
-                    50% {
-                        opacity: 0.5;
-                        transform: scale(1.1);
-                    }
-                }
-                .telegram-scrollbar::-webkit-scrollbar {
-                    width: 6px;
-                }
-                .telegram-scrollbar::-webkit-scrollbar-track {
-                    background: transparent;
-                }
-                .telegram-scrollbar::-webkit-scrollbar-thumb {
-                    background: #c1c1c1;
-                    border-radius: 10px;
-                }
-                .telegram-scrollbar::-webkit-scrollbar-thumb:hover {
-                    background: #a8a8a8;
-                }
-            </style>
             <modal-window v-if="show" :width="'98%'" :height="'98%'" @close="close">
             <template #header>
                 <div class="d-flex justify-content-between align-items-center w-100">
@@ -1035,6 +1016,7 @@ Vue.component('Chat', {
                                                     </div>
                                                 </div>
                                             </div>
+                                        </div>
                                         </div>
                                         
                                         <button 

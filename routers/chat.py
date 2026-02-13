@@ -103,8 +103,7 @@ class GetHistoryResponse(BaseModel):
 
 @router.get("/api/history", response_model=GetHistoryResponse)
 async def get_history(
-    deal_uid: Optional[str] = Query(None, description="Filter by deal UID"),
-    contact_id: Optional[str] = Query(None, description="Filter by contact ID"),
+    conversation_id: Optional[str] = Query(None, description="Filter by conversation ID"),
     page: int = Query(1, ge=1, description="Page number (1-based)"),
     page_size: int = Query(50, ge=1, le=100, description="Number of messages per page"),
     chat_service: ChatService = Depends(get_chat_service)
@@ -113,8 +112,7 @@ async def get_history(
     Получить историю сообщений с пагинацией
     
     Args:
-        deal_uid: Фильтр по UID сделки (опционально)
-        contact_id: Фильтр по ID контакта (опционально)
+        conversation_id: Фильтр по ID беседы (опционально). Может быть DID контрагента или deal_uid.
         page: Номер страницы (начиная с 1)
         page_size: Количество сообщений на странице
         chat_service: ChatService instance (автоматически создается с owner_did текущего пользователя)
@@ -124,8 +122,7 @@ async def get_history(
     """
     try:
         result = await chat_service.get_history(
-            deal_uid=deal_uid,
-            contact_id=contact_id,
+            conversation_id=conversation_id,
             page=page,
             page_size=page_size
         )
@@ -140,7 +137,7 @@ async def get_history(
 
 class SessionInfo(BaseModel):
     """Информация о сессии чата"""
-    deal_uid: Optional[str]
+    conversation_id: Optional[str]
     last_message_time: Optional[str]  # ISO format datetime
     message_count: int
     last_message: ChatMessage
@@ -157,7 +154,7 @@ async def get_last_sessions(
     chat_service: ChatService = Depends(get_chat_service)
 ):
     """
-    Получить последние сессии чата, сгруппированные по deal_uid
+    Получить последние сессии чата, сгруппированные по conversation_id
     
     Args:
         limit: Максимальное количество сессий для возврата
@@ -173,7 +170,7 @@ async def get_last_sessions(
         session_list = []
         for session in sessions:
             session_list.append(SessionInfo(
-                deal_uid=session["deal_uid"],
+                conversation_id=session["conversation_id"],
                 last_message_time=session["last_message_time"].isoformat() if session["last_message_time"] else None,
                 message_count=session["message_count"],
                 last_message=session["last_message"]

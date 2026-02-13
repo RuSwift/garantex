@@ -2,9 +2,9 @@
 Service for managing chat messages and conversations
 """
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, or_
+from sqlalchemy import select, func, desc, and_
 from uuid import uuid1
 
 from db.models import Storage, Deal
@@ -42,26 +42,34 @@ class ChatService:
         Returns:
             List of created ChatMessage objects (one for each owner_did)
         """
-        # Generate id and uuid for the message
+        # Generate uuid for the message
         message_uuid = str(uuid1())
-        message_id = f"msg-{int(datetime.utcnow().timestamp() * 1000)}"
+        
+        # Auto-generate conversation_id
+        if deal_uid:
+            # Если сообщение связано со сделкой, conversation_id = deal_uid
+            conversation_id = deal_uid
+        else:
+            # Иначе conversation_id = контрагент (тот, кто не является owner_did)
+            if self.owner_did == message.sender_id:
+                conversation_id = message.receiver_id
+            else:
+                conversation_id = message.sender_id
         
         # Create full ChatMessage from ChatMessageCreate
         full_message = ChatMessage(
-            id=message_id,
             uuid=message_uuid,
             message_type=message.message_type,
             sender_id=message.sender_id,
             receiver_id=message.receiver_id,
-            contact_id=message.contact_id,
-            deal_id=message.deal_id,
+            conversation_id=conversation_id,
             deal_uid=message.deal_uid,
             deal_label=message.deal_label,
             reply_to_message_uuid=message.reply_to_message_uuid,
             text=message.text,
             attachments=message.attachments,
             signature=message.signature,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             status="sent",
             metadata=message.metadata
         )
@@ -111,8 +119,9 @@ class ChatService:
             for owner_did_value in owner_dids:
                 storage = Storage(
                     space=self.SPACE,
-                    deal_uid=deal_uid or message.deal_uid,
+                    deal_uid=deal_uid,
                     owner_did=owner_did_value,
+                    conversation_id=conversation_id,
                     payload=message_dict,
                     schema_ver="1"
                 )
@@ -130,8 +139,7 @@ class ChatService:
     
     async def get_history(
         self,
-        deal_uid: Optional[str] = None,
-        contact_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
         page: int = 1,
         page_size: int = 50
     ) -> Dict[str, Any]:
@@ -139,8 +147,7 @@ class ChatService:
         Get chat history with pagination (always filtered by owner_did)
         
         Args:
-            deal_uid: Filter by deal UID (optional)
-            contact_id: Filter by contact ID (optional)
+            conversation_id: Filter by conversation ID (optional). If not specified, returns all messages.
             page: Page number (1-based)
             page_size: Number of messages per page
             
@@ -153,21 +160,9 @@ class ChatService:
             Storage.owner_did == self.owner_did
         )
         
-        # Apply filters
-        if deal_uid is not None:
-            query = query.where(Storage.deal_uid == deal_uid)
-        else:
-            # If no deal_uid specified, get messages without deal_uid
-            query = query.where(Storage.deal_uid.is_(None))
-        
-        # Additional filters from payload (using JSONB operators)
-        if contact_id:
-            query = query.where(
-                or_(
-                    Storage.payload['sender_id'].astext == contact_id,
-                    Storage.payload['receiver_id'].astext == contact_id
-                )
-            )
+        # Filter by conversation_id
+        if conversation_id:
+            query = query.where(Storage.conversation_id == conversation_id)
         
         # Get total count
         count_query = select(func.count()).select_from(query.subquery())
@@ -218,62 +213,66 @@ class ChatService:
         limit: int = 50
     ) -> List[Dict[str, Any]]:
         """
-        Get all last chat sessions grouped by deal_uid, sorted by time of last message
+        Get all last chat sessions grouped by conversation_id, sorted by time of last message
         (always filtered by owner_did)
+        Optimized version using subquery with MAX(id)
         
         Args:
             limit: Maximum number of sessions to return
             
         Returns:
             List of dictionaries with session info:
-            - deal_uid: Deal UID (or None for general chats)
+            - conversation_id: Conversation ID (DID контрагента или deal_uid)
             - last_message_time: Time of last message in session
             - message_count: Number of messages in session
             - last_message: Last message in session (ChatMessage)
         """
-        # Build base query - всегда фильтруем по owner_did
-        base_query = select(Storage).where(
-            Storage.space == self.SPACE,
-            Storage.owner_did == self.owner_did
+        # Подзапрос: находим ID последнего сообщения для каждого conversation_id
+        subquery = (
+            select(
+                Storage.conversation_id,
+                func.max(Storage.id).label('last_id')
+            )
+            .where(
+                Storage.space == self.SPACE,
+                Storage.owner_did == self.owner_did
+            )
+            .group_by(Storage.conversation_id)
+            .subquery()
         )
         
-        # Get all messages ordered by created_at descending
-        all_messages_query = base_query.order_by(desc(Storage.created_at))
-        result = await self.session.execute(all_messages_query)
-        all_storage_records = result.scalars().all()
+        # Основной запрос: получаем полные записи последних сообщений
+        query = (
+            select(Storage)
+            .join(
+                subquery,
+                and_(
+                    Storage.conversation_id == subquery.c.conversation_id,
+                    Storage.id == subquery.c.last_id
+                )
+            )
+            .order_by(desc(Storage.created_at))
+            .limit(limit)
+        )
         
-        # Group by deal_uid and get last message for each group
-        sessions_dict: Dict[Optional[str], Storage] = {}
-        for storage in all_storage_records:
-            deal_uid = storage.deal_uid
-            # If we haven't seen this deal_uid yet, or this message is newer, store it
-            if deal_uid not in sessions_dict:
-                sessions_dict[deal_uid] = storage
-            elif storage.created_at > sessions_dict[deal_uid].created_at:
-                sessions_dict[deal_uid] = storage
-        
-        # Convert to list and sort by last_message_time descending
-        sessions_list = list(sessions_dict.values())
-        sessions_list.sort(key=lambda x: x.created_at, reverse=True)
-        
-        # Limit results
-        sessions_list = sessions_list[:limit]
+        result = await self.session.execute(query)
+        sessions_list = result.scalars().all()
         
         # Build sessions list with full info
         sessions = []
         for storage in sessions_list:
             try:
-                # Get message count for this deal_uid
+                # Get message count for this conversation_id
                 count_query = select(func.count(Storage.id)).where(
                     Storage.space == self.SPACE,
                     Storage.owner_did == self.owner_did
                 )
                 
-                # Handle NULL deal_uid properly
-                if storage.deal_uid is None:
-                    count_query = count_query.where(Storage.deal_uid.is_(None))
+                # Handle NULL conversation_id properly
+                if storage.conversation_id is None:
+                    count_query = count_query.where(Storage.conversation_id.is_(None))
                 else:
-                    count_query = count_query.where(Storage.deal_uid == storage.deal_uid)
+                    count_query = count_query.where(Storage.conversation_id == storage.conversation_id)
                 
                 count_result = await self.session.execute(count_query)
                 message_count = count_result.scalar() or 0
@@ -294,7 +293,7 @@ class ChatService:
                 last_message = ChatMessage(**payload)
                 
                 sessions.append({
-                    "deal_uid": storage.deal_uid,
+                    "conversation_id": storage.conversation_id,
                     "last_message_time": storage.created_at,
                     "message_count": message_count,
                     "last_message": last_message
