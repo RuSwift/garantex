@@ -1,7 +1,7 @@
 """
 Модуль для работы с чатом - модели сообщений
 """
-from .models import (
+from .schemas import (
     MessageType,
     AttachmentType,
     MessageSignature,
