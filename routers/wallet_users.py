@@ -135,6 +135,7 @@ async def list_wallet_users(
                 "id": user.id,
                 "wallet_address": user.wallet_address,
                 "blockchain": user.blockchain,
+                "did": user.did,
                 "nickname": user.nickname,
                 "avatar": user.avatar,
                 "access_to_admin_panel": user.access_to_admin_panel,
@@ -206,6 +207,7 @@ async def get_wallet_user(
             "id": user.id,
             "wallet_address": user.wallet_address,
             "blockchain": user.blockchain,
+            "did": user.did,
             "nickname": user.nickname,
             "avatar": user.avatar,
             "access_to_admin_panel": user.access_to_admin_panel,
@@ -281,6 +283,7 @@ async def create_wallet_user(
             "id": new_user.id,
             "wallet_address": new_user.wallet_address,
             "blockchain": new_user.blockchain,
+            "did": new_user.did,
             "nickname": new_user.nickname,
             "avatar": new_user.avatar,
             "access_to_admin_panel": new_user.access_to_admin_panel,
@@ -368,6 +371,7 @@ async def update_wallet_user(
             "id": user.id,
             "wallet_address": user.wallet_address,
             "blockchain": user.blockchain,
+            "did": user.did,
             "nickname": user.nickname,
             "avatar": user.avatar,
             "access_to_admin_panel": user.access_to_admin_panel,
@@ -472,7 +476,7 @@ async def get_my_profile(
         return ProfileResponse(
             wallet_address=user.wallet_address,
             blockchain=user.blockchain,
-            did=get_user_did(user.wallet_address, user.blockchain),
+            did=user.did,
             nickname=user.nickname,
             avatar=user.avatar,
             access_to_admin_panel=user.access_to_admin_panel,
@@ -538,7 +542,7 @@ async def update_my_profile(
         return ProfileResponse(
             wallet_address=user.wallet_address,
             blockchain=user.blockchain,
-            did=get_user_did(user.wallet_address, user.blockchain),
+            did=user.did,
             nickname=user.nickname,
             avatar=user.avatar,
             access_to_admin_panel=user.access_to_admin_panel,
@@ -629,7 +633,7 @@ async def get_my_billing_history(
         )
 
 
-# Public endpoint for DIDDoc (no admin auth required)
+# Public endpoint for DIDDoc (no admin auth required) - must be before generic /user/{identifier}
 @profile_router.get("/user/{user_id}/did-doc")
 async def get_user_did_doc_public(
     user_id: int,
@@ -774,6 +778,86 @@ async def get_user_did_doc_public(
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching user DID Document: {str(e)}"
+        )
+
+
+# Public endpoint for getting user profile by user_id or DID
+@profile_router.get("/user/{identifier}")
+async def get_user_profile_public(
+    identifier: str,
+    db: DbDepends
+):
+    """
+    Get user profile by user_id or DID (public endpoint)
+    
+    Args:
+        identifier: User ID (integer) or DID (string starting with 'did:')
+        db: Database session
+        
+    Returns:
+        User profile information
+    """
+    try:
+        # Determine if identifier is user_id or DID
+        if identifier.startswith("did:"):
+            # Search by DID
+            result = await db.execute(
+                select(WalletUser).where(WalletUser.did == identifier)
+            )
+        else:
+            # Try to parse as user_id (integer)
+            try:
+                user_id = int(identifier)
+                result = await db.execute(
+                    select(WalletUser).where(WalletUser.id == user_id)
+                )
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid identifier: must be a user ID (integer) or DID (starting with 'did:')"
+                )
+        
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail=f"User with identifier '{identifier}' not found"
+            )
+        
+        # Handle missing is_verified field
+        try:
+            is_verified = user.is_verified
+        except (AttributeError, KeyError):
+            is_verified = False
+        
+        # Get balance_usdt safely
+        balance_usdt = getattr(user, 'balance_usdt', 0.0)
+        if balance_usdt is None:
+            balance_usdt = 0.0
+        else:
+            # Convert Decimal to float if needed
+            balance_usdt = float(balance_usdt)
+        
+        return ProfileResponse(
+            wallet_address=user.wallet_address,
+            blockchain=user.blockchain,
+            did=user.did,
+            nickname=user.nickname,
+            avatar=user.avatar,
+            access_to_admin_panel=user.access_to_admin_panel,
+            is_verified=is_verified,
+            balance_usdt=balance_usdt,
+            created_at=user.created_at.isoformat(),
+            updated_at=user.updated_at.isoformat()
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching user profile: {str(e)}"
         )
 
 

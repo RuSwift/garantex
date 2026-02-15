@@ -154,11 +154,15 @@ async def test_db(db_engine) -> AsyncGenerator[AsyncSession, None]:
         await conn.execute(text("TRUNCATE TABLE node_settings CASCADE"))
         await conn.execute(text("TRUNCATE TABLE admin_users CASCADE"))
         await conn.execute(text("TRUNCATE TABLE admin_tron_addresses CASCADE"))
+        await conn.execute(text("TRUNCATE TABLE wallet_users CASCADE"))
+        await conn.execute(text("TRUNCATE TABLE billing CASCADE"))
+        await conn.execute(text("TRUNCATE TABLE advertisements CASCADE"))
+        await conn.execute(text("TRUNCATE TABLE wallets CASCADE"))
         await conn.execute(text("TRUNCATE TABLE storage CASCADE"))
         await conn.execute(text("TRUNCATE TABLE connections CASCADE"))
         await conn.execute(text("TRUNCATE TABLE escrow_operations CASCADE"))
+        await conn.execute(text("TRUNCATE TABLE deals CASCADE"))
         await conn.execute(text("TRUNCATE TABLE deal CASCADE"))
-        # Добавьте другие таблицы если они есть
         # Не трогаем alembic_version
 
 

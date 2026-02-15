@@ -65,6 +65,7 @@ app.add_middleware(
 # Подключение роутеров
 app.include_router(auth.router)
 app.include_router(didcomm.router)
+app.include_router(wallet_users.profile_router)
 app.include_router(wallet_users.router)
 app.include_router(billing_router)
 app.include_router(wallets.router)

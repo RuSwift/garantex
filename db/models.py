@@ -1,7 +1,7 @@
 """
 Database models for storing encrypted node settings
 """
-from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Boolean, Index, Numeric, ForeignKey
+from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Boolean, Index, Numeric, ForeignKey, event
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import UUID, JSONB, JSON
 from sqlalchemy.sql import func
@@ -83,6 +83,7 @@ class WalletUser(Base):
     id = Column(Integer, primary_key=True, index=True)
     wallet_address = Column(String(255), unique=True, nullable=False, index=True, comment="Wallet address (TRON: 34 chars, ETH: 42 chars)")
     blockchain = Column(String(20), nullable=False, index=True, comment="Blockchain type: tron, ethereum, bitcoin, etc.")
+    did = Column(String(300), unique=True, nullable=False, index=True, comment="Decentralized Identifier (DID)")
     nickname = Column(String(100), nullable=False, unique=True, index=True, comment="User display name (unique)")
     avatar = Column(Text, nullable=True, comment="User avatar in base64 format (data:image/...)")
     access_to_admin_panel = Column(Boolean, default=False, nullable=False, comment="Access to admin panel")
@@ -92,7 +93,18 @@ class WalletUser(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     def __repr__(self):
-        return f"<WalletUser(id={self.id}, wallet={self.wallet_address}, nickname={self.nickname}, blockchain={self.blockchain})>"
+        return f"<WalletUser(id={self.id}, wallet={self.wallet_address}, nickname={self.nickname}, blockchain={self.blockchain}, did={self.did})>"
+
+
+# Event listener для автоматической генерации DID при создании WalletUser
+@event.listens_for(WalletUser, 'before_insert')
+def generate_did_before_insert(mapper, connection, target):
+    """
+    Автоматически генерирует DID для нового пользователя перед вставкой в БД
+    """
+    if not target.did:  # Генерируем только если DID еще не установлен
+        from core.utils import get_user_did
+        target.did = get_user_did(target.wallet_address, target.blockchain)
 
 
 class Billing(Base):
