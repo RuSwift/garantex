@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from services.chat.service import ChatService
 from db.models import Storage, Deal
-from ledgers.chat.models import (
+from ledgers.chat.schemas import (
     ChatMessageCreate,
     MessageType,
     AttachmentType,

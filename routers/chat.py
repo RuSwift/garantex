@@ -9,7 +9,7 @@ from routers.auth import get_current_tron_user, UserInfo
 from dependencies import DbDepends
 from services.chat.service import ChatService
 from services.wallet_user import WalletUserService
-from ledgers.chat.models import ChatMessage, ChatMessageCreate, ChatMessageResponse
+from ledgers.chat.schemas import ChatMessage, ChatMessageCreate, ChatMessageResponse
 from ledgers import get_user_did
 
 router = APIRouter(

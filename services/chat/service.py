@@ -8,7 +8,7 @@ from sqlalchemy import select, func, desc, and_
 from uuid import uuid1
 
 from db.models import Storage, Deal
-from ledgers.chat.models import ChatMessage, ChatMessageCreate, FileAttachment
+from ledgers.chat.schemas import ChatMessage, ChatMessageCreate, FileAttachment
 
 
 class ChatService:
