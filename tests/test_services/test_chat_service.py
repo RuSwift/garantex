@@ -2,6 +2,7 @@
 Tests for ChatService
 """
 import pytest
+import uuid
 from datetime import datetime
 from sqlalchemy import select
 
@@ -26,6 +27,7 @@ class TestChatServiceAddMessage:
         service = ChatService(session=test_db, owner_did=owner_did)
         
         message = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
             receiver_id="did:test:receiver1",
@@ -74,6 +76,7 @@ class TestChatServiceAddMessage:
         await test_db.commit()
         
         message = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
             receiver_id="did:test:receiver1",
@@ -114,6 +117,7 @@ class TestChatServiceAddMessage:
         service = ChatService(session=test_db, owner_did=owner_did)
         
         message = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
             receiver_id="did:test:receiver1",
@@ -144,6 +148,7 @@ class TestChatServiceAddMessage:
         service = ChatService(session=test_db, owner_did=owner_did)
         
         message = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
             receiver_id="did:test:receiver1",
@@ -184,6 +189,7 @@ class TestChatServiceAddMessage:
         )
         
         message = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.FILE,
             sender_id="did:test:sender1",
             receiver_id="did:test:receiver1",
@@ -232,6 +238,7 @@ class TestChatServiceGetHistory:
         
         # Add some messages
         message1 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
             receiver_id=owner_did,
@@ -242,6 +249,7 @@ class TestChatServiceGetHistory:
         # Create service for receiver to add message from their perspective
         service2 = ChatService(session=test_db, owner_did="did:test:sender1")
         message2 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
             receiver_id=owner_did,
@@ -276,6 +284,7 @@ class TestChatServiceGetHistory:
         
         # Add message without deal_uid (conversation_id = контрагент)
         message1 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
             receiver_id=owner_did,
@@ -285,6 +294,7 @@ class TestChatServiceGetHistory:
         
         # Add message with deal_uid (conversation_id = deal_uid)
         message2 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
             receiver_id=owner_did,
@@ -315,6 +325,7 @@ class TestChatServiceGetHistory:
         # Add 5 messages
         for i in range(5):
             message = ChatMessageCreate(
+                uuid=str(uuid.uuid4()),
                 message_type=MessageType.TEXT,
                 sender_id="did:test:sender1",
                 receiver_id=owner_did,
@@ -344,6 +355,7 @@ class TestChatServiceGetHistory:
         # Add messages - conversation_id will be auto-generated as counterparty (not owner_did)
         # Message 1: from contact1 to owner1 → conversation_id = contact1
         message1 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:contact1",
             receiver_id=owner_did,
@@ -353,6 +365,7 @@ class TestChatServiceGetHistory:
         
         # Message 2: from owner1 to contact2 → conversation_id = contact2
         message2 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id=owner_did,
             receiver_id="did:test:contact2",
@@ -362,6 +375,7 @@ class TestChatServiceGetHistory:
         
         # Message 3: from sender3 to owner1 → conversation_id = sender3
         message3 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:sender3",
             receiver_id=owner_did,
@@ -401,6 +415,7 @@ class TestChatServiceGetHistory:
         
         # Add message related to deal - conversation_id should be deal_uid
         message = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id=owner_did,
             receiver_id="did:test:participant2",
@@ -423,6 +438,7 @@ class TestChatServiceGetHistory:
         # Create message from Alice to Bob
         service_alice = ChatService(session=test_db, owner_did=alice_did)
         message = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id=alice_did,
             receiver_id=bob_did,
@@ -487,6 +503,7 @@ class TestChatServiceGetLastSessions:
         # Add messages to different conversations
         # General chat message (conversation_id = sender)
         message1 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
             receiver_id=owner_did,
@@ -496,6 +513,7 @@ class TestChatServiceGetLastSessions:
         
         # Deal 1 message (conversation_id = deal1_uid)
         message2 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
             receiver_id=owner_did,
@@ -505,6 +523,7 @@ class TestChatServiceGetLastSessions:
         
         # Deal 2 message (conversation_id = deal2_uid)
         message3 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
             sender_id="did:test:sender1",
             receiver_id=owner_did,
@@ -556,6 +575,7 @@ class TestChatServiceGetLastSessions:
             await test_db.commit()
             
             message = ChatMessageCreate(
+                uuid=str(uuid.uuid4()),
                 message_type=MessageType.TEXT,
                 sender_id="did:test:sender1",
                 receiver_id=owner_did,
@@ -587,6 +607,7 @@ class TestChatServiceGetLastSessions:
         # Add 3 messages to the deal
         for i in range(3):
             message = ChatMessageCreate(
+                uuid=str(uuid.uuid4()),
                 message_type=MessageType.TEXT,
                 sender_id="did:test:sender1",
                 receiver_id=owner_did,

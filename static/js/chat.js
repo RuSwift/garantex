@@ -1076,7 +1076,12 @@ Vue.component('Chat', {
                                         <span v-else style="font-size: 18px;">[[ selectedContact.name.charAt(0).toUpperCase() ]]</span>
                                     </div>
                                     <div>
-                                        <p class="mb-0 fw-semibold" style="font-size: 15px; color: #212121;">[[ selectedContact.name ]]</p>
+                                        <p class="mb-0 fw-semibold" style="font-size: 15px; color: #212121; display: flex; align-items: center; gap: 8px;">
+                                            <span>[[ selectedContact.name ]]</span>
+                                            <span v-if="selectedContact.did" style="font-size: 12px; color: #707579; font-weight: normal;">
+                                                [[ selectedContact.did ]]
+                                            </span>
+                                        </p>
                                         <p class="mb-0" :style="{ fontSize: '12px', color: selectedContact.status === 'online' ? '#4082bc' : '#707579' }">
                                             [[ selectedContact.status === 'online' ? 'online' : 'last seen recently' ]]
                                         </p>
