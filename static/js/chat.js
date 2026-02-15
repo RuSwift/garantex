@@ -53,6 +53,8 @@ Vue.component('Chat', {
             isUserAtBottom: true, // Track if user is at the bottom of chat
             isInitialHistoryLoad: false, // Track if this is the first history load
             visibleDownloadButton: null, // Tracks which image download button is visible
+            isMobileDevice: false, // Track if device is mobile
+            showSidebarOnMobile: true, // Show sidebar or chat area on mobile devices
             emojiCategories: {
                 'smileys': ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔'],
                 'gestures': ['👋', '🤚', '🖐', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝'],
@@ -77,6 +79,14 @@ Vue.component('Chat', {
         },
         currentMessages() {
             return this.messages[this.selectedContactId] || [];
+        },
+        shouldShowSidebar() {
+            if (!this.isMobileDevice) return true;
+            return this.showSidebarOnMobile || !this.selectedContact;
+        },
+        shouldShowChatArea() {
+            if (!this.isMobileDevice) return true;
+            return !this.showSidebarOnMobile && this.selectedContact;
         }
     },
     watch: {
@@ -87,16 +97,25 @@ Vue.component('Chat', {
         }
     },
     mounted() {
+        // Detect mobile device
+        this.detectMobileDevice();
+        window.addEventListener('resize', this.detectMobileDevice);
+        
         // Close emoji picker when clicking outside
         this.$nextTick(() => {
             document.addEventListener('click', this.handleClickOutside);
         });
     },
     beforeDestroy() {
+        window.removeEventListener('resize', this.detectMobileDevice);
         document.removeEventListener('click', this.handleClickOutside);
     },
     methods: {
         close() {
+            // Reset mobile state when closing
+            if (this.isMobileDevice) {
+                this.showSidebarOnMobile = true;
+            }
             this.$emit('close');
         },
         initChat() {
@@ -654,7 +673,20 @@ Vue.component('Chat', {
             if (!this.messages[contact.id]) {
                 this.$set(this.messages, contact.id, []);
             }
+            // On mobile, hide sidebar and show chat area when contact is selected
+            if (this.isMobileDevice) {
+                this.showSidebarOnMobile = false;
+            }
             this.$nextTick(this.scrollToBottom);
+        },
+        detectMobileDevice() {
+            this.isMobileDevice = window.innerWidth < 768 || 
+                                  (window.innerHeight > window.innerWidth && window.innerWidth < 1024);
+        },
+        goBackToContacts() {
+            if (this.isMobileDevice) {
+                this.showSidebarOnMobile = true;
+            }
         },
         formatTime(ts) {
             return new Date(ts).toLocaleTimeString('ru-RU', {
@@ -999,7 +1031,15 @@ Vue.component('Chat', {
                 <!-- Chat Container - Telegram Style -->
                 <div class="d-flex h-100 telegram-scrollbar" style="height: 100%; overflow: hidden; background: #f4f4f5;">
                     <!-- Sidebar - Telegram Style -->
-                    <div style="width: 350px; display: flex; flex-direction: column; flex-shrink: 0; background: white; border-right: 1px solid #e5e5e5;">
+                    <div v-show="shouldShowSidebar" 
+                         :style="{
+                             width: isMobileDevice ? '100%' : '350px',
+                             display: 'flex',
+                             flexDirection: 'column',
+                             flexShrink: 0,
+                             background: 'white',
+                             borderRight: isMobileDevice ? 'none' : '1px solid #e5e5e5'
+                         }">
                         <!-- Search Header -->
                         <div style="padding: 12px;">
                             <div style="position: relative;">
@@ -1054,7 +1094,8 @@ Vue.component('Chat', {
                     </div>
 
                     <!-- Chat Area - Telegram Style -->
-                    <div style="flex: 1; display: flex; flex-direction: column; background: #e7ebf0; position: relative;">
+                    <div v-show="shouldShowChatArea || !isMobileDevice"
+                         style="flex: 1; display: flex; flex-direction: column; background: #e7ebf0; position: relative; width: 100%;">
                         <!-- Background Pattern -->
                         <div style="position: absolute; inset: 0; opacity: 0.03; pointer-events: none; background-image: url('data:image/svg+xml,%3Csvg width=\'100\' height=\'100\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cdefs%3E%3Cpattern id=\'grid\' width=\'100\' height=\'100\' patternUnits=\'userSpaceOnUse\'%3E%3Cpath d=\'M 100 0 L 0 0 0 100\' fill=\'none\' stroke=\'%23d4d4d4\' stroke-width=\'0.5\' opacity=\'0.3\'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width=\'100\' height=\'100\' fill=\'url(%23grid)\' /%3E%3C/svg%3E');"></div>
                         
@@ -1071,6 +1112,16 @@ Vue.component('Chat', {
                             <!-- Chat Header - Telegram Style -->
                             <div style="background: white; border-bottom: 1px solid #e5e5e5; padding: 8px 16px; display: flex; align-items: center; justify-content: space-between; z-index: 10; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
                                 <div class="d-flex align-items-center" style="gap: 12px;">
+                                    <!-- Back button for mobile -->
+                                    <button v-if="isMobileDevice"
+                                            @click="goBackToContacts"
+                                            style="padding: 8px; border: none; background: transparent; border-radius: 50%; cursor: pointer; color: #707579; margin-right: 4px; display: flex; align-items: center; justify-content: center;"
+                                            title="Назад к списку"
+                                    >
+                                        <svg style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                                        </svg>
+                                    </button>
                                     <div style="width: 40px; height: 40px; border-radius: 50%; background: #dbeafe; display: flex; align-items: center; justify-content: center; color: #2563eb; font-weight: bold; overflow: hidden;">
                                         <img v-if="selectedContact.avatar" :src="selectedContact.avatar" style="width: 100%; height: 100%; object-fit: cover;" />
                                         <span v-else style="font-size: 18px;">[[ selectedContact.name.charAt(0).toUpperCase() ]]</span>

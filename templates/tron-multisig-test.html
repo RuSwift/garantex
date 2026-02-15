@@ -400,9 +400,22 @@
                 broadcastTxId: null,
                 
                 // Logs
-                logs: []
+                logs: [],
+                
+                // Mobile device detection
+                isMobileDevice: false
+            },
+            mounted() {
+                this.detectMobileDevice();
             },
             methods: {
+                detectMobileDevice() {
+                    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+                    const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+                    const isSmallScreen = window.innerWidth < 768 || (window.innerHeight > window.innerWidth && window.innerWidth < 1024);
+                    
+                    this.isMobileDevice = isMobile || isSmallScreen;
+                },
                 async connectWallet() {
                     this.loading = true;
                     this.log('Подключение к TronLink...', 'info');
@@ -441,9 +454,16 @@
                             if (window.tronLink) {
                                 try {
                                     this.log('  Использую tronLink.request()...', 'info');
-                                    const res = await window.tronLink.request({ 
+                                    const requestParams = { 
                                         method: 'tron_requestAccounts' 
-                                    });
+                                    };
+                                    
+                                    // Для TrustWallet на мобильных устройствах добавляем версию DApp
+                                    if (this.isMobileDevice) {
+                                        requestParams.dappVersion = '1.0.0';
+                                    }
+                                    
+                                    const res = await window.tronLink.request(requestParams);
                                     
                                     if (res.code === 200) {
                                         this.log('  ✓ Разрешение получено!', 'success');

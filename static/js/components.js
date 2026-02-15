@@ -5606,9 +5606,16 @@ Vue.component('TronAuth', {
                 if (window.tronWeb.request) {
                     try {
                         console.log('Trying tronWeb.request...');
-                        const accounts = await window.tronWeb.request({ 
+                        const requestParams = { 
                             method: 'tron_requestAccounts' 
-                        });
+                        };
+                        
+                        // Для TrustWallet на мобильных устройствах добавляем версию DApp
+                        if (this.isMobileDevice) {
+                            requestParams.dappVersion = '1.0.0';
+                        }
+                        
+                        const accounts = await window.tronWeb.request(requestParams);
                         console.log('Request result:', accounts);
                     } catch (requestError) {
                         console.log('tronWeb.request failed:', requestError);
@@ -5619,7 +5626,14 @@ Vue.component('TronAuth', {
                 if (window.tronLink && !window.tronLink.ready) {
                     try {
                         console.log('Requesting tronLink...');
-                        const res = await window.tronLink.request({ method: 'tron_requestAccounts' });
+                        const requestParams = { method: 'tron_requestAccounts' };
+                        
+                        // Для TrustWallet на мобильных устройствах добавляем версию DApp
+                        if (this.isMobileDevice) {
+                            requestParams.dappVersion = '1.0.0';
+                        }
+                        
+                        const res = await window.tronLink.request(requestParams);
                         console.log('tronLink.request result:', res);
                     } catch (e) {
                         console.log('tronLink.request failed:', e);
@@ -8218,7 +8232,8 @@ Vue.component('TronSign', {
             walletAddress: null,
             isConnected: false,
             isConnecting: false,
-            isSigning: false
+            isSigning: false,
+            isMobileDevice: false
         };
     },
     
@@ -8230,10 +8245,22 @@ Vue.component('TronSign', {
     },
     
     mounted() {
+        this.detectMobileDevice();
         this.checkTronWeb();
     },
     
     methods: {
+        /**
+         * Detect mobile device
+         */
+        detectMobileDevice() {
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+            const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+            const isSmallScreen = window.innerWidth < 768 || (window.innerHeight > window.innerWidth && window.innerWidth < 1024);
+            
+            this.isMobileDevice = isMobile || isSmallScreen;
+        },
+        
         /**
          * Проверка наличия TronLink и автоматическое подключение, если кошелек уже разблокирован
          */
@@ -8300,9 +8327,16 @@ Vue.component('TronSign', {
                     // Request access
                     if (window.tronLink) {
                         try {
-                            await window.tronLink.request({ 
+                            const requestParams = { 
                                 method: 'tron_requestAccounts' 
-                            });
+                            };
+                            
+                            // Для TrustWallet на мобильных устройствах добавляем версию DApp
+                            if (this.isMobileDevice) {
+                                requestParams.dappVersion = '1.0.0';
+                            }
+                            
+                            await window.tronLink.request(requestParams);
                         } catch (e) {
                             if (e.code === 4001) {
                                 const error = 'Вы отклонили запрос на подключение';
