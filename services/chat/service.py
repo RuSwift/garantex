@@ -1,14 +1,42 @@
 """
 Service for managing chat messages and conversations
 """
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, and_
-from uuid import uuid1
+import base64
+from io import BytesIO
+from PIL import Image
 
 from db.models import Storage, Deal
 from ledgers.chat.schemas import ChatMessage, ChatMessageCreate, FileAttachment
+
+
+def get_image_dimensions(base64_data: str) -> Tuple[Optional[int], Optional[int]]:
+    """
+    Get image dimensions from base64 data
+    
+    Args:
+        base64_data: Base64 encoded image data
+        
+    Returns:
+        Tuple of (width, height) or (None, None) if unable to determine
+    """
+    try:
+        # Decode base64 to bytes
+        image_bytes = base64.b64decode(base64_data)
+        
+        # Open image with PIL
+        image = Image.open(BytesIO(image_bytes))
+        
+        # Get dimensions
+        width, height = image.size
+        
+        return width, height
+    except Exception as e:
+        print(f"Error getting image dimensions: {e}")
+        return None, None
 
 
 class ChatService:
@@ -42,8 +70,25 @@ class ChatService:
         Returns:
             List of created ChatMessage objects (one for each owner_did)
         """
-        # Generate uuid for the message
-        message_uuid = str(uuid1())
+        # Use uuid from message (generated on client)
+        message_uuid = message.uuid
+        
+        # Process attachments to add dimensions for images
+        processed_attachments = None
+        if message.attachments:
+            processed_attachments = []
+            for attachment in message.attachments:
+                attachment_dict = attachment.model_dump() if hasattr(attachment, 'model_dump') else dict(attachment)
+                
+                # Only process images (photo type) - not videos or documents
+                if attachment_dict.get('type') == 'photo' and attachment_dict.get('data'):
+                    if not attachment_dict.get('width') or not attachment_dict.get('height'):
+                        width, height = get_image_dimensions(attachment_dict['data'])
+                        if width and height:
+                            attachment_dict['width'] = width
+                            attachment_dict['height'] = height
+                
+                processed_attachments.append(FileAttachment(**attachment_dict))
         
         # Create full ChatMessage from ChatMessageCreate
         # Note: conversation_id will be calculated per owner_did later
@@ -57,7 +102,7 @@ class ChatService:
             deal_label=message.deal_label,
             reply_to_message_uuid=message.reply_to_message_uuid,
             text=message.text,
-            attachments=message.attachments,
+            attachments=processed_attachments if processed_attachments else message.attachments,
             signature=message.signature,
             timestamp=datetime.now(timezone.utc),
             status="sent",

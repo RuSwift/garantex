@@ -15,6 +15,7 @@ redis==5.0.1
 tronpy>=0.4.0
 bcrypt==4.0.1
 passlib==1.7.4
+Pillow>=10.0.0
 
 # TRON Multisig Service (services/tron/)
 ecdsa>=0.18.0

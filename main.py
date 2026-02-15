@@ -83,6 +83,22 @@ async def chat(request: Request):
             "request": request
         }
     )
+
+
+@app.get("/test-chat", response_class=HTMLResponse)
+async def test_chat(request: Request):
+    """
+    Тестовая страница для компонента Chat с профилем собеседника из URL
+    
+    Параметры:
+    - did: DID контрагента (обязательный URL-параметр)
+    """
+    return templates.TemplateResponse(
+        "test-chat.html",
+        {
+            "request": request
+        }
+    )
     
     
 @app.get("/seed", response_class=HTMLResponse)

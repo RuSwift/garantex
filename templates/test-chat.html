@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Chat</title>
+    
+    <!-- Bootstrap CSS (for modal-window component) -->
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet" onerror="this.onerror=null; this.href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css'" />
+    
+    <!-- Modal Window CSS -->
+    <link href="/static/css/sb-admin.css" rel="stylesheet" />
+    
+    <!-- Vue.js -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+    
+    <!-- TronWeb library (если нужно для подписей) -->
+    <script src="https://cdn.jsdelivr.net/npm/tronweb@5.3.2/dist/TronWeb.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+        
+        #app {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        [v-cloak] { 
+            display: none; 
+        }
+        
+        /* Анимация для индикаторов загрузки */
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Переопределяем стили модального окна, чтобы оно занимало весь экран */
+        .modal-window-backdrop {
+            display: none !important;
+        }
+        
+        .modal-window-container {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            max-width: 100vw !important;
+            max-height: 100vh !important;
+            border-radius: 0 !important;
+            transform: none !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+        }
+        
+        .modal-window-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        
+        .modal-window-body {
+            height: calc(100vh - 65px) !important;
+            overflow: hidden;
+        }
+        
+        /* Telegram-style scrollbar */
+        .telegram-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        
+        .telegram-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .telegram-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+        }
+        
+        .telegram-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 0, 0, 0.3);
+        }
+        
+        /* Image download button hover effect */
+        .image-container:hover .image-download-btn {
+            opacity: 1 !important;
+        }
+        
+        /* Button visible class (for click on mobile/desktop) */
+        .image-download-btn.button-visible {
+            opacity: 1 !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" v-cloak>
+        <chat
+            :show="true"
+            :wallet-address="walletAddress"
+            :is-authenticated="isAuthenticated"
+            :current-user-did="userDid"
+            @close="handleClose"
+            @on_send_text_message="handleSendMessage"
+            @on_send_documents="handleSendDocuments"
+            @on_sign="handleSign"
+            @on_audio="handleAudio"
+            @on_video="handleVideo"
+            @on_load_attachment="handleLoadAttachment"
+            @on_download_attachment="handleLoadAttachment"
+            ref="chat"
+        ></chat>
+    </div>
+
+    <!-- Компоненты -->
+    <script src="/static/js/components.js"></script>
+    <script src="/static/js/chat.js"></script>
+    
+    <script>
+        new Vue({
+            el: '#app',
+            data() {
+                return {
+                    walletAddress: null,
+                    isAuthenticated: false,
+                    contactProfile: null,
+                    userDid: null
+                }
+            },
+            methods: {
+                handleClose() {
+                    // Ничего не делаем, так как это тестовое окно на весь экран
+                    console.log('Close event triggered');
+                },
+                
+                async handleSendMessage(event) {
+                    console.log('=== Send Text Message Event ===');
+                    console.log('Message UUID:', event.messageUuid);
+                    console.log('Text:', event.text);
+                    console.log('Contact ID:', event.contactId);
+                    console.log('================================');
+                    
+                    if (!this.isAuthenticated || !this.userDid) {
+                        console.warn('User not authenticated or DID not available');
+                        return;
+                    }
+                    
+                    try {
+                        // Формируем объект сообщения (только текст, без вложений)
+                        const messageData = {
+                            uuid: event.messageUuid,
+                            message_type: 'text',
+                            sender_id: this.userDid,
+                            receiver_id: event.contactId,
+                            text: event.text,
+                            attachments: null
+                        };
+                        
+                        console.log('Sending text message to API:', messageData);
+                        
+                        const token = this.getAuthToken();
+                        const response = await fetch('/chat/api/messages', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({
+                                message: messageData,
+                                deal_uid: null
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            console.log('Text message sent successfully:', result);
+                        } else {
+                            const error = await response.json();
+                            console.error('Failed to send text message:', error);
+                        }
+                    } catch (error) {
+                        console.error('Error sending text message:', error);
+                    }
+                },
+                
+                async handleSendDocuments(event) {
+                    console.log('=== Send Documents Event ===');
+                    console.log('Message UUID:', event.messageUuid);
+                    console.log('Text:', event.text);
+                    console.log('Attachments:', event.attachments);
+                    console.log('Contact ID:', event.contactId);
+                    console.log('============================');
+                    
+                    if (!this.isAuthenticated || !this.userDid) {
+                        console.warn('User not authenticated or DID not available');
+                        return;
+                    }
+                    
+                    try {
+                        // Attachments уже приходят с base64 данными
+                        const apiAttachments = event.attachments.map(att => ({
+                            id: att.id,
+                            type: att.type,
+                            name: att.name,
+                            size: att.size,
+                            mime_type: att.mime_type,
+                            data: att.data
+                        }));
+                        
+                        // Определяем тип сообщения
+                        const messageType = event.text ? 'mixed' : 'file';
+                        
+                        // Формируем объект сообщения
+                        const messageData = {
+                            uuid: event.messageUuid,
+                            message_type: messageType,
+                            sender_id: this.userDid,
+                            receiver_id: event.contactId,
+                            text: event.text || null,
+                            attachments: apiAttachments
+                        };
+                        
+                        console.log('Sending message with attachments to API:', messageData);
+                        
+                        const token = this.getAuthToken();
+                        const response = await fetch('/chat/api/messages', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({
+                                message: messageData,
+                                deal_uid: null
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            console.log('Message with attachments sent successfully:', result);
+                        } else {
+                            const error = await response.json();
+                            console.error('Failed to send message with attachments:', error);
+                        }
+                    } catch (error) {
+                        console.error('Error sending message with attachments:', error);
+                    }
+                },
+                
+                handleSign(event) {
+                    console.log('=== Sign Request Event ===');
+                    console.log('Type:', event.type);
+                    console.log('Text:', event.text);
+                    console.log('Message UUID:', event.messageUuid);
+                    console.log('Full event:', event);
+                    console.log('==========================');
+                    // Здесь можно добавить логику подписи сообщения
+                    this.signMessage(event);
+                },
+                
+                handleAudio(event) {
+                    console.log('=== Audio Event ===');
+                    console.log('Action:', event.action);
+                    console.log('Contact ID:', event.contactId);
+                    console.log('Full event:', event);
+                    console.log('===================');
+                    // Здесь можно добавить логику записи аудио
+                },
+                
+                handleVideo(event) {
+                    console.log('=== Video Event ===');
+                    console.log('Action:', event.action);
+                    console.log('Contact ID:', event.contactId);
+                    console.log('Full event:', event);
+                    console.log('===================');
+                    // Здесь можно добавить логику записи видео
+                },
+                
+                async signMessage(event) {
+                    if (!this.isAuthenticated) {
+                        alert('Please authenticate first');
+                        return;
+                    }
+                    
+                    // Проверяем наличие TronLink
+                    if (typeof window.tronWeb === 'undefined') {
+                        alert('TronLink is not installed');
+                        return;
+                    }
+                    
+                    try {
+                        const tronWeb = window.tronWeb;
+                        const message = event.text;
+                        
+                        // Подписываем сообщение через TronLink
+                        const signature = await tronWeb.trx.sign(message);
+                        
+                        // Передаем подпись обратно в компонент Chat
+                        if (this.$refs.chat) {
+                            this.$refs.chat.onSignatureResult(event.messageUuid, signature);
+                        }
+                        
+                    } catch (error) {
+                        console.error('Error signing message:', error);
+                        alert('Error signing message: ' + error.message);
+                    }
+                },
+                
+                async checkAuth() {
+                    const token = this.getAuthToken();
+                    
+                    if (!token) {
+                        this.isAuthenticated = false;
+                        this.walletAddress = null;
+                        this.userDid = null;
+                        return false;
+                    }
+                    
+                    try {
+                        // Используем /api/profile/me для получения полного профиля с DID
+                        const response = await fetch('/api/profile/me', {
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            const profile = await response.json();
+                            this.walletAddress = profile.wallet_address;
+                            this.userDid = profile.did || null;
+                            this.isAuthenticated = true;
+                            
+                            console.log('User authenticated:', {
+                                wallet: this.walletAddress,
+                                did: this.userDid
+                            });
+                            
+                            return true;
+                        } else {
+                            console.warn('Authentication failed:', response.status);
+                        }
+                    } catch (error) {
+                        console.error('Error checking auth:', error);
+                    }
+                    
+                    this.isAuthenticated = false;
+                    this.walletAddress = null;
+                    this.userDid = null;
+                    return false;
+                },
+                
+                getAuthToken() {
+                    const cookies = document.cookie.split(';');
+                    const tokenCookie = cookies.find(c => c.trim().startsWith('tron_auth_token='));
+                    if (tokenCookie) {
+                        return tokenCookie.split('=')[1];
+                    }
+                    return null;
+                },
+                
+                fileToBase64(file) {
+                    return new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            // Убираем префикс data:...;base64,
+                            const base64 = reader.result.split(',')[1];
+                            resolve(base64);
+                        };
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                    });
+                },
+                
+                getUrlParameter(name) {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    return urlParams.get(name);
+                },
+                
+                async loadContactProfile() {
+                    const did = this.getUrlParameter('did');
+                    
+                    if (!did) {
+                        console.warn('No DID parameter provided');
+                        // Используем профиль по умолчанию
+                        this.contactProfile = {
+                            id: 'default',
+                            name: 'Test Contact',
+                            avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=default',
+                            status: 'online',
+                            lastMessage: 'Hello! This is a test contact.',
+                            did: null
+                        };
+                        return;
+                    }
+                    
+                    // Пробуем загрузить профиль с сервера
+                    try {
+                        const response = await fetch(`/api/profile/user/${did}`);
+                        
+                        if (response.ok) {
+                            const profile = await response.json();
+                            this.contactProfile = {
+                                id: did,
+                                name: profile.nickname || `User ${did.substring(0, 8)}`,
+                                avatar: profile.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${did}`,
+                                status: 'online',
+                                lastMessage: profile.lastMessage || 'Hello!',
+                                did: did
+                            };
+                        } else {
+                            // Если профиль не найден, создаем временный
+                            this.contactProfile = {
+                                id: did,
+                                name: `User ${did.substring(0, 8)}`,
+                                avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${did}`,
+                                status: 'online',
+                                lastMessage: 'Hello!',
+                                did: did
+                            };
+                        }
+                    } catch (error) {
+                        console.error('Error loading profile:', error);
+                        // Создаем профиль по умолчанию при ошибке
+                        this.contactProfile = {
+                            id: did,
+                            name: `User ${did.substring(0, 8)}`,
+                            avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${did}`,
+                            status: 'online',
+                            lastMessage: 'Hello!',
+                            did: did
+                        };
+                    }
+                },
+                
+                initChatWithContact() {
+                    // Дожидаемся, пока компонент Chat будет готов
+                    this.$nextTick(() => {
+                        if (this.$refs.chat && this.contactProfile) {
+                            // Добавляем контакт в список контактов компонента Chat
+                            const chat = this.$refs.chat;
+                            
+                            // Проверяем, есть ли уже такой контакт
+                            const existingContact = chat.contacts.find(c => c.id === this.contactProfile.id);
+                            
+                            if (!existingContact) {
+                                // Добавляем новый контакт
+                                chat.contacts.push({
+                                    id: this.contactProfile.id,
+                                    name: this.contactProfile.name,
+                                    avatar: this.contactProfile.avatar,
+                                    status: this.contactProfile.status,
+                                    lastMessage: this.contactProfile.lastMessage,
+                                    isTyping: false
+                                });
+                            }
+                            
+                            // Выбираем контакт
+                            const contact = chat.contacts.find(c => c.id === this.contactProfile.id);
+                            if (contact) {
+                                chat.selectContact(contact);
+                            }
+                            
+                            console.log('Chat initialized with contact:', this.contactProfile);
+                        }
+                    });
+                },
+                
+                async loadChatHistory() {
+                    // Проверяем, что есть аутентификация и профиль контакта
+                    if (!this.isAuthenticated || !this.contactProfile || !this.contactProfile.did) {
+                        console.warn('Cannot load history: not authenticated or no contact profile');
+                        return;
+                    }
+                    
+                    try {
+                        const token = this.getAuthToken();
+                        const conversationId = this.contactProfile.did;
+                        
+                        console.log('Loading chat history for conversation:', conversationId);
+                        
+                        const response = await fetch(`/chat/api/history?conversation_id=${encodeURIComponent(conversationId)}&page=1&page_size=50`, {
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            console.log('Chat history loaded:', result);
+                            
+                            if (result.messages && result.messages.length > 0) {
+                                // Передаем историю в компонент Chat
+                                this.$nextTick(() => {
+                                    if (this.$refs.chat) {
+                                        this.$refs.chat.set_history(result.messages);
+                                        console.log(`Loaded ${result.messages.length} messages for conversation ${conversationId}`);
+                                    }
+                                });
+                            } else {
+                                console.log('No messages in history for conversation:', conversationId);
+                            }
+                        } else {
+                            const error = await response.json();
+                            console.error('Failed to load chat history:', error);
+                        }
+                    } catch (error) {
+                        console.error('Error loading chat history:', error);
+                    }
+                },
+                
+                async handleLoadAttachment(event) {
+                    console.log('Fetching attachment:', event.messageUuid, event.attachmentId);
+                    
+                    try {
+                        const token = this.getAuthToken();
+                        const headers = {
+                            'Content-Type': 'application/json'
+                        };
+                        if (token) {
+                            headers['Authorization'] = `Bearer ${token}`;
+                        }
+                        
+                        const response = await fetch(`/chat/api/attachment/${event.messageUuid}/${event.attachmentId}`, {
+                            method: 'GET',
+                            headers: headers
+                        });
+                        
+                        if (!response.ok) {
+                            throw new Error('Failed to fetch attachment');
+                        }
+                        
+                        const attachmentData = await response.json();
+                        
+                        // Resolve the promise with the data
+                        event.resolve(attachmentData);
+                        
+                    } catch (error) {
+                        console.error('Error fetching attachment:', error);
+                        event.reject(error);
+                    }
+                }
+            },
+            async mounted() {
+                // Проверяем авторизацию
+                const isAuth = await this.checkAuth();
+                
+                if (!isAuth) {
+                    console.warn('User not authenticated, chat history will not be loaded');
+                    return;
+                }
+                
+                // Загружаем профиль собеседника из URL параметра
+                await this.loadContactProfile();
+                
+                // Проверяем, что профиль загружен и содержит DID
+                if (!this.contactProfile || !this.contactProfile.id) {
+                    console.warn('Contact profile not loaded or missing ID');
+                    return;
+                }
+                
+                // Инициализируем чат с контактом
+                this.initChatWithContact();
+                
+                // Загружаем историю сообщений
+                await this.loadChatHistory();
+            }
+        });
+    </script>
+</body>
+</html>
+

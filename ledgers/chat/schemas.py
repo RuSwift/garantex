@@ -127,8 +127,10 @@ class FileAttachment(BaseModel):
     name: str = Field(..., description="Имя файла")
     size: int = Field(..., description="Размер файла в байтах")
     mime_type: str = Field(..., description="MIME тип файла (например, image/png, application/pdf)")
-    data: str = Field(..., description="Содержимое файла в base64")
+    data: Optional[str] = Field(None, description="Содержимое файла в base64 (может быть пустым при постраничной загрузке)")
     thumbnail: Optional[str] = Field(None, description="Превью в base64 (для изображений/видео)")
+    width: Optional[int] = Field(None, description="Ширина изображения/видео в пикселях")
+    height: Optional[int] = Field(None, description="Высота изображения/видео в пикселях")
     
     @field_validator('size')
     @classmethod
@@ -306,7 +308,8 @@ class ChatMessage(BaseModel):
 
 
 class ChatMessageCreate(BaseModel):
-    """Модель для создания нового сообщения (без uuid, timestamp и conversation_id)"""
+    """Модель для создания нового сообщения"""
+    uuid: str = Field(..., description="UUID сообщения (генерируется на клиенте)")
     message_type: MessageType
     sender_id: str
     receiver_id: str

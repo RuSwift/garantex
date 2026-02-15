@@ -18,6 +18,22 @@
             overflow: hidden;
         }
         
+        /* Анимация для индикаторов загрузки */
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Image download button hover effect */
+        .image-container:hover .image-download-btn {
+            opacity: 1 !important;
+        }
+        
+        /* Button visible class (for click on mobile/desktop) */
+        .image-download-btn.button-visible {
+            opacity: 1 !important;
+        }
+        
         .ai-chat-root {
             display: flex;
             height: 100vh;

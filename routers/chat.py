@@ -10,7 +10,7 @@ from dependencies import DbDepends
 from services.chat.service import ChatService
 from services.wallet_user import WalletUserService
 from ledgers.chat.schemas import ChatMessage, ChatMessageCreate, ChatMessageResponse
-from ledgers import get_user_did
+
 
 router = APIRouter(
     prefix="/chat",
@@ -41,11 +41,8 @@ async def get_chat_service(
             detail="User profile not found"
         )
     
-    # Формируем DID из wallet_address и blockchain
-    owner_did = get_user_did(user.wallet_address, user.blockchain)
-    
     # Создаем ChatService с owner_did
-    return ChatService(session=db, owner_did=owner_did)
+    return ChatService(session=db, owner_did=user.did)
 
 
 class AddMessageRequest(BaseModel):
