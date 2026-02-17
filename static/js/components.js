@@ -5593,9 +5593,16 @@ Vue.component('TronAuth', {
          * Connect directly via TronLink/TrustWallet
          */
         async connectDirectly() {
-            if (!window.tronWeb) {
-                this.showStatus('Кошелек не обнаружен', 'error');
-                return;
+            // На мобильных устройствах без браузерного кошелька используем WalletConnect v2
+            if (!window.tronWeb && !window.tronLink) {
+                if (this.isMobileDevice) {
+                    // На мобильном без браузерного кошелька используем WalletConnect v2
+                    await this.connectViaWalletConnect();
+                    return;
+                } else {
+                    this.showStatus('Кошелек не обнаружен', 'error');
+                    return;
+                }
             }
             
             try {
