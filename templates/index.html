@@ -21,8 +21,10 @@
     <script src="https://cdn.jsdelivr.net/npm/tronweb@5.3.2/dist/TronWeb.js"></script>
     
     <!-- WalletConnect v2 (Reown) для горячего кошелька на мобильных -->
-    <script src="https://unpkg.com/@walletconnect/core@2.15.0/dist/index.umd.js"></script>
-    <script src="https://unpkg.com/@walletconnect/web3wallet@1.11.0/dist/index.umd.js"></script>
+    <script src="https://unpkg.com/@walletconnect/core@2.15.0/dist/index.umd.js" 
+            onerror="console.error('Failed to load WalletConnect Core')"></script>
+    <script src="https://unpkg.com/@walletconnect/web3wallet@1.11.0/dist/index.umd.js"
+            onerror="console.error('Failed to load WalletConnect Web3Wallet')"></script>
     
     <style>
         body {

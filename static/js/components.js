@@ -5747,9 +5747,39 @@ Vue.component('TronAuth', {
                 this.isConnecting = true;
                 this.showStatus('Инициализация WalletConnect v2 (Reown)...', 'info');
                 
-                // Check if WalletConnect v2 is available
-                if (typeof WalletConnectCore === 'undefined' || typeof WalletConnectWeb3Wallet === 'undefined') {
-                    this.showStatus('WalletConnect v2 не загружен. Установите TronLink или TrustWallet для продолжения.', 'error');
+                // Проверяем наличие библиотек WalletConnect v2 с гибкой проверкой
+                let WalletConnectCoreClass, WalletConnectWeb3WalletClass;
+                
+                // Пробуем разные варианты имен глобальных переменных
+                if (typeof WalletConnectCore !== 'undefined') {
+                    WalletConnectCoreClass = WalletConnectCore;
+                } else if (typeof window.WalletConnectCore !== 'undefined') {
+                    WalletConnectCoreClass = window.WalletConnectCore;
+                } else if (typeof window.WalletConnect !== 'undefined' && window.WalletConnect.Core) {
+                    WalletConnectCoreClass = window.WalletConnect.Core;
+                }
+                
+                if (typeof WalletConnectWeb3Wallet !== 'undefined') {
+                    WalletConnectWeb3WalletClass = WalletConnectWeb3Wallet;
+                } else if (typeof window.WalletConnectWeb3Wallet !== 'undefined') {
+                    WalletConnectWeb3WalletClass = window.WalletConnectWeb3Wallet;
+                } else if (typeof window.WalletConnect !== 'undefined' && window.WalletConnect.Web3Wallet) {
+                    WalletConnectWeb3WalletClass = window.WalletConnect.Web3Wallet;
+                }
+                
+                // Если библиотеки не найдены, выводим диагностику
+                if (!WalletConnectCoreClass || !WalletConnectWeb3WalletClass) {
+                    console.error('WalletConnect v2 libraries not found');
+                    console.log('Available globals:', Object.keys(window).filter(k => 
+                        k.toLowerCase().includes('wallet') || 
+                        k.toLowerCase().includes('connect') ||
+                        k.toLowerCase().includes('reown')
+                    ));
+                    console.log('window.WalletConnectCore:', typeof window.WalletConnectCore);
+                    console.log('window.WalletConnectWeb3Wallet:', typeof window.WalletConnectWeb3Wallet);
+                    console.log('window.WalletConnect:', typeof window.WalletConnect);
+                    
+                    this.showStatus('WalletConnect v2 не загружен. Проверьте подключение библиотек в консоли браузера.', 'error');
                     return;
                 }
                 
@@ -5760,7 +5790,12 @@ Vue.component('TronAuth', {
                     console.log('Using existing WalletConnect v2 instance');
                 } else {
                     // Initialize Web3Wallet
-                    const web3wallet = await WalletConnectWeb3Wallet.default.init({
+                    // Используем правильный класс в зависимости от того, как он экспортирован
+                    const Web3WalletClass = WalletConnectWeb3WalletClass.default || WalletConnectWeb3WalletClass;
+                    
+                    console.log('Initializing WalletConnect v2 with projectId:', this.walletConnectProjectId);
+                    
+                    const web3wallet = await Web3WalletClass.init({
                         projectId: this.walletConnectProjectId,
                         metadata: {
                             name: 'Garantex DApp',
@@ -5771,19 +5806,28 @@ Vue.component('TronAuth', {
                     });
                     
                     this.walletConnectV2 = web3wallet;
+                    console.log('WalletConnect v2 initialized successfully');
                 }
                 
                 // Create pairing and get URI for connection
+                if (!this.walletConnectV2 || !this.walletConnectV2.core) {
+                    throw new Error('WalletConnect v2 не инициализирован корректно');
+                }
+                
+                console.log('Creating WalletConnect pairing...');
                 const { uri, approval } = await this.walletConnectV2.core.pairing.create();
                 
                 if (!uri) {
                     throw new Error('Не удалось создать URI для подключения');
                 }
                 
+                console.log('WalletConnect URI created:', uri.substring(0, 50) + '...');
+                
                 // Show QR code or deep link
                 if (this.isMobileDevice) {
                     // On mobile device, open deep link for TrustWallet
                     const deepLink = `trust://wc?uri=${encodeURIComponent(uri)}`;
+                    console.log('Opening deep link:', deepLink);
                     window.location.href = deepLink;
                     this.showStatus('Откройте приложение TrustWallet для подключения', 'info');
                 } else {
