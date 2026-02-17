@@ -9188,6 +9188,7 @@ Vue.component('DealConversation', {
                                         status: 'online',
                                         lastMessage: lastMessage.text || '',
                                         did: conversationId,
+                                        deal_uid: lastMessage.deal_uid || null,
                                         isTyping: false
                                     });
                                 }
@@ -9232,6 +9233,7 @@ Vue.component('DealConversation', {
                         status: 'online',
                         lastMessage: '',
                         did: ownerDid,
+                        deal_uid: ownerInfo.deal_uid || null,
                         isTyping: false
                     };
                     chat.contacts.push(contact);

@@ -1331,13 +1331,26 @@ Vue.component('Chat', {
                 const signedText = `${cleanMessage}\n\n[Подписано: ${signature.substring(0, 10)}...${signature.substring(signature.length - 8)}]`;
                 this.chatInputText = signedText;
             }
+        },
+        
+        // Create deal button handler
+        createDeal() {
+            if (!this.selectedContact) {
+                return;
+            }
+            
+            // Emit event to parent component to handle deal creation
+            this.$emit('on_create_deal', {
+                conversation_id: this.selectedContact.id,
+                contact: this.selectedContact
+            });
         }
     },
     template: `
         <div>
             <modal-window v-if="show" :width="'98%'" :height="'98%'" @close="close">
             <template #header>
-                <div class="d-flex justify-content-between align-items-center w-100">
+                <div class="d-flex justify-content-between align-items-center w-100" style="margin-bottom: 0;">
                     <h3 class="mb-0">Чат</h3>
                     <button 
                         @click="close"
@@ -1404,8 +1417,13 @@ Vue.component('Chat', {
                                     </div>
                                     <div style="flex: 1; min-width: 0;">
                                         <div class="d-flex align-items-center justify-content-between mb-1">
-                                            <p class="mb-0 fw-semibold text-truncate" :style="{ fontSize: '15px', color: selectedContactId === c.id ? 'white' : '#212121' }">[[ c.name ]]</p>
-                                            <span :style="{ fontSize: '12px', color: selectedContactId === c.id ? 'rgba(255,255,255,0.7)' : '#9ca3af' }">[[ formatTime(Date.now() - 3600000) ]]</span>
+                                            <div style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;">
+                                                <p class="mb-0 fw-semibold text-truncate" :style="{ fontSize: '15px', color: selectedContactId === c.id ? 'white' : '#212121' }">[[ c.name ]]</p>
+                                                <span :style="{ fontSize: '11px', color: selectedContactId === c.id ? 'rgba(255,255,255,0.6)' : '#9ca3af', fontWeight: '500', flexShrink: 0, whiteSpace: 'nowrap' }">
+                                                    [[ c.deal_uid ? 'Сделка' : 'Обычный Чат' ]]
+                                                </span>
+                                            </div>
+                                            <span :style="{ fontSize: '12px', color: selectedContactId === c.id ? 'rgba(255,255,255,0.7)' : '#9ca3af', flexShrink: 0 }">[[ formatTime(Date.now() - 3600000) ]]</span>
                                         </div>
                                         <p class="mb-0 text-truncate" :style="{ fontSize: '13px', color: selectedContactId === c.id ? 'rgba(255,255,255,0.8)' : '#707579' }">
                                             [[ c.isTyping ? 'печатает...' : (c.lastMessage || 'No messages yet') ]]
@@ -1450,8 +1468,11 @@ Vue.component('Chat', {
                                         <span v-else style="font-size: 18px;">[[ selectedContact.name.charAt(0).toUpperCase() ]]</span>
                                     </div>
                                     <div>
-                                        <p class="mb-0 fw-semibold" style="font-size: 15px; color: #212121; display: flex; align-items: center; gap: 8px;">
+                                        <p class="mb-0 fw-semibold" style="font-size: 15px; color: #212121; display: flex; align-items: center; gap: 6px;">
                                             <span>[[ selectedContact.name ]]</span>
+                                            <span style="font-size: 11px; color: #9ca3af; font-weight: 500; white-space: nowrap;">
+                                                [[ selectedContact.deal_uid ? 'Сделка' : 'Обычный Чат' ]]
+                                            </span>
                                             <span v-if="selectedContact.did" style="font-size: 12px; color: #707579; font-weight: normal;">
                                                 [[ selectedContact.did ]]
                                             </span>
@@ -1769,6 +1790,36 @@ Vue.component('Chat', {
                                             </div>
                                         </div>
                                     </div>
+                                </div>
+                                
+                                <!-- Create Deal Button (shown when deal_uid is null) -->
+                                <div v-if="selectedContact && !selectedContact.deal_uid" style="display: flex; justify-content: center; margin-top: 16px; margin-bottom: 8px;">
+                                    <button 
+                                        @click="createDeal"
+                                        :style="{
+                                            padding: '8px 16px',
+                                            border: '1px solid #e5e5e5',
+                                            borderRadius: '20px',
+                                            background: 'white',
+                                            color: '#4082bc',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '500',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            transition: 'all 0.2s',
+                                            boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                                        }"
+                                        @mouseenter="$event.target.style.background = '#f5f5f5'"
+                                        @mouseleave="$event.target.style.background = 'white'"
+                                        title="Создать сделку"
+                                    >
+                                        <svg style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                        </svg>
+                                        <span>Создать сделку</span>
+                                    </button>
                                 </div>
                             </div>
 
