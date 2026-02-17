@@ -7169,7 +7169,15 @@ Vue.component('WalletUsers', {
                 const response = await fetch('/api/admin/wallet-users?' + params);
                 
                 if (!response.ok) {
-                    throw new Error('Failed to load users');
+                    // Попытаться получить детали ошибки от сервера
+                    let errorMessage = 'Failed to load users';
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.detail || errorData.message || errorMessage;
+                    } catch (e) {
+                        errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                    }
+                    throw new Error(errorMessage);
                 }
                 
                 const data = await response.json();
@@ -9388,11 +9396,39 @@ Vue.component('Arbiter', {
         return {
             isInitialized: false,
             loading: true,
-            error: null
+            error: null,
+            
+            // Arbiter addresses list
+            arbiterAddresses: [],
+            loadingAddresses: false,
+            
+            // Create arbiter address modal
+            showCreateModal: false,
+            arbiterForm: {
+                name: '',
+                mnemonic: ''
+            },
+            savingArbiter: false,
+            
+            // Status messages
+            statusMessage: '',
+            statusType: '',
+            statusVisible: false,
+            
+            // Activate address confirmation modal
+            showActivateModal: false,
+            addressToActivate: null,
+            activatingAddress: false,
+            
+            // Edit address name
+            editingAddressId: null,
+            editingAddressName: '',
+            savingName: false
         };
     },
     mounted() {
         this.checkInitialization();
+        this.loadArbiterAddresses();
     },
     methods: {
         async checkInitialization() {
@@ -9411,32 +9447,482 @@ Vue.component('Arbiter', {
             } finally {
                 this.loading = false;
             }
+        },
+        
+        async loadArbiterAddresses() {
+            this.loadingAddresses = true;
+            try {
+                const response = await fetch('/api/marketplace/arbiter/addresses', {
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки адресов арбитра');
+                }
+                
+                const data = await response.json();
+                this.arbiterAddresses = data.addresses || [];
+            } catch (error) {
+                console.error('Error loading arbiter addresses:', error);
+                this.showStatus('Ошибка загрузки адресов арбитра: ' + error.message, 'error');
+            } finally {
+                this.loadingAddresses = false;
+            }
+        },
+        
+        formatDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            return date.toLocaleString('ru-RU');
+        },
+        
+        copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                this.showStatus('Адрес скопирован в буфер обмена', 'success');
+            }).catch(err => {
+                console.error('Error copying to clipboard:', err);
+                this.showStatus('Ошибка копирования', 'error');
+            });
+        },
+        
+        showActivateAddressModal(address) {
+            this.addressToActivate = address;
+            this.showActivateModal = true;
+        },
+        
+        closeActivateModal() {
+            this.showActivateModal = false;
+            this.addressToActivate = null;
+        },
+        
+        async activateArbiterAddress() {
+            if (!this.addressToActivate) {
+                return;
+            }
+            
+            this.activatingAddress = true;
+            
+            try {
+                const response = await fetch(`/api/marketplace/arbiter/addresses/${this.addressToActivate.id}/activate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    let errorMessage = 'Ошибка переключения активного адреса';
+                    try {
+                        const error = await response.json();
+                        errorMessage = error.detail || errorMessage;
+                    } catch (e) {
+                        errorMessage = `Ошибка ${response.status}: ${response.statusText}`;
+                    }
+                    throw new Error(errorMessage);
+                }
+                
+                this.showStatus('Активный адрес арбитра успешно переключен', 'success');
+                this.closeActivateModal();
+                await this.loadArbiterAddresses();
+                
+            } catch (error) {
+                console.error('Error activating arbiter address:', error);
+                this.showStatus(error.message || 'Ошибка переключения активного адреса', 'error');
+            } finally {
+                this.activatingAddress = false;
+            }
+        },
+        
+        startEditingName(address) {
+            this.editingAddressId = address.id;
+            this.editingAddressName = address.name;
+        },
+        
+        cancelEditingName() {
+            this.editingAddressId = null;
+            this.editingAddressName = '';
+        },
+        
+        async saveAddressName(address) {
+            if (!this.editingAddressName || !this.editingAddressName.trim()) {
+                this.showStatus('Имя не может быть пустым', 'error');
+                return;
+            }
+            
+            this.savingName = true;
+            
+            try {
+                const response = await fetch(`/api/marketplace/arbiter/addresses/${address.id}/name`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        name: this.editingAddressName.trim()
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Ошибка обновления имени');
+                }
+                
+                this.showStatus('Имя адреса арбитра обновлено', 'success');
+                this.cancelEditingName();
+                await this.loadArbiterAddresses();
+                
+            } catch (error) {
+                console.error('Error updating arbiter address name:', error);
+                this.showStatus('Ошибка обновления имени: ' + error.message, 'error');
+            } finally {
+                this.savingName = false;
+            }
+        },
+        
+        showCreateArbiterModal() {
+            this.arbiterForm = {
+                name: '',
+                mnemonic: ''
+            };
+            this.showCreateModal = true;
+        },
+        
+        closeCreateModal() {
+            this.showCreateModal = false;
+            this.arbiterForm = {
+                name: '',
+                mnemonic: ''
+            };
+        },
+        
+        validateMnemonic(mnemonic) {
+            if (!mnemonic || typeof mnemonic !== 'string') {
+                return false;
+            }
+            
+            const words = mnemonic.trim().split(/\s+/);
+            return words.length >= 12 && words.length <= 24;
+        },
+        
+        showStatus(message, type) {
+            this.statusMessage = message;
+            this.statusType = type;
+            this.statusVisible = true;
+            
+            setTimeout(() => {
+                this.statusVisible = false;
+            }, 5000);
+        },
+        
+        async createArbiterAddress() {
+            if (!this.arbiterForm.name || !this.arbiterForm.name.trim()) {
+                this.showStatus('Введите имя кошелька арбитра', 'error');
+                return;
+            }
+            
+            if (!this.arbiterForm.mnemonic || !this.arbiterForm.mnemonic.trim()) {
+                this.showStatus('Введите мнемоническую фразу', 'error');
+                return;
+            }
+            
+            if (!this.validateMnemonic(this.arbiterForm.mnemonic)) {
+                this.showStatus('Мнемоническая фраза должна содержать от 12 до 24 слов', 'error');
+                return;
+            }
+            
+            this.savingArbiter = true;
+            
+            try {
+                const response = await fetch('/api/marketplace/arbiter/addresses', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        name: this.arbiterForm.name.trim(),
+                        mnemonic: this.arbiterForm.mnemonic.trim()
+                    })
+                });
+                
+                if (!response.ok) {
+                    let errorMessage = 'Ошибка создания кошелька арбитра';
+                    try {
+                        const error = await response.json();
+                        errorMessage = error.detail || errorMessage;
+                    } catch (e) {
+                        // Если не удалось распарсить JSON, используем статус
+                        errorMessage = `Ошибка ${response.status}: ${response.statusText}`;
+                    }
+                    throw new Error(errorMessage);
+                }
+                
+                this.showStatus('Кошелек арбитра успешно создан', 'success');
+                this.closeCreateModal();
+                await this.checkInitialization();
+                await this.loadArbiterAddresses();
+                
+            } catch (error) {
+                console.error('Error creating arbiter address:', error);
+                // Показываем сообщение об ошибке (уже содержит детали от сервера)
+                this.showStatus(error.message || 'Ошибка создания кошелька арбитра', 'error');
+            } finally {
+                this.savingArbiter = false;
+            }
         }
     },
     template: `
-        <div class="card mb-4">
-            <div class="card-header">
-                <i class="fas fa-gavel me-1"></i>
-                Арбитр
-            </div>
-            <div class="card-body">
-                <div v-if="loading" class="text-center py-3">
-                    <div class="spinner-border spinner-border-sm" role="status">
-                        <span class="visually-hidden">Загрузка...</span>
+        <div>
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i class="fas fa-gavel me-1"></i>
+                    Арбитр
+                </div>
+                <div class="card-body">
+                    <div v-if="statusVisible" :class="['alert', 'alert-' + (statusType === 'error' ? 'danger' : statusType === 'success' ? 'success' : 'info')]" style="border-radius: 10px; margin-bottom: 20px;">
+                        [[ statusMessage ]]
+                    </div>
+                    
+                    <div v-if="loading" class="text-center py-3">
+                        <div class="spinner-border spinner-border-sm" role="status">
+                            <span class="visually-hidden">Загрузка...</span>
+                        </div>
+                    </div>
+                    <div v-else-if="error" class="alert alert-danger">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        [[ error ]]
+                    </div>
+                    <div v-else-if="!isInitialized" class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Внимание!</strong> Кошелек арбитра не инициализирован. 
+                        Пожалуйста, инициализируйте кошелек арбитра для работы с арбитражем.
+                        <div class="mt-3">
+                            <button type="button" class="btn btn-primary" @click="showCreateArbiterModal">
+                                <i class="fas fa-plus me-1"></i>
+                                Создать кошелек арбитра из мнемоники
+                            </button>
+                        </div>
+                    </div>
+                    <div v-else>
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="mb-0">Адреса арбитра</h5>
+                            <button type="button" class="btn btn-primary btn-sm" @click="showCreateArbiterModal">
+                                <i class="fas fa-plus me-1"></i>
+                                Добавить кошелек арбитра
+                            </button>
+                        </div>
+                        
+                        <div v-if="loadingAddresses" class="text-center py-4">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Загрузка...</span>
+                            </div>
+                        </div>
+                        
+                        <div v-else-if="arbiterAddresses.length === 0" class="alert alert-info">
+                            Адреса арбитра не найдены. Добавьте первый адрес.
+                        </div>
+                        
+                        <div v-else class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Имя</th>
+                                        <th>Роль</th>
+                                        <th>TRON адрес</th>
+                                        <th>Ethereum адрес</th>
+                                        <th>Создан</th>
+                                        <th>Действия</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="address in arbiterAddresses" :key="address.id" :class="{'table-primary': address.role === 'arbiter'}">
+                                        <td>[[ address.id ]]</td>
+                                        <td>
+                                            <div v-if="editingAddressId === address.id">
+                                                <div class="input-group input-group-sm">
+                                                    <input 
+                                                        type="text" 
+                                                        class="form-control" 
+                                                        v-model="editingAddressName"
+                                                        @keyup.enter="saveAddressName(address)"
+                                                        @keyup.esc="cancelEditingName"
+                                                    >
+                                                    <button 
+                                                        class="btn btn-success btn-sm" 
+                                                        @click="saveAddressName(address)"
+                                                        :disabled="savingName"
+                                                    >
+                                                        <i class="fas fa-check"></i>
+                                                    </button>
+                                                    <button 
+                                                        class="btn btn-secondary btn-sm" 
+                                                        @click="cancelEditingName"
+                                                        :disabled="savingName"
+                                                    >
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div v-else>
+                                                [[ address.name ]]
+                                                <button 
+                                                    class="btn btn-link btn-sm p-0 ms-2" 
+                                                    @click="startEditingName(address)"
+                                                    title="Редактировать имя"
+                                                >
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span v-if="address.role === 'arbiter'" class="badge bg-success">
+                                                <i class="fas fa-check-circle me-1"></i>
+                                                Активный
+                                            </span>
+                                            <span v-else-if="address.role === 'arbiter-backup'" class="badge bg-secondary">
+                                                <i class="fas fa-archive me-1"></i>
+                                                Резервный
+                                            </span>
+                                            <span v-else class="badge bg-info">
+                                                [[ address.role ]]
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <code class="text-truncate d-inline-block" style="max-width: 150px;" :title="address.tron_address">
+                                                [[ address.tron_address ]]
+                                            </code>
+                                            <button 
+                                                class="btn btn-link btn-sm p-0 ms-1" 
+                                                @click="copyToClipboard(address.tron_address)"
+                                                title="Копировать адрес"
+                                            >
+                                                <i class="fas fa-copy"></i>
+                                            </button>
+                                        </td>
+                                        <td>
+                                            <code class="text-truncate d-inline-block" style="max-width: 150px;" :title="address.ethereum_address">
+                                                [[ address.ethereum_address ]]
+                                            </code>
+                                            <button 
+                                                class="btn btn-link btn-sm p-0 ms-1" 
+                                                @click="copyToClipboard(address.ethereum_address)"
+                                                title="Копировать адрес"
+                                            >
+                                                <i class="fas fa-copy"></i>
+                                            </button>
+                                        </td>
+                                        <td>[[ formatDate(address.created_at) ]]</td>
+                                        <td>
+                                            <button 
+                                                v-if="address.role === 'arbiter-backup'"
+                                                class="btn btn-sm btn-primary"
+                                                @click="showActivateAddressModal(address)"
+                                                title="Сделать активным адресом арбитра"
+                                            >
+                                                <i class="fas fa-toggle-on me-1"></i>
+                                                Активировать
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
-                <div v-else-if="error" class="alert alert-danger">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    [[ error ]]
+            </div>
+            
+            <!-- Create Arbiter Address Modal -->
+            <div v-if="showCreateModal" class="modal fade show" style="display: block; background-color: rgba(0, 0, 0, 0.5);" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content" style="box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);">
+                        <div class="modal-header bg-primary text-white">
+                            <h5 class="modal-title">Добавить кошелек арбитра</h5>
+                            <button type="button" class="btn-close btn-close-white" @click="closeCreateModal"></button>
+                        </div>
+                        <div class="modal-body" style="padding: 2rem;">
+                            <div class="mb-3">
+                                <label for="arbiterName" class="form-label">Имя кошелька арбитра</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    id="arbiterName"
+                                    v-model="arbiterForm.name"
+                                    placeholder="Введите имя кошелька арбитра"
+                                >
+                            </div>
+                            <div class="mb-3">
+                                <label for="arbiterMnemonic" class="form-label">Мнемоническая фраза</label>
+                                <textarea 
+                                    class="form-control" 
+                                    id="arbiterMnemonic"
+                                    v-model="arbiterForm.mnemonic"
+                                    rows="3"
+                                    placeholder="Введите мнемоническую фразу (12-24 слова)"
+                                ></textarea>
+                                <small class="form-text text-muted">
+                                    Мнемоническая фраза будет зашифрована и сохранена в базе данных.
+                                </small>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="closeCreateModal">Отмена</button>
+                            <button 
+                                type="button" 
+                                class="btn btn-primary" 
+                                @click="createArbiterAddress"
+                                :disabled="savingArbiter"
+                            >
+                                <span v-if="savingArbiter" class="spinner-border spinner-border-sm me-1"></span>
+                                Создать
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <div v-else-if="!isInitialized" class="alert alert-warning">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    <strong>Внимание!</strong> Кошелек арбитра не инициализирован. 
-                    Пожалуйста, инициализируйте кошелек арбитра для работы с арбитражем.
-                </div>
-                <div v-else class="text-center py-5">
-                    <h3 class="text-muted">Арбитр</h3>
-                    <p class="text-muted">Раздел находится в разработке</p>
+            </div>
+            
+            <!-- Activate Arbiter Address Confirmation Modal -->
+            <div v-if="showActivateModal" class="modal fade show" style="display: block; background-color: rgba(0, 0, 0, 0.5);" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content" style="box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);">
+                        <div class="modal-header bg-warning text-dark">
+                            <h5 class="modal-title">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                Подтверждение переключения активного адреса
+                            </h5>
+                            <button type="button" class="btn-close" @click="closeActivateModal" :disabled="activatingAddress"></button>
+                        </div>
+                        <div class="modal-body" style="padding: 2rem;">
+                            <div class="alert alert-warning" role="alert">
+                                <strong>Внимание!</strong> Только активный адрес арбитра участвует в сделках.
+                            </div>
+                            <p>Вы уверены, что хотите сделать этот адрес активным?</p>
+                            <div v-if="addressToActivate" class="card bg-light">
+                                <div class="card-body">
+                                    <p class="mb-1"><strong>Имя:</strong> [[ addressToActivate.name ]]</p>
+                                    <p class="mb-1"><strong>TRON адрес:</strong> <code>[[ addressToActivate.tron_address ]]</code></p>
+                                    <p class="mb-0"><strong>Ethereum адрес:</strong> <code>[[ addressToActivate.ethereum_address ]]</code></p>
+                                </div>
+                            </div>
+                            <p class="mt-3 mb-0 text-muted small">
+                                Текущий активный адрес будет переведен в статус резервного.
+                            </p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="closeActivateModal" :disabled="activatingAddress">Отмена</button>
+                            <button 
+                                type="button" 
+                                class="btn btn-warning" 
+                                @click="activateArbiterAddress"
+                                :disabled="activatingAddress"
+                            >
+                                <span v-if="activatingAddress" class="spinner-border spinner-border-sm me-1"></span>
+                                [[ activatingAddress ? 'Переключение...' : 'Да, переключить' ]]
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

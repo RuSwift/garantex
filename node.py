@@ -23,6 +23,7 @@ from schemas.node import (
 from didcomm.did import create_peer_did_from_keypair
 from services.node import NodeService
 from services.admin import AdminService
+from services.arbiter import ArbiterService
 
 
 app = FastAPI(
@@ -176,11 +177,8 @@ async def root(
         }
     ]
     
-    # Проверяем статус инициализации арбитра
-    arbiter_initialized = bool(
-        settings.marketplace.arbiter_mnemonic.phrase or 
-        settings.marketplace.arbiter_mnemonic.encrypted_phrase
-    )
+    # Проверяем статус инициализации арбитра через БД
+    arbiter_initialized = await ArbiterService.is_arbiter_initialized(db)
     
     return templates.TemplateResponse(
         "panel.html",

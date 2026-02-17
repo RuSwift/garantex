@@ -100,11 +100,14 @@ class WalletService:
         # Генерируем адреса
         addresses = WalletService.generate_addresses_from_mnemonic(mnemonic)
         
-        # Проверяем, не существуют ли уже такие адреса
+        # Проверяем, не существуют ли уже такие адреса (только среди кошельков с role = null)
         result = await db.execute(
             select(Wallet).where(
-                (Wallet.tron_address == addresses['tron_address']) |
-                (Wallet.ethereum_address == addresses['ethereum_address'])
+                (Wallet.role.is_(None)) &
+                (
+                    (Wallet.tron_address == addresses['tron_address']) |
+                    (Wallet.ethereum_address == addresses['ethereum_address'])
+                )
             )
         )
         existing_wallet = result.scalar_one_or_none()
@@ -115,12 +118,13 @@ class WalletService:
         # Шифруем мнемоническую фразу
         encrypted_mnemonic = WalletService.encrypt_mnemonic(mnemonic, secret)
         
-        # Создаем новый кошелек
+        # Создаем новый кошелек (role = null по умолчанию)
         wallet = Wallet(
             name=name,
             encrypted_mnemonic=encrypted_mnemonic,
             tron_address=addresses['tron_address'],
-            ethereum_address=addresses['ethereum_address']
+            ethereum_address=addresses['ethereum_address'],
+            role=None
         )
         
         db.add(wallet)
@@ -132,7 +136,7 @@ class WalletService:
     @staticmethod
     async def get_wallets(db: AsyncSession) -> List[Wallet]:
         """
-        Получает список всех кошельков
+        Получает список всех кошельков с role = null
         
         Args:
             db: Database session
@@ -140,13 +144,17 @@ class WalletService:
         Returns:
             Список кошельков
         """
-        result = await db.execute(select(Wallet).order_by(Wallet.created_at.desc()))
+        result = await db.execute(
+            select(Wallet)
+            .where(Wallet.role.is_(None))
+            .order_by(Wallet.created_at.desc())
+        )
         return list(result.scalars().all())
     
     @staticmethod
     async def get_wallet(wallet_id: int, db: AsyncSession) -> Optional[Wallet]:
         """
-        Получает кошелек по ID
+        Получает кошелек по ID (только с role = null)
         
         Args:
             wallet_id: ID кошелька
@@ -155,7 +163,11 @@ class WalletService:
         Returns:
             Кошелек или None если не найден
         """
-        result = await db.execute(select(Wallet).where(Wallet.id == wallet_id))
+        result = await db.execute(
+            select(Wallet)
+            .where(Wallet.id == wallet_id)
+            .where(Wallet.role.is_(None))
+        )
         return result.scalar_one_or_none()
     
     @staticmethod
@@ -201,7 +213,11 @@ class WalletService:
         if not wallet:
             return False
         
-        await db.execute(delete(Wallet).where(Wallet.id == wallet_id))
+        await db.execute(
+            delete(Wallet)
+            .where(Wallet.id == wallet_id)
+            .where(Wallet.role.is_(None))
+        )
         await db.commit()
         
         return True

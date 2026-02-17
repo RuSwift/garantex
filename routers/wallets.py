@@ -281,9 +281,11 @@ async def fetch_wallet_permissions(
         Updated wallet information with account permissions
     """
     try:
-        # Get wallet
+        # Get wallet (только с role = null)
         result = await db.execute(
-            select(Wallet).where(Wallet.id == wallet_id)
+            select(Wallet)
+            .where(Wallet.id == wallet_id)
+            .where(Wallet.role.is_(None))
         )
         wallet = result.scalar_one_or_none()
         
@@ -413,9 +415,11 @@ async def create_update_permissions_transaction(
         Unsigned transaction for signing
     """
     try:
-        # Get wallet
+        # Get wallet (только с role = null)
         result = await db.execute(
-            select(Wallet).where(Wallet.id == wallet_id)
+            select(Wallet)
+            .where(Wallet.id == wallet_id)
+            .where(Wallet.role.is_(None))
         )
         wallet = result.scalar_one_or_none()
         

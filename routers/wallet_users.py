@@ -153,7 +153,10 @@ async def list_wallet_users(
             page_size=page_size
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error fetching wallet users: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching wallet users: {str(e)}"
