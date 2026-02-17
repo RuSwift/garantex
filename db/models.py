@@ -1,7 +1,7 @@
 """
 Database models for storing encrypted node settings
 """
-from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Boolean, Index, Numeric, ForeignKey, event
+from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Boolean, Index, Numeric, ForeignKey, event, UniqueConstraint
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import UUID, JSONB, JSON
 from sqlalchemy.sql import func
@@ -362,6 +362,15 @@ class Wallet(Base):
     
     __tablename__ = "wallets"
     
+    # Table constraints - unique addresses per role
+    __table_args__ = (
+        UniqueConstraint('tron_address', 'role', name='uq_wallets_tron_address_role'),
+        UniqueConstraint('ethereum_address', 'role', name='uq_wallets_ethereum_address_role'),
+        Index('ix_wallets_tron_address', 'tron_address'),
+        Index('ix_wallets_ethereum_address', 'ethereum_address'),
+        Index('ix_wallets_role', 'role'),
+    )
+    
     id = Column(Integer, primary_key=True, index=True, comment="Primary key")
     
     # Wallet name (editable)
@@ -370,9 +379,9 @@ class Wallet(Base):
     # Encrypted mnemonic phrase
     encrypted_mnemonic = Column(Text, nullable=False, comment="Encrypted mnemonic phrase")
     
-    # Blockchain addresses
-    tron_address = Column(String(34), nullable=False, unique=True, index=True, comment="TRON address")
-    ethereum_address = Column(String(42), nullable=False, unique=True, index=True, comment="Ethereum address")
+    # Blockchain addresses (unique per role, not globally unique)
+    tron_address = Column(String(34), nullable=False, comment="TRON address")
+    ethereum_address = Column(String(42), nullable=False, comment="Ethereum address")
     
     # TRON account permissions (from blockchain)
     account_permissions = Column(JSON, nullable=True, comment="TRON account permissions from blockchain")
