@@ -593,6 +593,60 @@ async def check_service_endpoint_configured(db: DbDepends):
     return {"configured": configured}
 
 
+@app.get("/api/dashboard/statistics")
+async def get_dashboard_statistics(
+    db: DbDepends,
+    admin: RequireAdminDepends
+):
+    """
+    Get dashboard statistics
+    
+    Returns:
+        Statistics including:
+        - users_count: Total number of wallet users
+        - managers_count: Number of users with admin panel access
+        - wallets_count: Total number of wallets
+        - arbiter_wallets_count: Number of arbiter wallets (role='arbiter' or 'arbiter-backup')
+    """
+    from sqlalchemy import select, func, or_
+    from db.models import WalletUser, Wallet
+    
+    try:
+        # Count all wallet users
+        users_result = await db.execute(select(func.count(WalletUser.id)))
+        users_count = users_result.scalar() or 0
+        
+        # Count managers (users with access_to_admin_panel=True)
+        managers_result = await db.execute(
+            select(func.count(WalletUser.id))
+            .where(WalletUser.access_to_admin_panel == True)
+        )
+        managers_count = managers_result.scalar() or 0
+        
+        # Count all wallets
+        wallets_result = await db.execute(select(func.count(Wallet.id)))
+        wallets_count = wallets_result.scalar() or 0
+        
+        # Count arbiter wallets (role='arbiter' or 'arbiter-backup')
+        arbiter_wallets_result = await db.execute(
+            select(func.count(Wallet.id))
+            .where(or_(Wallet.role == 'arbiter', Wallet.role == 'arbiter-backup'))
+        )
+        arbiter_wallets_count = arbiter_wallets_result.scalar() or 0
+        
+        return {
+            "users_count": users_count,
+            "managers_count": managers_count,
+            "wallets_count": wallets_count,
+            "arbiter_wallets_count": arbiter_wallets_count
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting dashboard statistics: {str(e)}"
+        )
+
+
 # ====================
 # Public Service Endpoint
 # ====================

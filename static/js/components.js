@@ -446,15 +446,139 @@ Vue.component('form-dialog', {
 // Dashboard Component
 Vue.component('Dashboard', {
     delimiters: ['[[', ']]'],
+    data() {
+        return {
+            loading: true,
+            statistics: {
+                users_count: 0,
+                managers_count: 0,
+                wallets_count: 0,
+                arbiter_wallets_count: 0
+            },
+            error: null
+        };
+    },
+    mounted() {
+        this.loadStatistics();
+    },
+    methods: {
+        async loadStatistics() {
+            this.loading = true;
+            this.error = null;
+            
+            try {
+                const response = await fetch('/api/dashboard/statistics', {
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Ошибка загрузки статистики: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                this.statistics = data;
+            } catch (error) {
+                console.error('Error loading statistics:', error);
+                this.error = error.message || 'Ошибка загрузки статистики';
+            } finally {
+                this.loading = false;
+            }
+        }
+    },
     template: `
-        <div class="card mb-4">
-            <div class="card-header">
-                <i class="fas fa-tachometer-alt me-1"></i>
-                Dashboard
-            </div>
-            <div class="card-body">
-                <h5>Добро пожаловать в админ-панель!</h5>
-                <p>Это главная страница приложения.</p>
+        <div>
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i class="fas fa-tachometer-alt me-1"></i>
+                    Dashboard
+                </div>
+                <div class="card-body">
+                    <h5 class="mb-4">Добро пожаловать в админ-панель!</h5>
+                    
+                    <div v-if="loading" class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Загрузка...</span>
+                        </div>
+                        <p class="mt-2">Загрузка статистики...</p>
+                    </div>
+                    
+                    <div v-else-if="error" class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        [[ error ]]
+                    </div>
+                    
+                    <div v-else>
+                        <h6 class="mb-3">Статистика</h6>
+                        <div class="row g-3">
+                            <!-- Пользователи -->
+                            <div class="col-md-6 col-lg-3">
+                                <div class="card border-primary">
+                                    <div class="card-body text-center">
+                                        <div class="mb-2">
+                                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-primary">
+                                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                                <circle cx="9" cy="7" r="4"></circle>
+                                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                                                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                                            </svg>
+                                        </div>
+                                        <h3 class="mb-1">[[ statistics.users_count ]]</h3>
+                                        <p class="text-muted mb-0">Пользователи</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Менеджеры -->
+                            <div class="col-md-6 col-lg-3">
+                                <div class="card border-info">
+                                    <div class="card-body text-center">
+                                        <div class="mb-2">
+                                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-info">
+                                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                                                <path d="M9 12l2 2 4-4"></path>
+                                            </svg>
+                                        </div>
+                                        <h3 class="mb-1">[[ statistics.managers_count ]]</h3>
+                                        <p class="text-muted mb-0">Менеджеры</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Кошельки -->
+                            <div class="col-md-6 col-lg-3">
+                                <div class="card border-success">
+                                    <div class="card-body text-center">
+                                        <div class="mb-2">
+                                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-success">
+                                                <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+                                                <line x1="1" y1="10" x2="23" y2="10"></line>
+                                                <path d="M7 14h.01M17 14h.01"></path>
+                                            </svg>
+                                        </div>
+                                        <h3 class="mb-1">[[ statistics.wallets_count ]]</h3>
+                                        <p class="text-muted mb-0">Кошельки</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Кошельки арбитража -->
+                            <div class="col-md-6 col-lg-3">
+                                <div class="card border-warning">
+                                    <div class="card-body text-center">
+                                        <div class="mb-2">
+                                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-warning">
+                                                <path d="M15 12l-8.5 8.5c-.83.83-2.17.83-3 0 0 0 0 0 0 0-.83-.83-.83-2.17 0-3L12 9"></path>
+                                                <path d="M17.64 15L22 10.64"></path>
+                                            </svg>
+                                        </div>
+                                        <h3 class="mb-1">[[ statistics.arbiter_wallets_count ]]</h3>
+                                        <p class="text-muted mb-0">Кошельки арбитража</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     `
