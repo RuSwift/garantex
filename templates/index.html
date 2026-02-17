@@ -975,6 +975,15 @@
             @close="closeDealConversation"
         ></deal-conversation>
 
+        <!-- Create Deal Modal -->
+        <create-deal-modal
+            :show="showCreateDealModal"
+            :ad-id="currentDealAdId"
+            :ad-owner-did="currentDealAdOwnerDid"
+            @close="showCreateDealModal = false"
+            @create-deal="handleCreateDeal"
+        ></create-deal-modal>
+
         <!-- Advertisement Form Modal -->
         <div v-if="showAdForm" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeAdForm">
             <div class="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -1456,6 +1465,10 @@
                 // Chat/Deals
                 showDealConversation: false,
                 currentDealId: null,
+                // Create Deal Modal
+                showCreateDealModal: false,
+                currentDealAdId: null,
+                currentDealAdOwnerDid: null,
                 menuItems: [
                     {
                         id: 'marketplace',
@@ -2191,8 +2204,20 @@
                     }
                 },
                 openDealConversation(adId) {
-                    this.currentDealId = adId;
-                    this.showDealConversation = true;
+                    // Find ad to get owner_did
+                    const ad = this.marketplaceAds.find(a => a.id === adId) || this.myAds.find(a => a.id === adId);
+                    if (ad) {
+                        this.currentDealAdId = adId;
+                        this.currentDealAdOwnerDid = ad.owner_did || null;
+                        this.showCreateDealModal = true;
+                    }
+                },
+                handleCreateDeal(dealData) {
+                    console.log('Creating deal:', dealData);
+                    // Here you would implement the actual API call to create deal
+                    // For now, just show success message
+                    alert('Сделка создана! (функционал в разработке)');
+                    this.showCreateDealModal = false;
                 },
                 closeDealConversation() {
                     this.showDealConversation = false;

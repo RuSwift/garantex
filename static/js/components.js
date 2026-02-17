@@ -9529,6 +9529,259 @@ Vue.component('DealConversation', {
     `
 });
 
+// Create Deal Modal Component
+Vue.component('CreateDealModal', {
+    delimiters: ['[[', ']]'],
+    props: {
+        show: {
+            type: Boolean,
+            default: false
+        },
+        adId: {
+            type: [String, Number],
+            default: null
+        },
+        adOwnerDid: {
+            type: String,
+            default: null
+        }
+    },
+    data() {
+        return {
+            requisites: '',
+            pendingDocuments: [], // Files waiting to be uploaded
+            isSubmitting: false,
+            errorMessage: '',
+            successMessage: ''
+        }
+    },
+    watch: {
+        show(newVal) {
+            if (!newVal) {
+                // Reset form when modal closes
+                this.requisites = '';
+                this.pendingDocuments = [];
+                this.errorMessage = '';
+                this.successMessage = '';
+            }
+        }
+    },
+    methods: {
+        close() {
+            this.$emit('close');
+        },
+        
+        // Handle file input
+        handleFileSelect(event) {
+            const files = event.target.files;
+            if (files && files.length > 0) {
+                const newDocuments = Array.from(files).map((file) => {
+                    const isImage = file.type.startsWith('image/');
+                    const isVideo = file.type.startsWith('video/');
+                    const type = isImage ? 'photo' : (isVideo ? 'video' : 'document');
+                    
+                    return {
+                        id: Math.random().toString(36).substr(2, 9),
+                        type: type,
+                        name: file.name,
+                        url: URL.createObjectURL(file),
+                        size: (file.size / 1024).toFixed(1) + ' KB',
+                        file: file
+                    };
+                });
+                
+                this.pendingDocuments = [...this.pendingDocuments, ...newDocuments];
+            }
+            // Reset input
+            event.target.value = '';
+        },
+        
+        // Remove pending document
+        removePendingDocument(id) {
+            this.pendingDocuments = this.pendingDocuments.filter(d => {
+                if (d.id === id) {
+                    // Revoke object URL to free memory
+                    if (d.url && d.url.startsWith('blob:')) {
+                        URL.revokeObjectURL(d.url);
+                    }
+                    return false;
+                }
+                return true;
+            });
+        },
+        
+        // Format file size
+        formatFileSize(size) {
+            return size;
+        },
+        
+        // Submit deal creation
+        async submitDeal() {
+            if (!this.requisites.trim() && this.pendingDocuments.length === 0) {
+                this.errorMessage = 'Заполните реквизиты или загрузите документы';
+                return;
+            }
+            
+            this.isSubmitting = true;
+            this.errorMessage = '';
+            this.successMessage = '';
+            
+            try {
+                // Here you would implement the actual API call to create deal
+                // For now, just emit event to parent
+                this.$emit('create-deal', {
+                    adId: this.adId,
+                    adOwnerDid: this.adOwnerDid,
+                    requisites: this.requisites,
+                    documents: this.pendingDocuments
+                });
+                
+                // Close modal after successful submission
+                setTimeout(() => {
+                    this.close();
+                }, 1000);
+            } catch (error) {
+                console.error('Error creating deal:', error);
+                this.errorMessage = 'Ошибка при создании сделки';
+            } finally {
+                this.isSubmitting = false;
+            }
+        }
+    },
+    template: `
+        <div v-if="show" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="close">
+            <div class="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+                <!-- Header -->
+                <div class="p-6 border-b flex items-center justify-between sticky top-0 bg-white z-10">
+                    <h3 class="text-2xl font-bold text-gray-900">Создать сделку</h3>
+                    <button 
+                        @click="close"
+                        class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                        <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Body -->
+                <div class="p-6 overflow-y-auto flex-1">
+                    <!-- Requisites Textarea -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            Реквизиты *
+                        </label>
+                        <textarea 
+                            v-model="requisites"
+                            rows="6"
+                            class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                            placeholder="Введите реквизиты для сделки..."
+                        ></textarea>
+                        <p class="text-xs text-gray-500 mt-1">Укажите все необходимые реквизиты для проведения сделки</p>
+                    </div>
+
+                    <!-- Documents Upload -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            Документы
+                        </label>
+                        
+                        <!-- Pending Documents Preview -->
+                        <div v-if="pendingDocuments.length > 0" 
+                             style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; background: #f5f5f5; padding: 12px; border-radius: 8px; border: 1px solid #e5e5e5;"
+                        >
+                            <div v-for="doc in pendingDocuments" 
+                                 :key="doc.id"
+                                 style="position: relative; background: white; padding: 6px; border-radius: 4px; border: 1px solid #e5e5e5; box-shadow: 0 1px 2px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 8px;"
+                            >
+                                <img v-if="doc.type === 'photo'" 
+                                     :src="doc.url" 
+                                     style="width: 48px; height: 48px; object-fit: cover; border-radius: 4px;"
+                                />
+                                <div v-else-if="doc.type === 'video'" 
+                                     style="width: 48px; height: 48px; background: #000; border-radius: 4px; display: flex; align-items: center; justify-content: center;"
+                                >
+                                    <svg style="width: 20px; height: 20px; color: white;" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M8 5v14l11-7z"/>
+                                    </svg>
+                                </div>
+                                <div v-else 
+                                     style="width: 48px; height: 48px; background: #e3f2fd; border-radius: 4px; display: flex; align-items: center; justify-content: center;"
+                                >
+                                    <svg style="width: 20px; height: 20px; color: #2196f3;" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                                    </svg>
+                                </div>
+                                <div style="max-width: 100px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+                                    <p style="font-size: 10px; font-weight: 500; margin: 0; color: #212121;">[[ doc.name ]]</p>
+                                    <p style="font-size: 9px; margin: 0; color: #707579;">[[ doc.size ]]</p>
+                                </div>
+                                <button 
+                                    @click="removePendingDocument(doc.id)"
+                                    style="position: absolute; top: -8px; right: -8px; background: #ef5350; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); padding: 0;"
+                                    title="Удалить"
+                                >
+                                    <svg style="width: 12px; height: 12px;" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- File Input Button -->
+                        <button 
+                            type="button"
+                            @click="$refs.fileInput.click()"
+                            class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
+                            </svg>
+                            Загрузить документы
+                        </button>
+                        <input 
+                            type="file" 
+                            ref="fileInput"
+                            @change="handleFileSelect"
+                            multiple
+                            accept="image/*,video/*,.pdf,.doc,.docx,.txt"
+                            style="display: none;"
+                        />
+                        <p class="text-xs text-gray-500 mt-1">Можно загрузить несколько файлов (изображения, видео, документы)</p>
+                    </div>
+
+                    <!-- Error/Success messages -->
+                    <div v-if="errorMessage" class="mb-4 p-4 bg-red-50 text-red-700 rounded-xl">
+                        [[ errorMessage ]]
+                    </div>
+                    <div v-if="successMessage" class="mb-4 p-4 bg-green-50 text-green-700 rounded-xl">
+                        [[ successMessage ]]
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="p-6 border-t flex gap-3">
+                    <button 
+                        @click="submitDeal"
+                        :disabled="isSubmitting || (!requisites.trim() && pendingDocuments.length === 0)"
+                        class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                        <span v-if="!isSubmitting">Создать сделку</span>
+                        <span v-else>Создание...</span>
+                    </button>
+                    <button 
+                        @click="close"
+                        :disabled="isSubmitting"
+                        class="px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-semibold transition-colors disabled:opacity-50"
+                    >
+                        Отмена
+                    </button>
+                </div>
+            </div>
+        </div>
+    `
+});
+
 // Arbiter Component
 Vue.component('Arbiter', {
     delimiters: ['[[', ']]'],
