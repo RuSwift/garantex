@@ -22,8 +22,8 @@ class TestChatServiceAddMessage:
     
     @pytest.mark.asyncio
     async def test_add_message_without_deal_uid(self, test_db):
-        """Test adding message without deal_uid - should create 2 storage records"""
-        owner_did = "did:test:owner1"
+        """Test adding message without deal_uid - should create 2 storage records and return message for owner"""
+        owner_did = "did:test:sender1"  # owner_did must be one of sender_id or receiver_id
         service = ChatService(session=test_db, owner_did=owner_did)
         
         message = ChatMessageCreate(
@@ -35,10 +35,14 @@ class TestChatServiceAddMessage:
         )
         
         # Add message without deal_uid
-        created_messages = await service.add_message(message, deal_uid=None)
+        created_message = await service.add_message(message, deal_uid=None)
         
-        # Should return list of messages (one for each owner_did)
-        assert len(created_messages) == 2
+        # Should return single message for owner_did
+        assert created_message is not None
+        assert created_message.text == "Hello, world!"
+        assert created_message.sender_id == "did:test:sender1"
+        assert created_message.receiver_id == "did:test:receiver1"
+        assert created_message.conversation_id == "did:test:receiver1"  # For sender, conversation_id = receiver
         
         # Check that 2 storage records were created (one for sender, one for receiver)
         result = await test_db.execute(
@@ -61,8 +65,8 @@ class TestChatServiceAddMessage:
     
     @pytest.mark.asyncio
     async def test_add_message_with_deal_uid(self, test_db):
-        """Test adding message with deal_uid - should create records for all participants"""
-        owner_did = "did:test:owner1"
+        """Test adding message with deal_uid - should create records for all participants and return message for owner"""
+        owner_did = "did:test:participant1"  # owner_did must be one of participants
         service = ChatService(session=test_db, owner_did=owner_did)
         
         # Create a Deal with participants
@@ -78,16 +82,18 @@ class TestChatServiceAddMessage:
         message = ChatMessageCreate(
             uuid=str(uuid.uuid4()),
             message_type=MessageType.TEXT,
-            sender_id="did:test:sender1",
-            receiver_id="did:test:receiver1",
+            sender_id="did:test:participant1",
+            receiver_id="did:test:participant2",
             text="Deal message"
         )
         
         # Add message with deal_uid
-        created_messages = await service.add_message(message, deal_uid=deal_uid)
+        created_message = await service.add_message(message, deal_uid=deal_uid)
         
-        # Should return list of messages (one for each participant)
-        assert len(created_messages) == 3
+        # Should return single message for owner_did
+        assert created_message is not None
+        assert created_message.text == "Deal message"
+        assert created_message.conversation_id == deal_uid  # For deal messages, conversation_id = deal_uid
         
         # Check that 3 storage records were created (one for each participant)
         result = await test_db.execute(
@@ -113,7 +119,7 @@ class TestChatServiceAddMessage:
     @pytest.mark.asyncio
     async def test_add_message_with_nonexistent_deal_uid(self, test_db):
         """Test adding message with nonexistent deal_uid - should fallback to sender/receiver"""
-        owner_did = "did:test:owner1"
+        owner_did = "did:test:sender1"  # owner_did must be one of sender_id or receiver_id
         service = ChatService(session=test_db, owner_did=owner_did)
         
         message = ChatMessageCreate(
@@ -125,10 +131,11 @@ class TestChatServiceAddMessage:
         )
         
         # Add message with nonexistent deal_uid
-        created_messages = await service.add_message(message, deal_uid="nonexistent_deal")
+        created_message = await service.add_message(message, deal_uid="nonexistent_deal")
         
-        # Should fallback to sender and receiver
-        assert len(created_messages) == 2
+        # Should return single message for owner_did
+        assert created_message is not None
+        assert created_message.text == "Message with nonexistent deal"
         
         # Check that 2 storage records were created
         result = await test_db.execute(
@@ -144,7 +151,7 @@ class TestChatServiceAddMessage:
     @pytest.mark.asyncio
     async def test_add_message_atomicity(self, test_db):
         """Test that add_message is atomic - all or nothing"""
-        owner_did = "did:test:owner1"
+        owner_did = "did:test:sender1"  # owner_did must be one of sender_id or receiver_id
         service = ChatService(session=test_db, owner_did=owner_did)
         
         message = ChatMessageCreate(
@@ -156,7 +163,8 @@ class TestChatServiceAddMessage:
         )
         
         # Add message
-        await service.add_message(message, deal_uid=None)
+        created_message = await service.add_message(message, deal_uid=None)
+        assert created_message is not None
         
         # Check that records were committed
         result = await test_db.execute(
@@ -176,7 +184,7 @@ class TestChatServiceAddMessage:
     @pytest.mark.asyncio
     async def test_add_message_with_file_attachment(self, test_db):
         """Test adding message with file attachment"""
-        owner_did = "did:test:owner1"
+        owner_did = "did:test:sender1"  # owner_did must be one of sender_id or receiver_id
         service = ChatService(session=test_db, owner_did=owner_did)
         
         attachment = FileAttachment(
@@ -196,9 +204,12 @@ class TestChatServiceAddMessage:
             attachments=[attachment]
         )
         
-        created_messages = await service.add_message(message, deal_uid=None)
+        created_message = await service.add_message(message, deal_uid=None)
         
-        assert len(created_messages) == 2
+        assert created_message is not None
+        assert created_message.attachments is not None
+        assert len(created_message.attachments) == 1
+        assert created_message.attachments[0].name == "test.pdf"
         
         # Check that attachment is stored in payload
         result = await test_db.execute(

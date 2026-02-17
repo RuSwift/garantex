@@ -70,6 +70,7 @@ class MessageType(str, Enum):
     MIXED = "mixed"  # Текст + файлы/медиа
     REPLY = "reply"  # Ответ на сообщение
     DEAL = "deal"  # Индикация начала сделки
+    SERVICE = "service"  # Служебное сообщение
 
 
 class AttachmentType(str, Enum):

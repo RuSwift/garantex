@@ -9,7 +9,7 @@ from routers.auth import get_current_tron_user, UserInfo
 from dependencies import DbDepends
 from services.chat.service import ChatService
 from services.wallet_user import WalletUserService
-from ledgers.chat.schemas import ChatMessage, ChatMessageCreate, ChatMessageResponse
+from ledgers.chat.schemas import ChatMessage, ChatMessageCreate, ChatMessageResponse, MessageType
 
 
 router = APIRouter(
@@ -53,7 +53,7 @@ class AddMessageRequest(BaseModel):
 
 class AddMessageResponse(BaseModel):
     """Response для добавления сообщения"""
-    messages: List[ChatMessage]
+    message: ChatMessage
     success: bool = True
 
 
@@ -72,14 +72,21 @@ async def add_message(
     Returns:
         Список созданных сообщений
     """
+    # Prohibit creating SERVICE messages by users
+    if request.message.message_type == MessageType.SERVICE:
+        raise HTTPException(
+            status_code=403,
+            detail="Service messages cannot be created by users"
+        )
+    
     try:
-        messages = await chat_service.add_message(
+        message = await chat_service.add_message(
             message=request.message,
             deal_uid=request.deal_uid
         )
         
         return AddMessageResponse(
-            messages=messages,
+            message=message,
             success=True
         )
     except Exception as e:

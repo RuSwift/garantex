@@ -59,7 +59,7 @@ class ChatService:
         self,
         message: ChatMessageCreate,
         deal_uid: Optional[str] = None
-    ) -> List[ChatMessage]:
+    ) -> ChatMessage:
         """
         Add a new message to chat
         
@@ -68,7 +68,7 @@ class ChatService:
             deal_uid: Deal UID if message is related to a deal (optional)
             
         Returns:
-            List of created ChatMessage objects (one for each owner_did)
+            ChatMessage object for the current owner_did
         """
         # Use uuid from message (generated on client)
         message_uuid = message.uuid
@@ -149,7 +149,8 @@ class ChatService:
         owner_dids = list(set(owner_dids))  # Убираем дубликаты
         
         # Создаем storage records для каждого owner_did в одной транзакции (атомарно)
-        created_messages = []
+        # Но возвращаем только сообщение для текущего owner_did
+        owner_message = None
         try:
             for owner_did_value in owner_dids:
                 # Рассчитываем conversation_id для каждого owner_did
@@ -176,12 +177,35 @@ class ChatService:
                     schema_ver="1"
                 )
                 self.session.add(storage)
-                created_messages.append(full_message)
+                
+                # Сохраняем сообщение для текущего owner_did
+                if owner_did_value == self.owner_did:
+                    # Создаем сообщение с правильным conversation_id для текущего owner
+                    owner_message = ChatMessage(
+                        uuid=message_uuid,
+                        message_type=message.message_type,
+                        sender_id=message.sender_id,
+                        receiver_id=message.receiver_id,
+                        conversation_id=conversation_id,
+                        deal_uid=message.deal_uid,
+                        deal_label=message.deal_label,
+                        reply_to_message_uuid=message.reply_to_message_uuid,
+                        text=message.text,
+                        attachments=processed_attachments if processed_attachments else message.attachments,
+                        signature=message.signature,
+                        timestamp=full_message.timestamp,
+                        status="sent",
+                        metadata=message.metadata
+                    )
             
             # Коммитим транзакцию для гарантии атомарности
             await self.session.commit()
             
-            return created_messages
+            # Возвращаем только сообщение для текущего owner_did
+            if owner_message is None:
+                raise ValueError(f"Message was not created for owner_did: {self.owner_did}")
+            
+            return owner_message
         except Exception:
             # Откатываем транзакцию при ошибке
             await self.session.rollback()

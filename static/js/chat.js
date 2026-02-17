@@ -1548,23 +1548,27 @@ Vue.component('Chat', {
                                         :style="{ 
                                             display: 'flex', 
                                             width: '100%', 
-                                            justifyContent: m.sender === 'mine' ? 'flex-end' : 'flex-start',
+                                            justifyContent: m.type === 'service' ? 'center' : (m.sender === 'mine' ? 'flex-end' : 'flex-start'),
                                             marginTop: (idx > 0 && currentMessages[idx-1].sender === m.sender) ? '2px' : '4px'
                                         }"
                                     >
                                         <div 
                                             :style="{
-                                                maxWidth: (m.attachments && m.attachments.length > 0) ? '50%' : '92%',
+                                                maxWidth: m.type === 'service' ? '70%' : ((m.attachments && m.attachments.length > 0) ? '50%' : '92%'),
                                                 borderRadius: '12px',
                                                 padding: '6px',
                                                 boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
                                                 position: 'relative',
                                                 overflow: 'hidden',
-                                                backgroundColor: m.sender === 'mine' 
-                                                    ? '#effdde' 
-                                                    : (m.attachments && m.attachments.length > 0 ? '#e8e8e8' : 'white'),
-                                                borderTopRightRadius: m.sender === 'mine' ? '4px' : '12px',
-                                                borderTopLeftRadius: m.sender === 'mine' ? '12px' : '4px'
+                                                backgroundColor: m.type === 'service' 
+                                                    ? '#fef3c7' 
+                                                    : (m.sender === 'mine' 
+                                                        ? '#effdde' 
+                                                        : (m.attachments && m.attachments.length > 0 ? '#e8e8e8' : 'white')),
+                                                borderTopRightRadius: m.type === 'service' ? '12px' : (m.sender === 'mine' ? '4px' : '12px'),
+                                                borderTopLeftRadius: m.type === 'service' ? '12px' : (m.sender === 'mine' ? '12px' : '4px'),
+                                                color: m.type === 'service' ? '#92400e' : 'inherit',
+                                                border: m.type === 'service' ? '1px solid #fbbf24' : 'none'
                                             }"
                                         >
                                             <!-- Media Grid (Telegram style album) -->
@@ -1711,10 +1715,19 @@ Vue.component('Chat', {
                                             
                                             <!-- Text and Meta -->
                                             <div style="padding: 4px 8px; padding-bottom: 20px; position: relative; min-width: 100px;">
-                                                <p v-if="m.text" style="font-size: 15px; white-space: pre-wrap; line-height: 1.4; margin: 0; padding-right: 50px; color: #212121;">[[ m.text ]]</p>
+                                                <p v-if="m.text" :style="{
+                                                    fontSize: '15px',
+                                                    whiteSpace: 'pre-wrap',
+                                                    lineHeight: '1.4',
+                                                    margin: 0,
+                                                    paddingRight: m.type === 'service' ? '0' : '50px',
+                                                    color: m.type === 'service' ? '#92400e' : '#212121',
+                                                    fontWeight: m.type === 'service' ? '500' : 'normal',
+                                                    textAlign: m.type === 'service' ? 'center' : 'left'
+                                                }">[[ m.text ]]</p>
                                                 
-                                                <!-- Signature -->
-                                                <div v-if="m.signature && m.signature.startsWith('0x')" 
+                                                <!-- Signature (hidden for service messages) -->
+                                                <div v-if="m.type !== 'service' && m.signature && m.signature.startsWith('0x')" 
                                                      :style="{
                                                          marginTop: '8px',
                                                          paddingTop: '8px',
@@ -1727,8 +1740,8 @@ Vue.component('Chat', {
                                                     <span style="fontFamily: 'monospace', opacity: 0.75, fontSize: '10px';">[[ m.signature.substring(0, 20) ]]...[[ m.signature.substring(m.signature.length - 10) ]]</span>
                                                 </div>
                                                 
-                                                <!-- Sign button -->
-                                                <div v-if="m.sender === 'mine' && isAuthenticated && (!m.signature || !m.signature.startsWith('0x'))" style="marginTop: 8px;">
+                                                <!-- Sign button (hidden for service messages) -->
+                                                <div v-if="m.type !== 'service' && m.sender === 'mine' && isAuthenticated && (!m.signature || !m.signature.startsWith('0x'))" style="marginTop: 8px;">
                                                     <button 
                                                         @click="handleSignExistingMessage(m)"
                                                         :style="{
@@ -1746,8 +1759,8 @@ Vue.component('Chat', {
                                                     </button>
                                                 </div>
                                                 
-                                                <!-- Timestamp and Status -->
-                                                <div :style="{
+                                                <!-- Timestamp and Status (hidden for service messages) -->
+                                                <div v-if="m.type !== 'service'" :style="{
                                                     position: 'absolute',
                                                     bottom: '6px',
                                                     right: '10px',
