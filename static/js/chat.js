@@ -55,6 +55,8 @@ Vue.component('Chat', {
             visibleDownloadButton: null, // Tracks which image download button is visible
             isMobileDevice: false, // Track if device is mobile
             showSidebarOnMobile: true, // Show sidebar or chat area on mobile devices
+            refreshHistoryInterval: null, // Interval for periodic history refresh
+            isRefreshingHistory: false, // Track if history refresh is in progress
             emojiCategories: {
                 'smileys': ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔'],
                 'gestures': ['👋', '🤚', '🖐', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝'],
@@ -109,9 +111,17 @@ Vue.component('Chat', {
     beforeDestroy() {
         window.removeEventListener('resize', this.detectMobileDevice);
         document.removeEventListener('click', this.handleClickOutside);
+        // Clear refresh interval
+        if (this.refreshHistoryInterval) {
+            clearInterval(this.refreshHistoryInterval);
+            this.refreshHistoryInterval = null;
+        }
     },
     methods: {
         close() {
+            // Stop history refresh
+            this.stopHistoryRefresh();
+            
             // Reset mobile state when closing
             if (this.isMobileDevice) {
                 this.showSidebarOnMobile = true;
@@ -678,6 +688,165 @@ Vue.component('Chat', {
                 this.showSidebarOnMobile = false;
             }
             this.$nextTick(this.scrollToBottom);
+            
+            // Start periodic history refresh for selected contact
+            this.startHistoryRefresh();
+        },
+        
+        // Start periodic history refresh
+        startHistoryRefresh() {
+            // Clear existing interval
+            if (this.refreshHistoryInterval) {
+                clearInterval(this.refreshHistoryInterval);
+                this.refreshHistoryInterval = null;
+            }
+            
+            // Only start if contact is selected
+            if (!this.selectedContactId) {
+                return;
+            }
+            
+            // Start interval: refresh every 3 seconds
+            this.refreshHistoryInterval = setInterval(() => {
+                this.refreshHistory();
+            }, 3000);
+        },
+        
+        // Stop periodic history refresh
+        stopHistoryRefresh() {
+            if (this.refreshHistoryInterval) {
+                clearInterval(this.refreshHistoryInterval);
+                this.refreshHistoryInterval = null;
+            }
+        },
+        
+        // Refresh history for current contact
+        refreshHistory() {
+            // Don't start new refresh if one is already in progress
+            if (this.isRefreshingHistory) {
+                return;
+            }
+            
+            // Only refresh if contact is selected
+            if (!this.selectedContactId) {
+                return;
+            }
+            
+            // Get last message UUID from current messages
+            const currentMessages = this.currentMessages;
+            const lastMessage = currentMessages && currentMessages.length > 0 
+                ? currentMessages[currentMessages.length - 1] 
+                : null;
+            
+            if (!lastMessage || !lastMessage.uuid) {
+                // No messages yet, skip refresh
+                return;
+            }
+            
+            // Get conversation_id from selected contact and SAVE IT in closure
+            const conversationId = this.selectedContactId; // Сохраняем в локальную переменную для замыкания
+            const lastMessageUuid = lastMessage.uuid;
+            
+            // Create promise for refresh
+            let resolvePromise, rejectPromise;
+            const refreshPromise = new Promise((resolve, reject) => {
+                resolvePromise = resolve;
+                rejectPromise = reject;
+            });
+            
+            // Mark as refreshing
+            this.isRefreshingHistory = true;
+            
+            // Emit event with promise
+            this.$emit('on_refresh_history', {
+                conversation_id: conversationId,
+                last_message_uid: lastMessageUuid,
+                promise: refreshPromise,
+                resolve: resolvePromise,
+                reject: rejectPromise
+            });
+            
+            // Handle promise resolution/rejection
+            refreshPromise
+                .then((newMessages) => {
+                    // Reset refreshing flag
+                    this.isRefreshingHistory = false;
+                    
+                    if (!newMessages || newMessages.length === 0) {
+                        // No new messages
+                        return;
+                    }
+                    
+                    // Use saved conversationId from closure, not this.selectedContactId
+                    const targetConversationId = conversationId;
+                    
+                    // Additional safety check: verify that this conversation still exists
+                    if (!this.messages[targetConversationId]) {
+                        console.warn('Conversation no longer exists, ignoring refresh result');
+                        return;
+                    }
+                    
+                    // Optional: check if user switched to different conversation
+                    if (this.selectedContactId !== targetConversationId) {
+                        console.log('User switched conversation, but adding messages to original conversation:', targetConversationId);
+                        // Добавляем в исходную беседу, для которой был отправлен запрос
+                    }
+                    
+                    // Convert new messages to chat format
+                    const existingMessages = this.messages[targetConversationId] || [];
+                    const existingUuids = new Set(existingMessages.map(m => m.uuid));
+                    
+                    newMessages.forEach(msg => {
+                        // Skip if message already exists
+                        const msgUuid = msg.uuid || msg.id || msg.messageId;
+                        if (existingUuids.has(msgUuid)) {
+                            return;
+                        }
+                        
+                        // Determine sender type
+                        let senderType = 'their';
+                        if (msg.sender_id && this.currentUserDid && msg.sender_id === this.currentUserDid) {
+                            senderType = 'mine';
+                        } else if (msg.sender_id && this.currentUserDid && msg.sender_id !== this.currentUserDid) {
+                            senderType = 'their';
+                        }
+                        
+                        // Convert to chat message format
+                        const chatMessage = {
+                            uuid: msgUuid,
+                            text: msg.text || msg.message || '',
+                            sender: senderType,
+                            timestamp: msg.timestamp || (msg.created_at ? new Date(msg.created_at).getTime() : Date.now()),
+                            status: msg.status || 'sent',
+                            signature: msg.signature ? msg.signature.signature : null,
+                            type: msg.message_type || msg.type || 'text',
+                            attachments: msg.attachments || undefined
+                        };
+                        
+                        existingMessages.push(chatMessage);
+                        existingUuids.add(msgUuid);
+                    });
+                    
+                    // Sort messages by timestamp
+                    existingMessages.sort((a, b) => a.timestamp - b.timestamp);
+                    
+                    // Update messages array
+                    this.$set(this.messages, targetConversationId, existingMessages);
+                    
+                    // Auto-load attachments for new messages
+                    this.$nextTick(() => {
+                        this.autoLoadAttachments();
+                        // Scroll to bottom only if this conversation is still selected
+                        if (this.selectedContactId === targetConversationId && this.isUserAtBottom) {
+                            this.scrollToBottomIfNeeded();
+                        }
+                    });
+                })
+                .catch((error) => {
+                    // Reset refreshing flag on error
+                    this.isRefreshingHistory = false;
+                    console.error('Error refreshing history:', error);
+                });
         },
         detectMobileDevice() {
             this.isMobileDevice = window.innerWidth < 768 || 
