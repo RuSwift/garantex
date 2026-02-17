@@ -5282,9 +5282,12 @@ Vue.component('TronAuth', {
             // Device detection
             isMobileDevice: false,
             
-            // WalletConnect
+            // WalletConnect v2 (Reown)
             useWalletConnect: false,
             walletConnectProvider: null,
+            walletConnectV2: null,
+            walletConnectSession: null,
+            walletConnectProjectId: '5f5812202368d6b3bb4770dbbc36a992',
             waitingForCallback: false,
             
             // TRON Web availability
@@ -5730,67 +5733,106 @@ Vue.component('TronAuth', {
         },
         
         /**
-         * Connect via WalletConnect (for mobile)
+         * Connect via WalletConnect v2 (Reown) for mobile hot wallet
          */
         async connectViaWalletConnect() {
             try {
                 this.isConnecting = true;
-                this.showStatus('Инициализация WalletConnect...', 'info');
+                this.showStatus('Инициализация WalletConnect v2 (Reown)...', 'info');
                 
-                // Check if WalletConnect is available
-                if (typeof WalletConnectProvider === 'undefined') {
-                    this.showStatus('WalletConnect не загружен. Используйте прямое подключение.', 'error');
+                // Check if WalletConnect v2 is available
+                if (typeof WalletConnectCore === 'undefined' || typeof WalletConnectWeb3Wallet === 'undefined') {
+                    this.showStatus('WalletConnect v2 не загружен. Используйте прямое подключение.', 'error');
+                    await this.connectDirectly();
                     return;
                 }
                 
-                const provider = new WalletConnectProvider.default({
-                    rpc: {
-                        728126428: "https://api.trongrid.io"
-                    },
-                    chainId: 728126428,
-                    qrcode: true,
-                    qrcodeModalOptions: {
-                        mobileLinks: [
-                            "metamask",
-                            "trust",
-                            "rainbow",
-                        ]
+                // Initialize WalletConnect v2 Core
+                const core = new WalletConnectCore.default({
+                    projectId: this.walletConnectProjectId,
+                    metadata: {
+                        name: 'Garantex DApp',
+                        description: 'Decentralized P2P Platform',
+                        url: window.location.origin,
+                        icons: [`${window.location.origin}/static/img/logo.png`]
                     }
                 });
                 
-                // Enable provider (shows QR code)
-                await provider.enable();
+                // Initialize Web3Wallet
+                const web3wallet = await WalletConnectWeb3Wallet.default.init({
+                    core,
+                    metadata: {
+                        name: 'Garantex DApp',
+                        description: 'Decentralized P2P Platform',
+                        url: window.location.origin,
+                        icons: [`${window.location.origin}/static/img/logo.png`]
+                    }
+                });
                 
-                this.walletConnectProvider = provider;
-                const accounts = provider.accounts;
+                this.walletConnectV2 = web3wallet;
                 
-                if (accounts && accounts.length > 0) {
-                    const address = accounts[0];
-                    this.walletAddress = address;
-                    
-                    // Get nonce and authorize
-                    const { nonce, message } = await this.getNonce(address);
-                    
-                    // Sign through WalletConnect
-                    const signature = await this.signMessageViaWalletConnect(message);
-                    
-                    const token = await this.verifySignature(address, signature, message);
-                    
-                    this.storeToken(token);
-                    this.isAuthenticated = true;
-                    this.showStatus('Успешно авторизован через WalletConnect!', 'success');
+                // Create pairing and get URI for connection
+                const { uri, approval } = await web3wallet.core.pairing.create();
+                
+                if (!uri) {
+                    throw new Error('Не удалось создать URI для подключения');
                 }
                 
+                // Show QR code or deep link
+                if (this.isMobileDevice) {
+                    // On mobile device, open deep link for TrustWallet
+                    const deepLink = `trust://wc?uri=${encodeURIComponent(uri)}`;
+                    window.location.href = deepLink;
+                    this.showStatus('Откройте приложение TrustWallet для подключения', 'info');
+                } else {
+                    // On desktop, show QR code URI
+                    console.log('WalletConnect URI:', uri);
+                    this.showStatus('Отсканируйте QR-код в мобильном кошельке. URI: ' + uri.substring(0, 50) + '...', 'info');
+                }
+                
+                // Wait for approval from wallet
+                const session = await approval();
+                this.walletConnectSession = session;
+                
+                // Get address from session
+                // In WalletConnect v2 for TRON format: tron:mainnet:TRX...
+                const tronNamespace = session.namespaces.tron;
+                if (!tronNamespace || !tronNamespace.accounts || tronNamespace.accounts.length === 0) {
+                    throw new Error('Не удалось получить адрес из кошелька');
+                }
+                
+                const account = tronNamespace.accounts[0];
+                const address = account.split(':')[2]; // Extract address from format tron:mainnet:TRX...
+                this.walletAddress = address;
+                
+                this.showStatus('Кошелек подключен. Получение запроса на авторизацию...', 'info');
+                
+                // Get nonce and sign message
+                const { nonce, message } = await this.getNonce(address);
+                this.showStatus('Подпишите сообщение в кошельке...', 'info');
+                
+                // Sign through WalletConnect v2
+                const signature = await this.signMessageViaWalletConnectV2(message);
+                
+                const token = await this.verifySignature(address, signature, message);
+                this.storeToken(token);
+                this.isAuthenticated = true;
+                this.showStatus('Успешно авторизован через WalletConnect!', 'success');
+                
             } catch (error) {
-                console.error('WalletConnect error:', error);
-                this.showStatus(`Ошибка WalletConnect: ${error.message}`, 'error');
+                console.error('WalletConnect v2 error:', error);
+                if (error.message === 'User rejected' || error.message.includes('rejected')) {
+                    this.showStatus('Подключение отклонено пользователем', 'error');
+                } else {
+                    this.showStatus(`Ошибка WalletConnect: ${error.message}`, 'error');
+                }
             } finally {
                 this.isConnecting = false;
             }
         },
         
         /**
-         * Sign message via WalletConnect
+         * Sign message via WalletConnect v1 (legacy, kept for compatibility)
          */
         async signMessageViaWalletConnect(message) {
             if (!this.walletConnectProvider) {
@@ -5806,17 +5848,43 @@ Vue.component('TronAuth', {
         },
         
         /**
+         * Sign message via WalletConnect v2 (Reown)
+         */
+        async signMessageViaWalletConnectV2(message) {
+            if (!this.walletConnectV2 || !this.walletConnectSession) {
+                throw new Error('WalletConnect v2 не инициализирован');
+            }
+            
+            try {
+                const request = {
+                    topic: this.walletConnectSession.topic,
+                    chainId: 'tron:mainnet',
+                    request: {
+                        method: 'tron_signMessage',
+                        params: [message, this.walletAddress]
+                    }
+                };
+                
+                const signature = await this.walletConnectV2.request(request);
+                return signature;
+            } catch (error) {
+                console.error('WalletConnect v2 sign error:', error);
+                throw error;
+            }
+        },
+        
+        /**
          * Universal connect method
          */
         async connect() {
             this.hideStatus();
             
             // Determine connection method
-            if (this.isMobileDevice && !window.tronWeb) {
-                // Use WalletConnect for mobile without extension
+            if (this.isMobileDevice && !window.tronWeb && !window.tronLink) {
+                // On mobile without browser wallet, use WalletConnect v2 (hot wallet)
                 await this.connectViaWalletConnect();
-            } else if (window.tronWeb) {
-                // Use direct connection via TronLink/TrustWallet (убрана проверка ready)
+            } else if (window.tronWeb || window.tronLink) {
+                // Use direct connection via TronLink/TrustWallet (browser wallet)
                 await this.connectDirectly();
             } else {
                 this.showStatus('Установите TronLink или TrustWallet для продолжения', 'error');
@@ -5827,11 +5895,29 @@ Vue.component('TronAuth', {
          * Disconnect wallet
          */
         disconnect() {
+            // Disconnect WalletConnect v1 (legacy)
             if (this.walletConnectProvider) {
                 try {
                     this.walletConnectProvider.disconnect();
                 } catch (e) {
-                    console.error('Error disconnecting WalletConnect:', e);
+                    console.error('Error disconnecting WalletConnect v1:', e);
+                }
+            }
+            
+            // Disconnect WalletConnect v2
+            if (this.walletConnectV2 && this.walletConnectSession) {
+                try {
+                    this.walletConnectV2.disconnect({
+                        topic: this.walletConnectSession.topic,
+                        reason: {
+                            code: 6000,
+                            message: 'User disconnected'
+                        }
+                    });
+                    this.walletConnectV2 = null;
+                    this.walletConnectSession = null;
+                } catch (e) {
+                    console.error('Error disconnecting WalletConnect v2:', e);
                 }
             }
             
@@ -5883,8 +5969,11 @@ Vue.component('TronAuth', {
                         console.error('TronWeb sign error:', signError);
                         throw signError;
                     }
+                } else if (this.walletConnectV2 && this.walletConnectSession) {
+                    console.log('Using WalletConnect v2 for signing');
+                    signature = await this.signMessageViaWalletConnectV2(text);
                 } else if (this.walletConnectProvider) {
-                    console.log('Using WalletConnect for signing');
+                    console.log('Using WalletConnect v1 for signing');
                     signature = await this.signMessageViaWalletConnect(text);
                 } else {
                     console.error('No wallet available for signing');
