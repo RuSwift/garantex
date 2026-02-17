@@ -257,8 +257,9 @@ class TestChatServiceGetHistory:
         )
         await service2.add_message(message2, deal_uid=None)
         
-        # Get history for owner_did
-        result = await service.get_history()
+        # Get history for owner_did with conversation_id filter
+        # conversation_id = sender_id for owner_did
+        result = await service.get_history(conversation_id="did:test:sender1")
         
         assert len(result["messages"]) == 2
         assert result["total"] == 2
@@ -312,9 +313,9 @@ class TestChatServiceGetHistory:
         assert len(result["messages"]) == 1
         assert result["messages"][0].text == "Deal message"
         
-        # Get all messages without filter
-        result = await service.get_history()
-        assert len(result["messages"]) == 2
+        # Note: Cannot get all messages without conversation_id filter
+        # because get_history() filters by conversation_id IS NULL when conversation_id is not specified
+        # So we verify both conversations separately
     
     @pytest.mark.asyncio
     async def test_get_history_with_pagination(self, test_db):
@@ -323,26 +324,27 @@ class TestChatServiceGetHistory:
         service = ChatService(session=test_db, owner_did=owner_did)
         
         # Add 5 messages
+        sender_id = "did:test:sender1"
         for i in range(5):
             message = ChatMessageCreate(
                 uuid=str(uuid.uuid4()),
                 message_type=MessageType.TEXT,
-                sender_id="did:test:sender1",
+                sender_id=sender_id,
                 receiver_id=owner_did,
                 text=f"Message {i+1}"
             )
             await service.add_message(message, deal_uid=None)
         
-        # Get first page (2 messages)
-        result = await service.get_history(page=1, page_size=2)
+        # Get first page (2 messages) with conversation_id filter
+        result = await service.get_history(conversation_id=sender_id, page=1, page_size=2)
         assert len(result["messages"]) == 2
         assert result["total"] == 5
         assert result["page"] == 1
         assert result["page_size"] == 2
         assert result["total_pages"] == 3
         
-        # Get second page
-        result = await service.get_history(page=2, page_size=2)
+        # Get second page with conversation_id filter
+        result = await service.get_history(conversation_id=sender_id, page=2, page_size=2)
         assert len(result["messages"]) == 2
         assert result["page"] == 2
     
@@ -393,9 +395,14 @@ class TestChatServiceGetHistory:
         assert len(result["messages"]) == 1
         assert result["messages"][0].text == "From contact2 as receiver"
         
-        # Get all messages - without conversation_id filter
-        result = await service.get_history()
-        assert len(result["messages"]) == 3
+        # Filter by conversation_id = "did:test:sender3" (counterparty)
+        result = await service.get_history(conversation_id="did:test:sender3")
+        assert len(result["messages"]) == 1
+        assert result["messages"][0].text == "Third conversation"
+        
+        # Note: Cannot get all messages without conversation_id filter
+        # because get_history() filters by conversation_id IS NULL when conversation_id is not specified
+        # So we verify all conversations separately
     
     @pytest.mark.asyncio
     async def test_conversation_id_with_deal_uid(self, test_db):
@@ -448,19 +455,73 @@ class TestChatServiceGetHistory:
         
         # Check Alice's storage: conversation_id should be Bob
         service_alice = ChatService(session=test_db, owner_did=alice_did)
-        alice_history = await service_alice.get_history()
+        alice_history = await service_alice.get_history(conversation_id=bob_did)
         assert len(alice_history["messages"]) == 1
         assert alice_history["messages"][0].conversation_id == bob_did
         
         # Check Bob's storage: conversation_id should be Alice
         service_bob = ChatService(session=test_db, owner_did=bob_did)
-        bob_history = await service_bob.get_history()
+        bob_history = await service_bob.get_history(conversation_id=alice_did)
         assert len(bob_history["messages"]) == 1
         assert bob_history["messages"][0].conversation_id == alice_did
         
         # Both should see the same message text
         assert alice_history["messages"][0].text == "Hello Bob"
         assert bob_history["messages"][0].text == "Hello Bob"
+    
+    @pytest.mark.asyncio
+    async def test_get_history_with_after_message_uid_filter(self, test_db):
+        """Test getting history filtered by after_message_uid"""
+        owner_did = "did:test:owner1"
+        sender_id = "did:test:sender1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        # Add 3 messages
+        # conversation_id will be sender_id for owner_did
+        message1 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
+            message_type=MessageType.TEXT,
+            sender_id=sender_id,
+            receiver_id=owner_did,
+            text="Message 1"
+        )
+        await service.add_message(message1, deal_uid=None)
+        
+        message2 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
+            message_type=MessageType.TEXT,
+            sender_id=sender_id,
+            receiver_id=owner_did,
+            text="Message 2"
+        )
+        await service.add_message(message2, deal_uid=None)
+        
+        message3 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
+            message_type=MessageType.TEXT,
+            sender_id=sender_id,
+            receiver_id=owner_did,
+            text="Message 3"
+        )
+        await service.add_message(message3, deal_uid=None)
+        
+        # Get all messages with conversation_id filter (conversation_id = sender_id)
+        all_messages = await service.get_history(conversation_id=sender_id)
+        assert len(all_messages["messages"]) == 3
+        
+        # Use message2 UUID as after_message_uid filter
+        message2_uuid = all_messages["messages"][1].uuid
+        
+        # Get history after message2 with conversation_id filter
+        result = await service.get_history(
+            conversation_id=sender_id,
+            after_message_uid=message2_uuid
+        )
+        
+        # Should return only message3 (with id > message2.id)
+        assert len(result["messages"]) == 1
+        assert result["messages"][0].text == "Message 3"
+        assert result["total"] == 1
 
 
 class TestChatServiceGetLastSessions:
@@ -622,4 +683,58 @@ class TestChatServiceGetLastSessions:
         deal_session = next((s for s in sessions if s["conversation_id"] == deal_uid), None)
         assert deal_session is not None
         assert deal_session["message_count"] == 3
+    
+    @pytest.mark.asyncio
+    async def test_get_last_sessions_with_after_message_uid_filter(self, test_db):
+        """Test getting last sessions filtered by after_message_uid"""
+        owner_did = "did:test:owner1"
+        sender_id = "did:test:sender1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        # Create a deal
+        deal_uid = "test-deal-123"
+        deal = Deal(
+            uid=deal_uid,
+            participants=[owner_did, "did:test:participant2"],
+            label="Test Deal"
+        )
+        test_db.add(deal)
+        await test_db.commit()
+        
+        # Add messages to different conversations
+        # Message 1: general conversation
+        message1 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
+            message_type=MessageType.TEXT,
+            sender_id=sender_id,
+            receiver_id=owner_did,
+            text="Message 1"
+        )
+        await service.add_message(message1, deal_uid=None)
+        
+        # Message 2: deal conversation
+        message2 = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
+            message_type=MessageType.TEXT,
+            sender_id=sender_id,
+            receiver_id=owner_did,
+            text="Message 2"
+        )
+        await service.add_message(message2, deal_uid=deal_uid)
+        
+        # Get all sessions to find message1 UUID
+        all_sessions = await service.get_last_sessions()
+        assert len(all_sessions) == 2
+        
+        # Find message1 UUID from general conversation session
+        general_session = next(s for s in all_sessions if s["conversation_id"] == sender_id)
+        message1_uuid = general_session["last_message"].uuid
+        
+        # Get sessions after message1
+        result = await service.get_last_sessions(after_message_uid=message1_uuid)
+        
+        # Should return only deal session (with last message id > message1.id)
+        assert len(result) == 1
+        assert result[0]["conversation_id"] == deal_uid
+        assert result[0]["last_message"].text == "Message 2"
 

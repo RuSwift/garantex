@@ -107,6 +107,7 @@ async def get_history(
         True,
         description="Exclude file data from attachments (recommended for performance). Use /api/attachment/{message_uuid}/{attachment_id} to download files."
     ),
+    after_message_uid: Optional[str] = Query(None, description="Filter messages after this message UUID (by database primary key)"),
     chat_service: ChatService = Depends(get_chat_service)
 ):
     """
@@ -117,6 +118,8 @@ async def get_history(
         page: Номер страницы (начиная с 1)
         page_size: Количество сообщений на странице
         exclude_file_data: Исключить данные файлов из вложений (рекомендуется для производительности)
+        after_message_uid: Фильтр сообщений после указанного UUID сообщения (по primary key в базе данных).
+                           Будут возвращены только сообщения с Storage.id > id найденного сообщения.
         chat_service: ChatService instance (автоматически создается с owner_did текущего пользователя)
         
     Returns:
@@ -128,10 +131,17 @@ async def get_history(
             conversation_id=conversation_id,
             page=page,
             page_size=page_size,
-            exclude_file_data=exclude_file_data
+            exclude_file_data=exclude_file_data,
+            after_message_uid=after_message_uid
         )
         
         return GetHistoryResponse(**result)
+    except ValueError as e:
+        # Handle case when message with after_message_uid not found
+        raise HTTPException(
+            status_code=404,
+            detail=str(e)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -191,6 +201,7 @@ class GetSessionsResponse(BaseModel):
 @router.get("/api/sessions", response_model=GetSessionsResponse)
 async def get_last_sessions(
     limit: int = Query(50, ge=1, le=100, description="Maximum number of sessions to return"),
+    after_message_uid: Optional[str] = Query(None, description="Filter sessions after this message UUID (by database primary key)"),
     chat_service: ChatService = Depends(get_chat_service)
 ):
     """
@@ -198,13 +209,15 @@ async def get_last_sessions(
     
     Args:
         limit: Максимальное количество сессий для возврата
+        after_message_uid: Фильтр сессий после указанного UUID сообщения (по primary key в базе данных).
+                          Будут возвращены только сессии, у которых последнее сообщение имеет Storage.id > id найденного сообщения.
         chat_service: ChatService instance (автоматически создается с owner_did текущего пользователя)
         
     Returns:
         Список последних сессий чата
     """
     try:
-        sessions = await chat_service.get_last_sessions(limit=limit)
+        sessions = await chat_service.get_last_sessions(limit=limit, after_message_uid=after_message_uid)
         
         # Преобразуем datetime в ISO строки
         session_list = []
@@ -217,6 +230,12 @@ async def get_last_sessions(
             ))
         
         return GetSessionsResponse(sessions=session_list)
+    except ValueError as e:
+        # Handle case when message with after_message_uid not found
+        raise HTTPException(
+            status_code=404,
+            detail=str(e)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=500,

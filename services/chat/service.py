@@ -216,7 +216,8 @@ class ChatService:
         conversation_id: Optional[str] = None,
         page: int = 1,
         page_size: int = 50,
-        exclude_file_data: bool = False
+        exclude_file_data: bool = False,
+        after_message_uid: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Get chat history with pagination (always filtered by owner_did)
@@ -226,9 +227,14 @@ class ChatService:
             page: Page number (1-based)
             page_size: Number of messages per page
             exclude_file_data: If True, excludes file data from attachments (only metadata)
+            after_message_uid: Filter messages after this message UUID (by database primary key).
+                               Only messages with Storage.id > found_message_id will be returned.
             
         Returns:
             Dictionary with 'messages' (list of ChatMessage) and 'total' (total count)
+            
+        Raises:
+            ValueError: If after_message_uid is specified but message not found
         """
         # Build query - всегда фильтруем по owner_did
         query = select(Storage).where(
@@ -237,8 +243,39 @@ class ChatService:
         )
         
         # Filter by conversation_id
-        if conversation_id:
+        if conversation_id is not None:
             query = query.where(Storage.conversation_id == conversation_id)
+        else:
+            query = query.where(Storage.conversation_id.is_(None))
+        
+        # Filter by after_message_uid if specified
+        if after_message_uid:
+            # Find message with specified uuid
+            ref_message_query = select(Storage).where(
+                Storage.space == self.SPACE,
+                Storage.owner_did == self.owner_did,
+                Storage.payload['uuid'].astext == after_message_uid
+            )
+            
+            # Apply conversation_id filter if specified
+            if conversation_id is not None:
+                ref_message_query = ref_message_query.where(
+                    Storage.conversation_id == conversation_id
+                )
+            else:
+                ref_message_query = ref_message_query.where(
+                    Storage.conversation_id.is_(None)
+                )
+            
+            # Get reference message
+            ref_result = await self.session.execute(ref_message_query)
+            ref_storage = ref_result.scalar_one_or_none()
+            
+            if not ref_storage:
+                raise ValueError(f"Message with uuid {after_message_uid} not found")
+            
+            # Add filter by id (only messages with id > ref_storage.id)
+            query = query.where(Storage.id > ref_storage.id)
         
         # Get total count
         count_query = select(func.count()).select_from(query.subquery())
@@ -339,7 +376,8 @@ class ChatService:
     
     async def get_last_sessions(
         self,
-        limit: int = 50
+        limit: int = 50,
+        after_message_uid: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Get all last chat sessions grouped by conversation_id, sorted by time of last message
@@ -348,6 +386,8 @@ class ChatService:
         
         Args:
             limit: Maximum number of sessions to return
+            after_message_uid: Filter sessions after this message UUID (by database primary key).
+                             Only sessions with last message having Storage.id > found_message_id will be returned.
             
         Returns:
             List of dictionaries with session info:
@@ -355,17 +395,45 @@ class ChatService:
             - last_message_time: Time of last message in session
             - message_count: Number of messages in session
             - last_message: Last message in session (ChatMessage)
+            
+        Raises:
+            ValueError: If after_message_uid is specified but message not found
         """
+        # Filter by after_message_uid if specified
+        after_message_id = None
+        if after_message_uid:
+            # Find message with specified uuid
+            ref_message_query = select(Storage).where(
+                Storage.space == self.SPACE,
+                Storage.owner_did == self.owner_did,
+                Storage.payload['uuid'].astext == after_message_uid
+            )
+            
+            # Get reference message
+            ref_result = await self.session.execute(ref_message_query)
+            ref_storage = ref_result.scalar_one_or_none()
+            
+            if not ref_storage:
+                raise ValueError(f"Message with uuid {after_message_uid} not found")
+            
+            after_message_id = ref_storage.id
+        
         # Подзапрос: находим ID последнего сообщения для каждого conversation_id
+        subquery_where = [
+            Storage.space == self.SPACE,
+            Storage.owner_did == self.owner_did
+        ]
+        
+        # Add filter by after_message_id if specified
+        if after_message_id is not None:
+            subquery_where.append(Storage.id > after_message_id)
+        
         subquery = (
             select(
                 Storage.conversation_id,
                 func.max(Storage.id).label('last_id')
             )
-            .where(
-                Storage.space == self.SPACE,
-                Storage.owner_did == self.owner_did
-            )
+            .where(and_(*subquery_where))
             .group_by(Storage.conversation_id)
             .subquery()
         )
@@ -392,16 +460,22 @@ class ChatService:
         for storage in sessions_list:
             try:
                 # Get message count for this conversation_id
-                count_query = select(func.count(Storage.id)).where(
+                count_query_where = [
                     Storage.space == self.SPACE,
                     Storage.owner_did == self.owner_did
-                )
+                ]
                 
                 # Handle NULL conversation_id properly
                 if storage.conversation_id is None:
-                    count_query = count_query.where(Storage.conversation_id.is_(None))
+                    count_query_where.append(Storage.conversation_id.is_(None))
                 else:
-                    count_query = count_query.where(Storage.conversation_id == storage.conversation_id)
+                    count_query_where.append(Storage.conversation_id == storage.conversation_id)
+                
+                # Add filter by after_message_id if specified
+                if after_message_id is not None:
+                    count_query_where.append(Storage.id > after_message_id)
+                
+                count_query = select(func.count(Storage.id)).where(and_(*count_query_where))
                 
                 count_result = await self.session.execute(count_query)
                 message_count = count_result.scalar() or 0
