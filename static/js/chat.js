@@ -1379,7 +1379,7 @@ Vue.component('Chat', {
                         </div>
                         
                         <!-- Chat List -->
-                        <div style="flex: 1; overflow-y: auto;" class="telegram-scrollbar">
+                        <div style="flex: 1; overflow-y: auto; padding-left: 0; padding-right: 5px;" class="telegram-scrollbar">
                             <div 
                                 v-for="c in filteredContacts"
                                 :key="c.id"
@@ -1484,7 +1484,7 @@ Vue.component('Chat', {
                             <slot name="chat-header-addon"></slot>
 
                             <!-- Messages - Telegram Style -->
-                            <div ref="messageList" @scroll="handleScroll" style="flex: 1; overflow-y: auto; padding: 8px 12px; z-index: 0;" class="telegram-scrollbar">
+                            <div ref="messageList" @scroll="handleScroll" style="flex: 1; overflow-y: auto; padding: 8px 24px 8px 12px; z-index: 0;" class="telegram-scrollbar">
                                 <!-- Load More History Button or No More Messages Text -->
                                 <div v-if="currentMessages && currentMessages.length > 0" style="display: flex; justify-content: center; margin-bottom: 8px;">
                                     <!-- Button to load more -->

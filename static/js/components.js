@@ -9080,6 +9080,20 @@ Vue.component('DealConversation', {
     watch: {
         show(newVal) {
             this.chatVisible = newVal;
+            // При открытии модального окна загружаем сессии, если они еще не загружены
+            if (newVal && this.isAuthenticated && !this.sessionsLoaded) {
+                this.$nextTick(() => {
+                    if (this.userDid) {
+                        this.loadLastSessions();
+                    } else {
+                        this.loadUserDid().then(() => {
+                            if (this.userDid) {
+                                this.loadLastSessions();
+                            }
+                        });
+                    }
+                });
+            }
         },
         isAuthenticated(newVal) {
             if (newVal && !this.sessionsLoaded) {
