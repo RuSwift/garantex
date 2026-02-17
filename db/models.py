@@ -377,6 +377,9 @@ class Wallet(Base):
     # TRON account permissions (from blockchain)
     account_permissions = Column(JSON, nullable=True, comment="TRON account permissions from blockchain")
     
+    # Wallet role
+    role = Column(String(255), nullable=True, comment="Wallet role")
+    
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="Last update timestamp (UTC)")
