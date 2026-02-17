@@ -222,6 +222,9 @@ class EscrowModel(Base):
     # Escrow address - the address to which permissions apply
     escrow_address = Column(String(255), nullable=False, comment="Escrow address in blockchain")
     
+    # Owner DID - пользователь, которому принадлежит escrow
+    owner_did = Column(String(255), nullable=False, index=True, comment="Owner DID - пользователь, которому принадлежит escrow")
+    
     # Participant addresses for easy searching
     participant1_address = Column(String(255), nullable=False, index=True, comment="First participant address")
     participant2_address = Column(String(255), nullable=False, index=True, comment="Second participant address")
