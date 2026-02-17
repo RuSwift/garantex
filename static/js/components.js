@@ -5749,37 +5749,32 @@ Vue.component('TronAuth', {
                 
                 // Check if WalletConnect v2 is available
                 if (typeof WalletConnectCore === 'undefined' || typeof WalletConnectWeb3Wallet === 'undefined') {
-                    this.showStatus('WalletConnect v2 не загружен. Используйте прямое подключение.', 'error');
-                    await this.connectDirectly();
+                    this.showStatus('WalletConnect v2 не загружен. Установите TronLink или TrustWallet для продолжения.', 'error');
                     return;
                 }
                 
-                // Initialize WalletConnect v2 Core
-                const core = new WalletConnectCore.default({
-                    projectId: this.walletConnectProjectId,
-                    metadata: {
-                        name: 'Garantex DApp',
-                        description: 'Decentralized P2P Platform',
-                        url: window.location.origin,
-                        icons: [`${window.location.origin}/static/img/logo.png`]
-                    }
-                });
-                
-                // Initialize Web3Wallet
-                const web3wallet = await WalletConnectWeb3Wallet.default.init({
-                    core,
-                    metadata: {
-                        name: 'Garantex DApp',
-                        description: 'Decentralized P2P Platform',
-                        url: window.location.origin,
-                        icons: [`${window.location.origin}/static/img/logo.png`]
-                    }
-                });
-                
-                this.walletConnectV2 = web3wallet;
+                // Initialize WalletConnect v2 Web3Wallet directly
+                // Проверяем, не инициализирован ли уже WalletConnect
+                if (this.walletConnectV2) {
+                    // Если уже инициализирован, используем существующий экземпляр
+                    console.log('Using existing WalletConnect v2 instance');
+                } else {
+                    // Initialize Web3Wallet
+                    const web3wallet = await WalletConnectWeb3Wallet.default.init({
+                        projectId: this.walletConnectProjectId,
+                        metadata: {
+                            name: 'Garantex DApp',
+                            description: 'Decentralized P2P Platform',
+                            url: window.location.origin,
+                            icons: [`${window.location.origin}/static/img/logo.png`]
+                        }
+                    });
+                    
+                    this.walletConnectV2 = web3wallet;
+                }
                 
                 // Create pairing and get URI for connection
-                const { uri, approval } = await web3wallet.core.pairing.create();
+                const { uri, approval } = await this.walletConnectV2.core.pairing.create();
                 
                 if (!uri) {
                     throw new Error('Не удалось создать URI для подключения');
