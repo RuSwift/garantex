@@ -108,6 +108,7 @@ async def get_history(
         description="Exclude file data from attachments (recommended for performance). Use /api/attachment/{message_uuid}/{attachment_id} to download files."
     ),
     after_message_uid: Optional[str] = Query(None, description="Filter messages after this message UUID (by database primary key)"),
+    before_message_uid: Optional[str] = Query(None, description="Filter messages before this message UUID (by database primary key). When specified, offset is calculated based on this message instead of page."),
     chat_service: ChatService = Depends(get_chat_service)
 ):
     """
@@ -120,6 +121,9 @@ async def get_history(
         exclude_file_data: Исключить данные файлов из вложений (рекомендуется для производительности)
         after_message_uid: Фильтр сообщений после указанного UUID сообщения (по primary key в базе данных).
                            Будут возвращены только сообщения с Storage.id > id найденного сообщения.
+        before_message_uid: Фильтр сообщений до указанного UUID сообщения (по primary key в базе данных).
+                            Будут возвращены только сообщения с Storage.id < id найденного сообщения.
+                            При указании этого параметра offset рассчитывается на основе этого сообщения вместо page.
         chat_service: ChatService instance (автоматически создается с owner_did текущего пользователя)
         
     Returns:
@@ -132,12 +136,13 @@ async def get_history(
             page=page,
             page_size=page_size,
             exclude_file_data=exclude_file_data,
-            after_message_uid=after_message_uid
+            after_message_uid=after_message_uid,
+            before_message_uid=before_message_uid
         )
         
         return GetHistoryResponse(**result)
     except ValueError as e:
-        # Handle case when message with after_message_uid not found
+        # Handle case when message with after_message_uid or before_message_uid not found
         raise HTTPException(
             status_code=404,
             detail=str(e)

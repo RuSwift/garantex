@@ -263,9 +263,10 @@ class TestChatServiceGetHistory:
         
         assert len(result["messages"]) == 2
         assert result["total"] == 2
-        # Messages should be ordered by id ascending (oldest first)
-        assert result["messages"][0].text == "Message 1"
-        assert result["messages"][1].text == "Message 2"
+        # Messages should be ordered by id descending (newest first)
+        # Message 2 was added after Message 1, so it should be first
+        assert result["messages"][0].text == "Message 2"
+        assert result["messages"][1].text == "Message 1"
     
     @pytest.mark.asyncio
     async def test_get_history_with_mixed_conversations(self, test_db):
@@ -510,6 +511,7 @@ class TestChatServiceGetHistory:
         assert len(all_messages["messages"]) == 3
         
         # Use message2 UUID as after_message_uid filter
+        # With desc ordering: messages[0]=Message3, messages[1]=Message2, messages[2]=Message1
         message2_uuid = all_messages["messages"][1].uuid
         
         # Get history after message2 with conversation_id filter
@@ -518,9 +520,36 @@ class TestChatServiceGetHistory:
             after_message_uid=message2_uuid
         )
         
-        # Should return only message3 (with id > message2.id)
+        # Should return only message3 (with id > message2.id), sorted desc (newest first)
         assert len(result["messages"]) == 1
         assert result["messages"][0].text == "Message 3"
+        assert result["total"] == 1
+    
+    @pytest.mark.asyncio
+    async def test_get_history_with_before_message_uid_filter(self, test_db):
+        """Test getting history filtered by before_message_uid"""
+        owner_did = "did:test:owner1"
+        sender_id = "did:test:sender1"
+        service = ChatService(session=test_db, owner_did=owner_did)
+        
+        # Add 3 messages
+        message1 = ChatMessageCreate(uuid=str(uuid.uuid4()), message_type=MessageType.TEXT, sender_id=sender_id, receiver_id=owner_did, text="Message 1")
+        await service.add_message(message1, deal_uid=None)
+        message2 = ChatMessageCreate(uuid=str(uuid.uuid4()), message_type=MessageType.TEXT, sender_id=sender_id, receiver_id=owner_did, text="Message 2")
+        await service.add_message(message2, deal_uid=None)
+        message3 = ChatMessageCreate(uuid=str(uuid.uuid4()), message_type=MessageType.TEXT, sender_id=sender_id, receiver_id=owner_did, text="Message 3")
+        await service.add_message(message3, deal_uid=None)
+        
+        # Get all messages to find message2 UUID
+        all_messages = await service.get_history(conversation_id=sender_id)
+        message2_uuid = all_messages["messages"][1].uuid  # With desc: [Message3, Message2, Message1]
+        
+        # Get history before message2
+        result = await service.get_history(conversation_id=sender_id, before_message_uid=message2_uuid, page_size=10)
+        
+        # Should return only message1 (with id < message2.id), sorted desc
+        assert len(result["messages"]) == 1
+        assert result["messages"][0].text == "Message 1"
         assert result["total"] == 1
 
 

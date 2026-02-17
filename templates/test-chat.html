@@ -122,6 +122,7 @@
             @on_load_attachment="handleLoadAttachment"
             @on_download_attachment="handleLoadAttachment"
             @on_refresh_history="handleRefreshHistory"
+            @on_fetch_history="handleFetchHistory"
             ref="chat"
         ></chat>
     </div>
@@ -493,7 +494,7 @@
                         
                         console.log('Loading chat history for conversation:', conversationId);
                         
-                        const response = await fetch(`/chat/api/history?conversation_id=${encodeURIComponent(conversationId)}&page=1&page_size=50`, {
+                        const response = await fetch(`/chat/api/history?conversation_id=${encodeURIComponent(conversationId)}&page=1&page_size=20`, {
                             headers: {
                                 'Authorization': `Bearer ${token}`
                             }
@@ -573,7 +574,7 @@
                         const afterMessageUid = event.last_message_uid;
                         
                         // Build URL with after_message_uid parameter
-                        const url = `/chat/api/history?conversation_id=${encodeURIComponent(conversationId)}&page=1&page_size=50&after_message_uid=${encodeURIComponent(afterMessageUid)}`;
+                        const url = `/chat/api/history?conversation_id=${encodeURIComponent(conversationId)}&page=1&page_size=20&after_message_uid=${encodeURIComponent(afterMessageUid)}`;
                         
                         console.log('Fetching new messages from:', url);
                         
@@ -601,6 +602,57 @@
                         
                     } catch (error) {
                         console.error('Error refreshing history:', error);
+                        event.reject(error);
+                    }
+                },
+                
+                async handleFetchHistory(event) {
+                    console.log('=== Fetch History Event ===');
+                    console.log('Conversation ID:', event.conversation_id);
+                    console.log('Before Message UID:', event.before_message_uid);
+                    console.log('===========================');
+                    
+                    if (!this.isAuthenticated || !this.userDid) {
+                        console.warn('User not authenticated or DID not available');
+                        event.reject(new Error('User not authenticated'));
+                        return;
+                    }
+                    
+                    try {
+                        const token = this.getAuthToken();
+                        const conversationId = event.conversation_id;
+                        const beforeMessageUid = event.before_message_uid;
+                        const pageSize = this.$refs.chat.pageSize || 20;
+                        
+                        // Build URL with before_message_uid parameter
+                        const url = `/chat/api/history?conversation_id=${encodeURIComponent(conversationId)}&page=1&page_size=${pageSize}&before_message_uid=${encodeURIComponent(beforeMessageUid)}`;
+                        
+                        console.log('Fetching older messages from:', url);
+                        
+                        const response = await fetch(url, {
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+                        
+                        if (!response.ok) {
+                            if (response.status === 404) {
+                                // Message not found - resolve with empty array (no more messages)
+                                console.log('Message not found, no more messages');
+                                event.resolve([]);
+                                return;
+                            }
+                            throw new Error(`Failed to fetch history: ${response.statusText}`);
+                        }
+                        
+                        const result = await response.json();
+                        console.log('Older messages received:', result.messages ? result.messages.length : 0);
+                        
+                        // Resolve promise with older messages
+                        event.resolve(result.messages || []);
+                        
+                    } catch (error) {
+                        console.error('Error fetching history:', error);
                         event.reject(error);
                     }
                 }

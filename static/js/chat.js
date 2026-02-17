@@ -17,6 +17,10 @@ Vue.component('Chat', {
         currentUserDid: {
             type: String,
             default: null
+        },
+        pageSize: {
+            type: Number,
+            default: 20
         }
     },
     data() {
@@ -57,6 +61,8 @@ Vue.component('Chat', {
             showSidebarOnMobile: true, // Show sidebar or chat area on mobile devices
             refreshHistoryInterval: null, // Interval for periodic history refresh
             isRefreshingHistory: false, // Track if history refresh is in progress
+            isFetchingHistory: false, // Track if history fetch is in progress
+            hasMoreOldMessages: {}, // Track if there are more old messages per conversation: {conversationId: true/false}
             emojiCategories: {
                 'smileys': ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔'],
                 'gestures': ['👋', '🤚', '🖐', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝'],
@@ -397,10 +403,14 @@ Vue.component('Chat', {
             // Clear existing messages
             this.messages = {};
             
+            // Reverse history array since backend returns messages in DESC order (newest first)
+            // We need to process them in chronological order (oldest first) for proper display
+            const reversedHistory = [...history].reverse();
+            
             // Group messages by conversationId
             const messagesByContact = {};
             
-            history.forEach(msg => {
+            reversedHistory.forEach(msg => {
                 const conversationId = msg.conversation_id;
                 
                 // Skip messages without conversation_id
@@ -440,6 +450,10 @@ Vue.component('Chat', {
             Object.keys(messagesByContact).forEach(conversationId => {
                 messagesByContact[conversationId].sort((a, b) => a.timestamp - b.timestamp);
                 this.$set(this.messages, conversationId, messagesByContact[conversationId]);
+                // Initialize hasMoreOldMessages flag (assume there might be more if we got messages)
+                if (messagesByContact[conversationId].length > 0) {
+                    this.$set(this.hasMoreOldMessages, conversationId, true);
+                }
             });
             
             // Create or update contacts from history
@@ -447,8 +461,8 @@ Vue.component('Chat', {
                 let contact = this.contacts.find(c => c.id === conversationId);
                 
                 if (!contact) {
-                    // Find contact info from first message
-                    const firstMsg = history.find(m => m.conversation_id === conversationId);
+                    // Find contact info from first message (using reversedHistory for chronological order)
+                    const firstMsg = reversedHistory.find(m => m.conversation_id === conversationId);
                     // Create new contact if it doesn't exist
                     contact = {
                         id: conversationId,
@@ -683,6 +697,9 @@ Vue.component('Chat', {
             if (!this.messages[contact.id]) {
                 this.$set(this.messages, contact.id, []);
             }
+            // Reset hasMoreOldMessages flag for new contact (assume there might be more)
+            this.$set(this.hasMoreOldMessages, contact.id, true);
+            
             // On mobile, hide sidebar and show chat area when contact is selected
             if (this.isMobileDevice) {
                 this.showSidebarOnMobile = false;
@@ -793,10 +810,13 @@ Vue.component('Chat', {
                     }
                     
                     // Convert new messages to chat format
+                    // Reverse new messages array since backend returns messages in DESC order (newest first)
+                    // We need to process them in chronological order (oldest first) for proper display
+                    const reversedNewMessages = [...newMessages].reverse();
                     const existingMessages = this.messages[targetConversationId] || [];
                     const existingUuids = new Set(existingMessages.map(m => m.uuid));
                     
-                    newMessages.forEach(msg => {
+                    reversedNewMessages.forEach(msg => {
                         // Skip if message already exists
                         const msgUuid = msg.uuid || msg.id || msg.messageId;
                         if (existingUuids.has(msgUuid)) {
@@ -848,6 +868,157 @@ Vue.component('Chat', {
                     console.error('Error refreshing history:', error);
                 });
         },
+        
+        // Fetch older history (pagination)
+        fetchHistory() {
+            // Don't start new fetch if one is already in progress
+            if (this.isFetchingHistory) {
+                return;
+            }
+            
+            // Only fetch if contact is selected
+            if (!this.selectedContactId) {
+                return;
+            }
+            
+            // Get oldest message UUID from current messages (by timestamp)
+            const currentMessages = this.currentMessages;
+            const firstMessage = currentMessages && currentMessages.length > 0 
+                ? currentMessages.reduce((oldest, current) => {
+                    return (!oldest || current.timestamp < oldest.timestamp) ? current : oldest;
+                }, null)
+                : null;
+            
+            if (!firstMessage || !firstMessage.uuid) {
+                // No messages yet, skip fetch
+                return;
+            }
+            
+            // Get conversation_id from selected contact and SAVE IT in closure
+            const conversationId = this.selectedContactId;
+            const beforeMessageUuid = firstMessage.uuid;
+            
+            // Create promise for fetch
+            let resolvePromise, rejectPromise;
+            const fetchPromise = new Promise((resolve, reject) => {
+                resolvePromise = resolve;
+                rejectPromise = reject;
+            });
+            
+            // Mark as fetching
+            this.isFetchingHistory = true;
+            
+            // Emit event with promise
+            this.$emit('on_fetch_history', {
+                conversation_id: conversationId,
+                before_message_uid: beforeMessageUuid,
+                promise: fetchPromise,
+                resolve: resolvePromise,
+                reject: rejectPromise
+            });
+            
+            // Handle promise resolution/rejection
+            fetchPromise
+                .then((oldMessages) => {
+                    // Reset fetching flag
+                    this.isFetchingHistory = false;
+                    
+                    if (!oldMessages || oldMessages.length === 0) {
+                        // No more messages - mark that there are no more old messages
+                        this.$set(this.hasMoreOldMessages, conversationId, false);
+                        return;
+                    }
+                    
+                    // Reverse order before processing (messages come in reverse order from backend)
+                    oldMessages.reverse();
+                    
+                    // Use saved conversationId from closure
+                    const targetConversationId = conversationId;
+                    
+                    // Additional safety check: verify that this conversation still exists
+                    if (!this.messages[targetConversationId]) {
+                        console.warn('Conversation no longer exists, ignoring fetch result');
+                        return;
+                    }
+                    
+                    // Convert old messages to chat format
+                    const existingMessages = this.messages[targetConversationId] || [];
+                    const existingUuids = new Set(existingMessages.map(m => m.uuid));
+                    
+                    // Convert new messages to chat format
+                    const newChatMessages = [];
+                    oldMessages.forEach(msg => {
+                        // Skip if message already exists
+                        const msgUuid = msg.uuid || msg.id || msg.messageId;
+                        if (existingUuids.has(msgUuid)) {
+                            return;
+                        }
+                        
+                        // Determine sender type
+                        let senderType = 'their';
+                        if (msg.sender_id && this.currentUserDid && msg.sender_id === this.currentUserDid) {
+                            senderType = 'mine';
+                        } else if (msg.sender_id && this.currentUserDid && msg.sender_id !== this.currentUserDid) {
+                            senderType = 'their';
+                        }
+                        
+                        // Convert to chat message format
+                        const chatMessage = {
+                            uuid: msgUuid,
+                            text: msg.text || msg.message || '',
+                            sender: senderType,
+                            timestamp: msg.timestamp || (msg.created_at ? new Date(msg.created_at).getTime() : Date.now()),
+                            status: msg.status || 'sent',
+                            signature: msg.signature ? msg.signature.signature : null,
+                            type: msg.message_type || msg.type || 'text',
+                            attachments: msg.attachments || undefined
+                        };
+                        
+                        newChatMessages.push(chatMessage);
+                        existingUuids.add(msgUuid);
+                    });
+                    
+                    // Prepend new messages to existing messages (old messages go to the top)
+                    const allMessages = [...newChatMessages, ...existingMessages];
+                    
+                    // Sort messages by timestamp
+                    allMessages.sort((a, b) => a.timestamp - b.timestamp);
+                    
+                    // Save scroll position before update
+                    const messageList = this.$refs.messageList;
+                    const scrollHeight = messageList ? messageList.scrollHeight : 0;
+                    const scrollTop = messageList ? messageList.scrollTop : 0;
+                    
+                    // Update messages array
+                    this.$set(this.messages, targetConversationId, allMessages);
+                    
+                    // Recalculate firstMessage (oldest message) after adding old messages
+                    const updatedMessages = this.messages[targetConversationId] || [];
+                    const newFirstMessage = updatedMessages.length > 0
+                        ? updatedMessages.reduce((oldest, current) => {
+                            return (!oldest || current.timestamp < oldest.timestamp) ? current : oldest;
+                        }, null)
+                        : null;
+                    
+                    // Restore scroll position after update
+                    this.$nextTick(() => {
+                        if (messageList) {
+                            const newScrollHeight = messageList.scrollHeight;
+                            const heightDiff = newScrollHeight - scrollHeight;
+                            messageList.scrollTop = scrollTop + heightDiff;
+                        }
+                        
+                        // Auto-load attachments for new messages
+                        this.autoLoadAttachments();
+                    });
+                })
+                .catch((error) => {
+                    // Reset fetching flag on error
+                    this.isFetchingHistory = false;
+                    console.error('Error fetching history:', error);
+                });
+        },
+        
         detectMobileDevice() {
             this.isMobileDevice = window.innerWidth < 768 || 
                                   (window.innerHeight > window.innerWidth && window.innerWidth < 1024);
@@ -1331,6 +1502,45 @@ Vue.component('Chat', {
 
                             <!-- Messages - Telegram Style -->
                             <div ref="messageList" @scroll="handleScroll" style="flex: 1; overflow-y: auto; padding: 8px 12px; z-index: 0;" class="telegram-scrollbar">
+                                <!-- Load More History Button or No More Messages Text -->
+                                <div v-if="currentMessages && currentMessages.length > 0" style="display: flex; justify-content: center; margin-bottom: 8px;">
+                                    <!-- Button to load more -->
+                                    <button 
+                                        v-if="hasMoreOldMessages[selectedContactId] !== false"
+                                        @click="fetchHistory"
+                                        :disabled="isFetchingHistory"
+                                        :style="{
+                                            padding: '8px 16px',
+                                            border: '1px solid #e5e5e5',
+                                            borderRadius: '20px',
+                                            background: isFetchingHistory ? '#f0f0f0' : 'white',
+                                            color: isFetchingHistory ? '#999' : '#4082bc',
+                                            cursor: isFetchingHistory ? 'wait' : 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '500',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            transition: 'all 0.2s',
+                                            boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                                        }"
+                                        @mouseenter="$event.target.style.background = isFetchingHistory ? '#f0f0f0' : '#f5f5f5'"
+                                        @mouseleave="$event.target.style.background = isFetchingHistory ? '#f0f0f0' : 'white'"
+                                        title="Загрузить старые сообщения"
+                                    >
+                                        <svg v-if="isFetchingHistory" style="width: 14px; height: 14px; animation: spin 1s linear infinite;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                        </svg>
+                                        <svg v-else style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
+                                        </svg>
+                                        <span>[[ isFetchingHistory ? 'Загрузка...' : 'Загрузить старые сообщения' ]]</span>
+                                    </button>
+                                    <!-- No more messages text -->
+                                    <div v-else style="padding: 8px 16px; fontSize: 13px; color: #999; textAlign: center;">
+                                        Более старых сообщений нет
+                                    </div>
+                                </div>
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <div 
                                         v-for="(m, idx) in currentMessages"

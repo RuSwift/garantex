@@ -217,7 +217,8 @@ class ChatService:
         page: int = 1,
         page_size: int = 50,
         exclude_file_data: bool = False,
-        after_message_uid: Optional[str] = None
+        after_message_uid: Optional[str] = None,
+        before_message_uid: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Get chat history with pagination (always filtered by owner_did)
@@ -229,12 +230,15 @@ class ChatService:
             exclude_file_data: If True, excludes file data from attachments (only metadata)
             after_message_uid: Filter messages after this message UUID (by database primary key).
                                Only messages with Storage.id > found_message_id will be returned.
+            before_message_uid: Filter messages before this message UUID (by database primary key).
+                                Only messages with Storage.id < found_message_id will be returned.
+                                When specified, offset is calculated based on this message instead of page.
             
         Returns:
             Dictionary with 'messages' (list of ChatMessage) and 'total' (total count)
             
         Raises:
-            ValueError: If after_message_uid is specified but message not found
+            ValueError: If after_message_uid or before_message_uid is specified but message not found
         """
         # Build query - всегда фильтруем по owner_did
         query = select(Storage).where(
@@ -277,14 +281,51 @@ class ChatService:
             # Add filter by id (only messages with id > ref_storage.id)
             query = query.where(Storage.id > ref_storage.id)
         
+        # Filter by before_message_uid if specified
+        if before_message_uid:
+            # Find message with specified uuid
+            ref_message_query = select(Storage).where(
+                Storage.space == self.SPACE,
+                Storage.owner_did == self.owner_did,
+                Storage.payload['uuid'].astext == before_message_uid
+            )
+            
+            # Apply conversation_id filter if specified
+            if conversation_id is not None:
+                ref_message_query = ref_message_query.where(
+                    Storage.conversation_id == conversation_id
+                )
+            else:
+                ref_message_query = ref_message_query.where(
+                    Storage.conversation_id.is_(None)
+                )
+            
+            # Get reference message
+            ref_result = await self.session.execute(ref_message_query)
+            ref_storage = ref_result.scalar_one_or_none()
+            
+            if not ref_storage:
+                raise ValueError(f"Message with uuid {before_message_uid} not found")
+            
+            # Add filter by id (only messages with id < ref_storage.id)
+            query = query.where(Storage.id < ref_storage.id)
+        
         # Get total count
         count_query = select(func.count()).select_from(query.subquery())
         total_result = await self.session.execute(count_query)
         total = total_result.scalar() or 0
         
-        # Apply pagination and ordering (oldest first for history)
-        offset = (page - 1) * page_size
-        query = query.order_by(Storage.id.asc()).offset(offset).limit(page_size)
+        # Apply pagination and ordering (newest first - desc order)
+        # This ensures that page=1 returns the most recent messages when history > page_size
+        # If before_message_uid is specified, use it instead of page-based offset
+        if before_message_uid:
+            # When before_message_uid is specified, we want messages with id < ref_storage.id
+            # No offset needed, just limit by page_size
+            query = query.order_by(Storage.id.desc()).limit(page_size)
+        else:
+            # Standard pagination with page-based offset
+            offset = (page - 1) * page_size
+            query = query.order_by(Storage.id.desc()).offset(offset).limit(page_size)
         
         # Execute query
         result = await self.session.execute(query)
