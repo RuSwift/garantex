@@ -266,32 +266,6 @@ class EscrowModel(Base):
         return f"<EscrowModel(id={self.id}, blockchain={self.blockchain}, network={self.network}, escrow_address={self.escrow_address}, type={self.escrow_type})>"
 
 
-class Deals(Base):
-    """Model for storing deals between users"""
-    
-    __tablename__ = "deals"
-    
-    order_id = Column(BigInteger, primary_key=True, autoincrement=True, index=True, comment="Autoincrement primary key")
-    
-    # DID identifiers for participants
-    sender_did = Column(String(255), nullable=False, index=True, comment="Sender DID")
-    receiver_did = Column(String(255), nullable=False, index=True, comment="Receiver DID")
-    arbiter_did = Column(String(255), nullable=False, index=True, comment="Arbiter DID")
-    
-    # Reference to escrow operation (nullable)
-    escrow_id = Column(BigInteger, ForeignKey('escrow_operations.id', ondelete='SET NULL'), nullable=True, index=True, comment="Reference to escrow operation")
-    
-    # Deal title
-    title = Column(String(255), nullable=False, comment="Deal title")
-    
-    # Timestamps
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="Last update timestamp (UTC)")
-    
-    def __repr__(self):
-        return f"<Deals(order_id={self.order_id}, title={self.title}, sender_did={self.sender_did}, receiver_did={self.receiver_did})>"
-
-
 class Deal(Base):
     """Model for storing deals with base58 UUID identifier"""
     
@@ -303,11 +277,22 @@ class Deal(Base):
     # Base58 UUID identifier (unique, indexed)
     uid = Column(String(255), unique=True, nullable=False, index=True, comment="Base58 UUID identifier (primary identifier)")
     
-    # Participants - array of participant DID (stored as JSONB for flexibility)
-    participants = Column(JSONB, nullable=False, comment="Array of participant DID identifiers")
+    # DID identifiers for participants
+    sender_did = Column(String(255), nullable=False, index=True, comment="Sender DID (owner of the deal)")
+    receiver_did = Column(String(255), nullable=False, index=True, comment="Receiver DID")
+    arbiter_did = Column(String(255), nullable=False, index=True, comment="Arbiter DID")
+    
+    # Reference to escrow operation (nullable)
+    escrow_id = Column(BigInteger, ForeignKey('escrow_operations.id', ondelete='SET NULL'), nullable=True, index=True, comment="Reference to escrow operation")
     
     # Label - text description of the deal
     label = Column(Text, nullable=False, comment="Text description of the deal")
+    
+    # Current requisites (JSONB for flexibility) - текущие реквизиты сделки
+    requisites = Column(JSONB, nullable=True, comment="Текущие реквизиты сделки (ФИО, назначение, валюта и др.)")
+    
+    # Current attachments (JSONB array of file references) - ссылки на файлы в Storage
+    attachments = Column(JSONB, nullable=True, comment="Ссылки на файлы в Storage (массив объектов с uuid, name, type и др.)")
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
@@ -315,8 +300,14 @@ class Deal(Base):
     
     # Indexes for efficient queries
     __table_args__ = (
-        # GIN index on participants for efficient JSONB queries
-        Index('ix_deal_participants', 'participants', postgresql_using='gin'),
+        # Indexes on participant DIDs for efficient queries
+        Index('ix_deal_sender_did', 'sender_did'),
+        Index('ix_deal_receiver_did', 'receiver_did'),
+        Index('ix_deal_arbiter_did', 'arbiter_did'),
+        Index('ix_deal_escrow_id', 'escrow_id'),
+        # GIN indexes on requisites and attachments for efficient JSONB queries
+        Index('ix_deal_requisites', 'requisites', postgresql_using='gin'),
+        Index('ix_deal_attachments', 'attachments', postgresql_using='gin'),
     )
     
     def __repr__(self):

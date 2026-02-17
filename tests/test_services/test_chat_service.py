@@ -73,7 +73,9 @@ class TestChatServiceAddMessage:
         deal_uid = "deal123"
         deal = Deal(
             uid=deal_uid,
-            participants=["did:test:participant1", "did:test:participant2", "did:test:arbiter"],
+            sender_did="did:test:participant1",
+            receiver_did="did:test:participant2",
+            arbiter_did="did:test:arbiter",
             label="Test Deal"
         )
         test_db.add(deal)
@@ -289,7 +291,9 @@ class TestChatServiceGetHistory:
         deal_uid = "deal123"
         deal = Deal(
             uid=deal_uid,
-            participants=[owner_did, "did:test:participant2"],
+            sender_did=owner_did,
+            receiver_did="did:test:participant2",
+            arbiter_did="did:test:arbiter",
             label="Test Deal"
         )
         test_db.add(deal)
@@ -426,7 +430,9 @@ class TestChatServiceGetHistory:
         deal_uid = "test-deal-uid-123"
         deal = Deal(
             uid=deal_uid,
-            participants=[owner_did, "did:test:participant2"],
+            sender_did=owner_did,
+            receiver_did="did:test:participant2",
+            arbiter_did="did:test:arbiter",
             label="Test Deal"
         )
         test_db.add(deal)
@@ -587,7 +593,9 @@ class TestChatServiceGetLastSessions:
         deal1_uid = "deal1"
         deal1 = Deal(
             uid=deal1_uid,
-            participants=[owner_did, "did:test:participant2"],
+            sender_did=owner_did,
+            receiver_did="did:test:participant2",
+            arbiter_did="did:test:arbiter",
             label="Deal 1"
         )
         test_db.add(deal1)
@@ -595,7 +603,9 @@ class TestChatServiceGetLastSessions:
         deal2_uid = "deal2"
         deal2 = Deal(
             uid=deal2_uid,
-            participants=[owner_did, "did:test:participant3"],
+            sender_did=owner_did,
+            receiver_did="did:test:participant3",
+            arbiter_did="did:test:arbiter",
             label="Deal 2"
         )
         test_db.add(deal2)
@@ -669,7 +679,9 @@ class TestChatServiceGetLastSessions:
             deal_uid = f"deal{i}"
             deal = Deal(
                 uid=deal_uid,
-                participants=[owner_did, f"did:test:participant{i}"],
+                sender_did=owner_did,
+                receiver_did=f"did:test:participant{i}",
+                arbiter_did="did:test:arbiter",
                 label=f"Deal {i}"
             )
             test_db.add(deal)
@@ -699,7 +711,9 @@ class TestChatServiceGetLastSessions:
         deal_uid = "deal1"
         deal = Deal(
             uid=deal_uid,
-            participants=[owner_did, "did:test:participant2"],
+            sender_did=owner_did,
+            receiver_did="did:test:participant2",
+            arbiter_did="did:test:arbiter",
             label="Deal 1"
         )
         test_db.add(deal)
@@ -735,7 +749,9 @@ class TestChatServiceGetLastSessions:
         deal_uid = "test-deal-123"
         deal = Deal(
             uid=deal_uid,
-            participants=[owner_did, "did:test:participant2"],
+            sender_did=owner_did,
+            receiver_did="did:test:participant2",
+            arbiter_did="did:test:arbiter",
             label="Test Deal"
         )
         test_db.add(deal)

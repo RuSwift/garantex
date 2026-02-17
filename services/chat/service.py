@@ -5,38 +5,10 @@ from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, and_
-import base64
-from io import BytesIO
-from PIL import Image
 
 from db.models import Storage, Deal
 from ledgers.chat.schemas import ChatMessage, ChatMessageCreate, FileAttachment
-
-
-def get_image_dimensions(base64_data: str) -> Tuple[Optional[int], Optional[int]]:
-    """
-    Get image dimensions from base64 data
-    
-    Args:
-        base64_data: Base64 encoded image data
-        
-    Returns:
-        Tuple of (width, height) or (None, None) if unable to determine
-    """
-    try:
-        # Decode base64 to bytes
-        image_bytes = base64.b64decode(base64_data)
-        
-        # Open image with PIL
-        image = Image.open(BytesIO(image_bytes))
-        
-        # Get dimensions
-        width, height = image.size
-        
-        return width, height
-    except Exception as e:
-        print(f"Error getting image dimensions: {e}")
-        return None, None
+from core.utils import get_image_dimensions
 
 
 class ChatService:
@@ -127,20 +99,15 @@ class ChatService:
             # Если deal_uid = null, создаем 2 записи: для sender_id и receiver_id
             owner_dids = [message.sender_id, message.receiver_id]
         else:
-            # Если deal_uid != null, загружаем Deal и создаем записи для всех participants
+            # Если deal_uid != null, загружаем Deal и создаем записи для всех участников (sender, receiver, arbiter)
             deal = await self.session.execute(
                 select(Deal).where(Deal.uid == deal_uid)
             )
             deal_obj = deal.scalar_one_or_none()
             
             if deal_obj:
-                # Получаем всех участников из participants
-                participants = deal_obj.participants
-                if isinstance(participants, list) and len(participants) > 0:
-                    owner_dids = list(participants)  # Все участники сделки
-                else:
-                    # Fallback: если participants пустой или не список, используем sender и receiver
-                    owner_dids = [message.sender_id, message.receiver_id]
+                # Получаем всех участников из явных полей
+                owner_dids = [deal_obj.sender_did, deal_obj.receiver_did, deal_obj.arbiter_did]
             else:
                 # Если Deal не найден, используем sender и receiver
                 owner_dids = [message.sender_id, message.receiver_id]
