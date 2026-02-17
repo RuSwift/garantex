@@ -40,15 +40,17 @@ class EscrowService:
     INVALID_TOKEN_CONTRACT = "INVALID_TOKEN_CONTRACT"
     INVALID_THRESHOLD = "INVALID_THRESHOLD"
     
-    def __init__(self, session: AsyncSession, api_key: Optional[str] = None):
+    def __init__(self, session: AsyncSession, owner_did: str, api_key: Optional[str] = None):
         """
         Initialize EscrowService
         
         Args:
             session: SQLAlchemy async session
+            owner_did: DID пользователя, которому принадлежит escrow
             api_key: Optional TronGrid API key (will be used for all network calls)
         """
         self.session = session
+        self.owner_did = owner_did
         self.api_key = api_key
         self.multisig = TronMultisig()
     
@@ -339,9 +341,10 @@ class EscrowService:
             network=network,
             escrow_type="multisig",
             escrow_address=arbiter,
+            owner_did=self.owner_did,
             participant1_address=participant1,
             participant2_address=participant2,
-            multisig_config=config.dict(),  # Pydantic model to dict
+            multisig_config=config.model_dump(),  # Pydantic model to dict (use model_dump for v2+)
             address_roles=address_roles,
             arbiter_address=arbiter,
             status='pending'  # Initial status

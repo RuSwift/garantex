@@ -21,7 +21,7 @@ class TestEscrowInitialization:
         }
         
         with patch('services.tron.escrow.TronAPIClient', return_value=mock_api_client):
-            service = EscrowService(session=test_db, api_key="test_api_key")
+            service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
             
             escrow = await service.initialize_escrow(
                 participant1=sample_addresses["participant1"],
@@ -65,7 +65,7 @@ class TestEscrowInitialization:
         }
         
         with patch('services.tron.escrow.TronAPIClient', return_value=mock_api_client):
-            service = EscrowService(session=test_db, api_key="test_api_key")
+            service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
             
             # Create escrow with participant1, participant2
             escrow1 = await service.initialize_escrow(
@@ -102,7 +102,7 @@ class TestEscrowInitialization:
         }
         
         with patch('services.tron.escrow.TronAPIClient', return_value=mock_api_client):
-            service = EscrowService(session=test_db, api_key="test_api_key")
+            service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
             
             # Create and mark as inactive
             escrow = await service.initialize_escrow(
@@ -142,7 +142,7 @@ class TestEscrowVerification:
         test_arbiter = sample_addresses["recipient"]
         
         with patch('services.tron.escrow.TronAPIClient', return_value=mock_api_client):
-            service = EscrowService(session=test_db, api_key="test_api_key")
+            service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
             
             # First, create escrow without permissions
             mock_api_client.get_account.return_value = {
@@ -211,7 +211,7 @@ class TestEscrowVerification:
         }
         
         with patch('services.tron.escrow.TronAPIClient', return_value=mock_api_client):
-            service = EscrowService(session=test_db, api_key="test_api_key")
+            service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
             escrow = await service.initialize_escrow(
                 participant1=sample_addresses["participant1"],
                 participant2=sample_addresses["participant2"],
@@ -274,7 +274,7 @@ class TestEscrowVerification:
         }
         
         with patch('services.tron.escrow.TronAPIClient', return_value=mock_api_client):
-            service = EscrowService(session=test_db, api_key="test_api_key")
+            service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
             escrow = await service.initialize_escrow(
                 participant1=sample_addresses["participant1"],
                 participant2=sample_addresses["participant2"],
@@ -334,7 +334,7 @@ class TestEscrowPendingTimeout:
         }
         
         with patch('services.tron.escrow.TronAPIClient', return_value=mock_api_client):
-            service = EscrowService(session=test_db, api_key="test_api_key")
+            service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
             
             # Create escrow
             escrow = await service.initialize_escrow(
@@ -374,7 +374,7 @@ class TestPaymentTransactions:
     @pytest.mark.asyncio
     async def test_create_trx_transaction(self, test_db, sample_addresses, mock_api_client, mock_tron_transaction):
         """Test creating TRX payment transaction"""
-        service = EscrowService(session=test_db, api_key="test_api_key")
+        service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
         
         # Create and activate escrow
         escrow = await service.initialize_escrow(
@@ -427,7 +427,7 @@ class TestPaymentTransactions:
     @pytest.mark.asyncio
     async def test_create_trc20_transaction(self, test_db, sample_addresses, mock_api_client, mock_tron_transaction):
         """Test creating TRC20 payment transaction"""
-        service = EscrowService(session=test_db, api_key="test_api_key")
+        service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
         
         # Create and activate escrow
         escrow = await service.initialize_escrow(
@@ -478,7 +478,7 @@ class TestPaymentTransactions:
     @pytest.mark.asyncio
     async def test_insufficient_balance_raises_error(self, test_db, sample_addresses, mock_api_client):
         """Test that insufficient balance raises an error"""
-        service = EscrowService(session=test_db, api_key="test_api_key")
+        service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
         
         # Create and activate escrow
         escrow = await service.initialize_escrow(
@@ -532,7 +532,7 @@ class TestEscrowManagement:
         }
         
         with patch('services.tron.escrow.TronAPIClient', return_value=mock_api_client):
-            service = EscrowService(session=test_db, api_key="test_api_key")
+            service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
             
             escrow = await service.initialize_escrow(
                 participant1=sample_addresses["participant1"],
@@ -550,7 +550,7 @@ class TestEscrowManagement:
     @pytest.mark.asyncio
     async def test_get_nonexistent_escrow_raises_error(self, test_db):
         """Test that getting non-existent escrow raises error"""
-        service = EscrowService(session=test_db, api_key="test_api_key")
+        service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
         
         with pytest.raises(EscrowError) as exc_info:
             await service.get_escrow_by_id(99999)
@@ -560,7 +560,7 @@ class TestEscrowManagement:
     @pytest.mark.asyncio
     async def test_get_escrow_balance(self, test_db, sample_addresses, mock_api_client):
         """Test getting escrow balance"""
-        service = EscrowService(session=test_db, api_key="test_api_key")
+        service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
         
         with patch('services.tron.escrow.TronAPIClient', return_value=mock_api_client):
             escrow = await service.initialize_escrow(
@@ -589,7 +589,7 @@ class TestEscrowManagement:
         }
         
         with patch('services.tron.escrow.TronAPIClient', return_value=mock_api_client):
-            service = EscrowService(session=test_db, api_key="test_api_key")
+            service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
             
             escrow = await service.initialize_escrow(
                 participant1=sample_addresses["participant1"],
@@ -618,7 +618,7 @@ class TestEscrowManagement:
         }
         
         with patch('services.tron.escrow.TronAPIClient', return_value=mock_api_client):
-            service = EscrowService(session=test_db, api_key="test_api_key")
+            service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
             
             escrow = await service.initialize_escrow(
                 participant1=sample_addresses["participant1"],
@@ -643,7 +643,7 @@ class TestAPIClientCreation:
     @pytest.mark.asyncio
     async def test_api_client_created_per_network(self, test_db, sample_addresses):
         """Test that API client is created dynamically for the correct network"""
-        service = EscrowService(session=test_db, api_key="test_api_key")
+        service = EscrowService(session=test_db, owner_did="did:test:owner1", api_key="test_api_key")
         
         # Create mock that tracks which network was used
         mock_client = AsyncMock()
