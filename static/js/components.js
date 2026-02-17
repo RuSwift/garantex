@@ -10327,3 +10327,208 @@ Vue.component('Arbiter', {
         </div>
     `
 });
+
+// KYC Component
+Vue.component('kyc-component', {
+    delimiters: ['[[', ']]'],
+    data() {
+        return {
+            loading: false,
+            verificationLink: '',
+            customFormUrl: '',
+            showSplash: true,
+            splashMessage: 'Вы можете проверить данные человека по ссылке с кастомной формой'
+        };
+    },
+    mounted() {
+        this.generateVerificationLink();
+    },
+    methods: {
+        generateVerificationLink() {
+            // Generate a unique verification link
+            const baseUrl = window.location.origin;
+            const linkId = this.generateLinkId();
+            this.verificationLink = `${baseUrl}/kyc/verify/${linkId}`;
+            this.customFormUrl = `${baseUrl}/kyc/form/${linkId}`;
+        },
+        generateLinkId() {
+            // Generate a random link ID
+            return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        },
+        copyLink(link) {
+            navigator.clipboard.writeText(link).then(() => {
+                alert('Ссылка скопирована в буфер обмена!');
+            }).catch(err => {
+                console.error('Error copying link:', err);
+                alert('Ошибка копирования ссылки');
+            });
+        },
+        closeSplash() {
+            this.showSplash = false;
+        }
+    },
+    template: `
+        <div class="space-y-6">
+            <!-- Splash Message -->
+            <transition name="fade">
+                <div v-if="showSplash" class="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-6 mb-6 relative">
+                    <button 
+                        @click="closeSplash"
+                        class="absolute top-4 right-4 p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                    <div class="flex items-start gap-4">
+                        <div class="flex-shrink-0">
+                            <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                                <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="text-lg font-bold text-gray-900 mb-2">Проверка данных по ссылке</h3>
+                            <p class="text-gray-700 leading-relaxed">
+                                [[ splashMessage ]]
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </transition>
+
+            <!-- Main Content -->
+            <div class="bg-white rounded-2xl border p-8">
+                <div class="flex items-center gap-4 mb-8">
+                    <div class="w-16 h-16 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-2xl flex items-center justify-center">
+                        <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h2 class="text-3xl font-bold text-gray-900">KYC - Know Your Customer</h2>
+                        <p class="text-gray-500 mt-1">Проверка и верификация данных клиентов</p>
+                    </div>
+                </div>
+
+                <!-- Verification Links Section -->
+                <div class="space-y-6">
+                    <div class="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                        <h3 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                            </svg>
+                            Ссылка для проверки
+                        </h3>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Ссылка для верификации
+                                </label>
+                                <div class="flex items-center gap-2">
+                                    <input 
+                                        type="text" 
+                                        :value="verificationLink"
+                                        readonly
+                                        class="flex-1 px-4 py-3 border rounded-xl bg-white font-mono text-sm"
+                                    />
+                                    <button 
+                                        @click="copyLink(verificationLink)"
+                                        class="px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors flex items-center gap-2"
+                                    >
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                        </svg>
+                                        Копировать
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Ссылка на кастомную форму
+                                </label>
+                                <div class="flex items-center gap-2">
+                                    <input 
+                                        type="text" 
+                                        :value="customFormUrl"
+                                        readonly
+                                        class="flex-1 px-4 py-3 border rounded-xl bg-white font-mono text-sm"
+                                    />
+                                    <button 
+                                        @click="copyLink(customFormUrl)"
+                                        class="px-4 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                                    >
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                        </svg>
+                                        Копировать
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Instructions -->
+                    <div class="bg-blue-50 rounded-xl p-6 border border-blue-200">
+                        <h3 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            Инструкция
+                        </h3>
+                        <ul class="space-y-2 text-gray-700">
+                            <li class="flex items-start gap-2">
+                                <span class="text-blue-600 font-bold">1.</span>
+                                <span>Скопируйте ссылку для верификации и отправьте её клиенту</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="text-blue-600 font-bold">2.</span>
+                                <span>Клиент перейдет по ссылке и заполнит кастомную форму</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="text-blue-600 font-bold">3.</span>
+                                <span>После заполнения вы получите уведомление с данными клиента</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="text-blue-600 font-bold">4.</span>
+                                <span>Проверьте предоставленные данные и подтвердите верификацию</span>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- Features -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="bg-white border rounded-xl p-6">
+                            <div class="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mb-4">
+                                <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                                </svg>
+                            </div>
+                            <h4 class="font-bold text-gray-900 mb-2">Безопасность</h4>
+                            <p class="text-sm text-gray-600">Все данные шифруются и хранятся в защищенном хранилище</p>
+                        </div>
+                        <div class="bg-white border rounded-xl p-6">
+                            <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mb-4">
+                                <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                                </svg>
+                            </div>
+                            <h4 class="font-bold text-gray-900 mb-2">Кастомизация</h4>
+                            <p class="text-sm text-gray-600">Настройте форму под свои требования и брендинг</p>
+                        </div>
+                        <div class="bg-white border rounded-xl p-6">
+                            <div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mb-4">
+                                <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                                </svg>
+                            </div>
+                            <h4 class="font-bold text-gray-900 mb-2">Аналитика</h4>
+                            <p class="text-sm text-gray-600">Отслеживайте статус верификации в реальном времени</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `
+});
