@@ -8552,7 +8552,7 @@ Vue.component('TronSign', {
     template: `<div></div>`
 });
 
-// Deal Conversation Component - Wrapper for Chat with event logging
+// Deal Conversation Component - Singleton wrapper for Chat with backend integration
 Vue.component('DealConversation', {
     delimiters: ['[[', ']]'],
     props: {
@@ -8571,152 +8571,451 @@ Vue.component('DealConversation', {
         dealId: {
             type: [String, Number],
             default: null
+        },
+        currentUserDid: {
+            type: String,
+            default: null
         }
     },
     data() {
         return {
-            mockHistory: []
+            chatVisible: false,
+            sessionsLoaded: false,
+            userDid: null
         }
-    },
-    mounted() {
-        // Generate mock history when component is mounted
-        this.generateMockHistory();
     },
     watch: {
         show(newVal) {
-            if (newVal) {
-                // Load mock history when modal opens
-                this.$nextTick(() => {
-                    if (this.$refs.chatComponent) {
-                        this.$refs.chatComponent.load_history(this.mockHistory);
-                    }
-                });
+            this.chatVisible = newVal;
+        },
+        isAuthenticated(newVal) {
+            if (newVal && !this.sessionsLoaded) {
+                this.loadLastSessions();
+            }
+        },
+        currentUserDid(newVal) {
+            this.userDid = newVal;
+        }
+    },
+    async mounted() {
+        // Load user DID from profile if authenticated
+        if (this.isAuthenticated) {
+            await this.loadUserDid();
+            if (this.userDid) {
+                await this.loadLastSessions();
             }
         }
     },
     methods: {
+        async loadUserDid() {
+            try {
+                const token = this.getAuthToken();
+                if (!token) return;
+                
+                const response = await fetch('/api/profile/me', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const profile = await response.json();
+                    this.userDid = profile.did || null;
+                }
+            } catch (error) {
+                console.error('Error loading user DID:', error);
+            }
+        },
+        
+        getAuthToken() {
+            const cookies = document.cookie.split(';');
+            const tokenCookie = cookies.find(c => c.trim().startsWith('tron_auth_token='));
+            if (tokenCookie) {
+                return tokenCookie.split('=')[1];
+            }
+            // Fallback to localStorage
+            return localStorage.getItem('access_token');
+        },
+        
+        async loadLastSessions() {
+            if (this.sessionsLoaded || !this.isAuthenticated || !this.userDid) {
+                return;
+            }
+            
+            try {
+                const token = this.getAuthToken();
+                if (!token) return;
+                
+                const response = await fetch('/chat/api/sessions?limit=50', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    this.sessionsLoaded = true;
+                    
+                    // Add contacts from sessions to chat component
+                    this.$nextTick(() => {
+                        if (this.$refs.chatComponent && result.sessions) {
+                            result.sessions.forEach(session => {
+                                const conversationId = session.conversation_id;
+                                const lastMessage = session.last_message;
+                                
+                                // Check if contact already exists
+                                const existingContact = this.$refs.chatComponent.contacts.find(
+                                    c => c.id === conversationId
+                                );
+                                
+                                if (!existingContact && lastMessage) {
+                                    // Create contact from session
+                                    const contactName = lastMessage.sender_id === this.userDid 
+                                        ? (lastMessage.receiver_id || 'Contact')
+                                        : (lastMessage.sender_id || 'Contact');
+                                    
+                                    this.$refs.chatComponent.contacts.push({
+                                        id: conversationId,
+                                        name: contactName.substring(0, 20) + (contactName.length > 20 ? '...' : ''),
+                                        avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${conversationId}`,
+                                        status: 'online',
+                                        lastMessage: lastMessage.text || '',
+                                        did: conversationId,
+                                        isTyping: false
+                                    });
+                                }
+                            });
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading last sessions:', error);
+            }
+        },
+        
+        async openChatWithOwner(ownerDid, ownerInfo = {}) {
+            if (!this.isAuthenticated || !this.userDid) {
+                console.warn('User not authenticated or DID not available');
+                return;
+            }
+            
+            if (!ownerDid) {
+                console.warn('Owner DID not provided');
+                return;
+            }
+            
+            // Ensure chat component is ready
+            this.$nextTick(() => {
+                if (!this.$refs.chatComponent) {
+                    console.error('Chat component not ready');
+                    return;
+                }
+                
+                const chat = this.$refs.chatComponent;
+                
+                // Check if contact already exists
+                let contact = chat.contacts.find(c => c.id === ownerDid);
+                
+                if (!contact) {
+                    // Create new contact
+                    contact = {
+                        id: ownerDid,
+                        name: ownerInfo.nickname || ownerDid.substring(0, 20) + (ownerDid.length > 20 ? '...' : ''),
+                        avatar: ownerInfo.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${ownerDid}`,
+                        status: 'online',
+                        lastMessage: '',
+                        did: ownerDid,
+                        isTyping: false
+                    };
+                    chat.contacts.push(contact);
+                }
+                
+                // Select contact and open chat
+                chat.selectContact(contact);
+                this.chatVisible = true;
+                
+                // Load chat history for this contact
+                this.loadChatHistory(ownerDid);
+            });
+        },
+        
+        async loadChatHistory(conversationId) {
+            if (!this.isAuthenticated || !this.userDid) {
+                return;
+            }
+            
+            try {
+                const token = this.getAuthToken();
+                if (!token) return;
+                
+                const response = await fetch(
+                    `/chat/api/history?conversation_id=${encodeURIComponent(conversationId)}&page=1&page_size=20`,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    }
+                );
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    
+                    if (result.messages && result.messages.length > 0) {
+                        this.$nextTick(() => {
+                            if (this.$refs.chatComponent) {
+                                this.$refs.chatComponent.set_history(result.messages);
+                            }
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading chat history:', error);
+            }
+        },
+        
         close() {
+            this.chatVisible = false;
             this.$emit('close');
         },
         
-        generateMockHistory() {
-            // Generate mock conversation history
-            const now = Date.now();
-            const contactId = 'agent-1';
+        async handleSendTextMessage(event) {
+            if (!this.isAuthenticated || !this.userDid) {
+                console.warn('User not authenticated or DID not available');
+                return;
+            }
             
-            this.mockHistory = [
-                {
-                    id: 'msg-1',
-                    contactId: contactId,
-                    contactName: 'Агент по переводам',
-                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
-                    text: 'Здравствуйте! Я готов помочь вам с переводом.',
-                    sender: 'bot',
-                    timestamp: now - 3600000, // 1 hour ago
-                    status: 'read'
-                },
-                {
-                    id: 'msg-2',
-                    contactId: contactId,
-                    contactName: 'Агент по переводам',
-                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
-                    text: 'Привет! Мне нужно перевести 1000 USDT на счет в банке.',
-                    sender: 'user',
-                    timestamp: now - 3300000, // 55 minutes ago
-                    status: 'read'
-                },
-                {
-                    id: 'msg-3',
-                    contactId: contactId,
-                    contactName: 'Агент по переводам',
-                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
-                    text: 'Отлично! Я могу помочь с этим переводом. Какие реквизиты получателя?',
-                    sender: 'bot',
-                    timestamp: now - 3000000, // 50 minutes ago
-                    status: 'read'
-                },
-                {
-                    id: 'msg-4',
-                    contactId: contactId,
-                    contactName: 'Агент по переводам',
-                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
-                    text: 'Реквизиты:\nБанк: Сбербанк\nСчет: 40817810099910004312\nПолучатель: Иванов Иван Иванович',
-                    sender: 'user',
-                    timestamp: now - 2700000, // 45 minutes ago
-                    status: 'read'
-                },
-                {
-                    id: 'msg-5',
-                    contactId: contactId,
-                    contactName: 'Агент по переводам',
-                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
-                    text: 'Понял. Комиссия составит 2.5% от суммы. Это 25 USDT. Подтверждаете?',
-                    sender: 'bot',
-                    timestamp: now - 2400000, // 40 minutes ago
-                    status: 'read'
-                },
-                {
-                    id: 'msg-6',
-                    contactId: contactId,
-                    contactName: 'Агент по переводам',
-                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
-                    text: 'Да, подтверждаю. Когда будет выполнен перевод?',
-                    sender: 'user',
-                    timestamp: now - 2100000, // 35 minutes ago
-                    status: 'read'
-                },
-                {
-                    id: 'msg-7',
-                    contactId: contactId,
-                    contactName: 'Агент по переводам',
-                    contactAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Agent',
-                    text: 'Перевод будет выполнен в течение 24 часов после поступления средств на эскроу счет.',
-                    sender: 'bot',
-                    timestamp: now - 1800000, // 30 minutes ago
-                    status: 'read'
+            try {
+                const messageData = {
+                    uuid: event.messageUuid,
+                    message_type: 'text',
+                    sender_id: this.userDid,
+                    receiver_id: event.contactId,
+                    text: event.text,
+                    attachments: null
+                };
+                
+                const token = this.getAuthToken();
+                const response = await fetch('/chat/api/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        message: messageData,
+                        deal_uid: null
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    console.error('Failed to send text message:', error);
                 }
-            ];
+            } catch (error) {
+                console.error('Error sending text message:', error);
+            }
         },
         
-        // Event handlers that log to console and can be extended
-        handleSendTextMessage(data) {
-            console.log('DealConversation: on_send_text_message', data);
-            // Here you can add API call to send message
+        async handleSendDocuments(event) {
+            if (!this.isAuthenticated || !this.userDid) {
+                console.warn('User not authenticated or DID not available');
+                return;
+            }
+            
+            try {
+                const apiAttachments = event.attachments.map(att => ({
+                    id: att.id,
+                    type: att.type,
+                    name: att.name,
+                    size: att.size,
+                    mime_type: att.mime_type,
+                    data: att.data
+                }));
+                
+                const messageType = event.text ? 'mixed' : 'file';
+                
+                const messageData = {
+                    uuid: event.messageUuid,
+                    message_type: messageType,
+                    sender_id: this.userDid,
+                    receiver_id: event.contactId,
+                    text: event.text || null,
+                    attachments: apiAttachments
+                };
+                
+                const token = this.getAuthToken();
+                const response = await fetch('/chat/api/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        message: messageData,
+                        deal_uid: null
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    console.error('Failed to send message with attachments:', error);
+                }
+            } catch (error) {
+                console.error('Error sending message with attachments:', error);
+            }
         },
         
-        handleSendDocuments(data) {
-            console.log('DealConversation: on_send_documents', data);
-            // Here you can add API call to upload documents
+        async handleSign(event) {
+            if (!this.isAuthenticated) {
+                alert('Please authenticate first');
+                return;
+            }
+            
+            if (typeof window.tronWeb === 'undefined') {
+                alert('TronLink is not installed');
+                return;
+            }
+            
+            try {
+                const tronWeb = window.tronWeb;
+                const message = event.text;
+                
+                const signature = await tronWeb.trx.sign(message);
+                
+                if (this.$refs.chatComponent) {
+                    this.$refs.chatComponent.onSignatureResult(event.messageUuid, signature);
+                }
+            } catch (error) {
+                console.error('Error signing message:', error);
+                alert('Error signing message: ' + error.message);
+            }
         },
         
-        handleSign(data) {
-            console.log('DealConversation: on_sign', data);
-            // Here you can add signature logic
-            // After signing, call: this.$refs.chatComponent.onSignatureResult(data.messageId, signature)
+        handleAudio(event) {
+            console.log('DealConversation: on_audio', event);
         },
         
-        handleAudio(data) {
-            console.log('DealConversation: on_audio', data);
-            // Here you can add audio recording logic
+        handleVideo(event) {
+            console.log('DealConversation: on_video', event);
         },
         
-        handleVideo(data) {
-            console.log('DealConversation: on_video', data);
-            // Here you can add video recording logic
+        async handleLoadAttachment(event) {
+            try {
+                const token = this.getAuthToken();
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                
+                const response = await fetch(`/chat/api/attachment/${event.messageUuid}/${event.attachmentId}`, {
+                    method: 'GET',
+                    headers: headers
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to fetch attachment');
+                }
+                
+                const attachmentData = await response.json();
+                event.resolve(attachmentData);
+            } catch (error) {
+                console.error('Error fetching attachment:', error);
+                event.reject(error);
+            }
+        },
+        
+        async handleRefreshHistory(event) {
+            if (!this.isAuthenticated || !this.userDid) {
+                event.reject(new Error('User not authenticated'));
+                return;
+            }
+            
+            try {
+                const token = this.getAuthToken();
+                const conversationId = event.conversation_id;
+                const afterMessageUid = event.last_message_uid;
+                
+                const url = `/chat/api/history?conversation_id=${encodeURIComponent(conversationId)}&page=1&page_size=20&after_message_uid=${encodeURIComponent(afterMessageUid)}`;
+                
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        event.resolve([]);
+                        return;
+                    }
+                    throw new Error(`Failed to refresh history: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                event.resolve(result.messages || []);
+            } catch (error) {
+                console.error('Error refreshing history:', error);
+                event.reject(error);
+            }
+        },
+        
+        async handleFetchHistory(event) {
+            if (!this.isAuthenticated || !this.userDid) {
+                event.reject(new Error('User not authenticated'));
+                return;
+            }
+            
+            try {
+                const token = this.getAuthToken();
+                const conversationId = event.conversation_id;
+                const beforeMessageUid = event.before_message_uid;
+                const pageSize = this.$refs.chatComponent?.pageSize || 20;
+                
+                const url = `/chat/api/history?conversation_id=${encodeURIComponent(conversationId)}&page=1&page_size=${pageSize}&before_message_uid=${encodeURIComponent(beforeMessageUid)}`;
+                
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        event.resolve([]);
+                        return;
+                    }
+                    throw new Error(`Failed to fetch history: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                event.resolve(result.messages || []);
+            } catch (error) {
+                console.error('Error fetching history:', error);
+                event.reject(error);
+            }
         }
     },
     template: `
-        <chat
-            ref="chatComponent"
-            :show="show"
-            :wallet-address="walletAddress"
-            :is-authenticated="isAuthenticated"
-            @close="close"
-            @on_send_text_message="handleSendTextMessage"
-            @on_send_documents="handleSendDocuments"
-            @on_sign="handleSign"
-            @on_audio="handleAudio"
-            @on_video="handleVideo"
-        ></chat>
+        <div>
+            <chat
+                ref="chatComponent"
+                :show="chatVisible"
+                :wallet-address="walletAddress"
+                :is-authenticated="isAuthenticated"
+                :current-user-did="userDid || currentUserDid"
+                @close="close"
+                @on_send_text_message="handleSendTextMessage"
+                @on_send_documents="handleSendDocuments"
+                @on_sign="handleSign"
+                @on_audio="handleAudio"
+                @on_video="handleVideo"
+                @on_load_attachment="handleLoadAttachment"
+                @on_download_attachment="handleLoadAttachment"
+                @on_refresh_history="handleRefreshHistory"
+                @on_fetch_history="handleFetchHistory"
+            ></chat>
+        </div>
     `
 });

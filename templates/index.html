@@ -463,7 +463,7 @@
                                 <div class="p-4 bg-gray-50 border-t flex items-center gap-3">
                                     <div class="flex-1 relative">
                                         <button 
-                                            @click="openDealsChat"
+                                            @click="openChatWithAdOwner(ad)"
                                             class="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2"
                                         >
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -928,10 +928,12 @@
 
         <!-- Deal Conversation Modal -->
         <deal-conversation 
+            ref="dealConversation"
             :show="showDealConversation"
             :wallet-address="walletAddress"
             :is-authenticated="isAuthenticated"
             :deal-id="currentDealId"
+            :current-user-did="userProfile && userProfile.did ? userProfile.did : null"
             @close="closeDealConversation"
         ></deal-conversation>
 
@@ -2030,6 +2032,26 @@
                 // Chat/Deals methods
                 openDealsChat() {
                     this.showDealsChat = true;
+                },
+                async openChatWithAdOwner(ad) {
+                    if (!ad || !ad.owner_did) {
+                        console.warn('Advertisement owner DID not available');
+                        return;
+                    }
+                    
+                    // Ensure DealConversation component is ready
+                    this.$nextTick(() => {
+                        if (this.$refs.dealConversation) {
+                            const ownerInfo = {
+                                nickname: ad.owner_nickname || null,
+                                avatar: ad.owner_avatar || null
+                            };
+                            this.$refs.dealConversation.openChatWithOwner(ad.owner_did, ownerInfo);
+                            this.showDealConversation = true;
+                        } else {
+                            console.error('DealConversation component not found');
+                        }
+                    });
                 },
                 // DIDDoc methods
                 async loadUserDidDoc(userId, ownerInfo = null) {

@@ -42,16 +42,7 @@ Vue.component('Chat', {
             },
             isStatusPanelCollapsed: false,
             showEmojiPicker: false,
-            contacts: [
-                {
-                    id: 'gemini',
-                    name: 'Gemini AI Assistant',
-                    avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Gemini',
-                    status: 'online',
-                    lastMessage: 'Привет! Я ваш AI помощник.',
-                    isTyping: false
-                }
-            ],
+            contacts: [],
             messages: {},
             loadingAttachments: {}, // Tracks loading state: {messageUuid_attachmentId: true}
             isUserAtBottom: true, // Track if user is at the bottom of chat
@@ -135,16 +126,8 @@ Vue.component('Chat', {
             this.$emit('close');
         },
         initChat() {
-            if (!this.messages['gemini']) {
-                this.$set(this.messages, 'gemini', [
-                    {
-                        uuid: 'init',
-                        text: 'Привет! Как я могу помочь вам?',
-                        sender: 'their',
-                        timestamp: Date.now() - 60000
-                    }
-                ]);
-            }
+            // Chat initialization - contacts and messages are loaded from backend
+                   
             this.loadEscrowData();
         },
         async loadEscrowData() {
