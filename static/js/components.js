@@ -9799,6 +9799,12 @@ Vue.component('Arbiter', {
     },
     template: `
         <div>
+            <!-- Информационная панель -->
+            <div class="alert alert-info mb-4" role="alert">
+                <i class="fas fa-info-circle me-2"></i>
+                <strong>Кошельки Арбитража участвуют в защищенных сделках</strong>
+            </div>
+            
             <div class="card mb-4">
                 <div class="card-header">
                     <i class="fas fa-gavel me-1"></i>
