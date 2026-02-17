@@ -82,6 +82,367 @@ Vue.component('modal-window', {
     `
 });
 
+// Universal Confirmation Dialog Component
+Vue.component('confirm-dialog', {
+    delimiters: ['[[', ']]'],
+    props: {
+        show: {
+            type: Boolean,
+            default: false
+        },
+        title: {
+            type: String,
+            default: 'Подтверждение'
+        },
+        message: {
+            type: String,
+            required: true
+        },
+        confirmText: {
+            type: String,
+            default: 'Подтвердить'
+        },
+        cancelText: {
+            type: String,
+            default: 'Отмена'
+        },
+        type: {
+            type: String,
+            default: 'warning', // 'danger', 'warning', 'info', 'success'
+            validator: (value) => ['danger', 'warning', 'info', 'success'].includes(value)
+        },
+        width: {
+            type: String,
+            default: '500px'
+        },
+        showCancel: {
+            type: Boolean,
+            default: true
+        },
+        loading: {
+            type: Boolean,
+            default: false
+        }
+    },
+    computed: {
+        headerClass() {
+            const classes = {
+                'danger': 'bg-danger text-white',
+                'warning': 'bg-warning text-dark',
+                'info': 'bg-info text-white',
+                'success': 'bg-success text-white'
+            };
+            return classes[this.type] || classes.warning;
+        },
+        confirmButtonClass() {
+            const classes = {
+                'danger': 'btn-danger',
+                'warning': 'btn-warning',
+                'info': 'btn-info',
+                'success': 'btn-success'
+            };
+            return classes[this.type] || 'btn-warning';
+        },
+        icon() {
+            const icons = {
+                'danger': 'fas fa-exclamation-triangle',
+                'warning': 'fas fa-exclamation-circle',
+                'info': 'fas fa-info-circle',
+                'success': 'fas fa-check-circle'
+            };
+            return icons[this.type] || icons.warning;
+        }
+    },
+    methods: {
+        handleConfirm() {
+            this.$emit('confirm');
+        },
+        handleCancel() {
+            this.$emit('cancel');
+        },
+        handleClose() {
+            if (!this.loading) {
+                this.$emit('cancel');
+            }
+        }
+    },
+    template: `
+        <div v-if="show" class="modal fade show" style="display: block; background-color: rgba(0, 0, 0, 0.5);" tabindex="-1" @click.self="handleClose">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content" style="box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);">
+                    <div class="modal-header" :class="headerClass">
+                        <h5 class="modal-title">
+                            <i :class="icon + ' me-2'"></i>
+                            [[ title ]]
+                        </h5>
+                        <button type="button" class="btn-close" :class="type === 'danger' || type === 'info' || type === 'success' ? 'btn-close-white' : ''" @click="handleClose" :disabled="loading"></button>
+                    </div>
+                    <div class="modal-body" style="padding: 2rem;">
+                        <p class="mb-0">[[ message ]]</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button 
+                            type="button" 
+                            class="btn btn-secondary" 
+                            @click="handleCancel"
+                            :disabled="loading"
+                            v-if="showCancel">
+                            [[ cancelText ]]
+                        </button>
+                        <button 
+                            type="button" 
+                            class="btn" 
+                            :class="confirmButtonClass"
+                            @click="handleConfirm"
+                            :disabled="loading">
+                            <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+                            [[ confirmText ]]
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `
+});
+
+// Universal Form Dialog Component
+Vue.component('form-dialog', {
+    delimiters: ['[[', ']]'],
+    props: {
+        show: {
+            type: Boolean,
+            default: false
+        },
+        title: {
+            type: String,
+            required: true
+        },
+        fields: {
+            type: Array,
+            required: true,
+            // Each field should have: { name, label, type, placeholder, required, value, options (for select), validation }
+            validator: (fields) => {
+                return fields.every(field => 
+                    field.name && field.label && field.type
+                );
+            }
+        },
+        submitText: {
+            type: String,
+            default: 'Сохранить'
+        },
+        cancelText: {
+            type: String,
+            default: 'Отмена'
+        },
+        width: {
+            type: String,
+            default: '600px'
+        },
+        loading: {
+            type: Boolean,
+            default: false
+        },
+        errors: {
+            type: Object,
+            default: () => ({})
+        }
+    },
+    data() {
+        return {
+            formData: {}
+        };
+    },
+    watch: {
+        show(newVal) {
+            if (newVal) {
+                this.initFormData();
+            }
+        },
+        fields: {
+            handler() {
+                this.initFormData();
+            },
+            deep: true
+        }
+    },
+    methods: {
+        initFormData() {
+            const data = {};
+            this.fields.forEach(field => {
+                data[field.name] = field.value !== undefined ? field.value : 
+                    (field.type === 'checkbox' ? false : 
+                     field.type === 'number' ? 0 : '');
+            });
+            this.formData = data;
+        },
+        handleSubmit() {
+            // Validate form
+            const validationErrors = {};
+            this.fields.forEach(field => {
+                if (field.required && !this.formData[field.name]) {
+                    validationErrors[field.name] = `Поле "${field.label}" обязательно для заполнения`;
+                } else if (field.validation) {
+                    const error = field.validation(this.formData[field.name], this.formData);
+                    if (error) {
+                        validationErrors[field.name] = error;
+                    }
+                }
+            });
+
+            if (Object.keys(validationErrors).length > 0) {
+                this.$emit('validation-error', validationErrors);
+                return;
+            }
+
+            this.$emit('submit', { ...this.formData });
+        },
+        handleCancel() {
+            this.$emit('cancel');
+        },
+        handleClose() {
+            if (!this.loading) {
+                this.$emit('cancel');
+            }
+        },
+        getFieldError(fieldName) {
+            return this.errors[fieldName] || '';
+        },
+        getFieldClass(field) {
+            const baseClass = 'form-control';
+            const error = this.getFieldError(field.name);
+            return error ? `${baseClass} is-invalid` : baseClass;
+        }
+    },
+    template: `
+        <div v-if="show" class="modal fade show" style="display: block; background-color: rgba(0, 0, 0, 0.5);" tabindex="-1" @click.self="handleClose">
+            <div class="modal-dialog modal-dialog-centered" :style="{ maxWidth: width }">
+                <div class="modal-content" style="box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title">[[ title ]]</h5>
+                        <button type="button" class="btn-close btn-close-white" @click="handleClose" :disabled="loading"></button>
+                    </div>
+                    <div class="modal-body" style="padding: 2rem;">
+                        <form @submit.prevent="handleSubmit">
+                            <div v-for="field in fields" :key="field.name" class="mb-3">
+                                <label :for="'field-' + field.name" class="form-label">
+                                    [[ field.label ]]
+                                    <span v-if="field.required" class="text-danger">*</span>
+                                </label>
+                                
+                                <!-- Text, Email, Password, Number inputs -->
+                                <input 
+                                    v-if="['text', 'email', 'password', 'number', 'tel', 'url'].includes(field.type)"
+                                    :type="field.type"
+                                    :id="'field-' + field.name"
+                                    :class="getFieldClass(field)"
+                                    :placeholder="field.placeholder || ''"
+                                    :required="field.required"
+                                    :disabled="loading || field.disabled"
+                                    :min="field.min"
+                                    :max="field.max"
+                                    :step="field.step"
+                                    v-model="formData[field.name]"
+                                />
+                                
+                                <!-- Textarea -->
+                                <textarea 
+                                    v-else-if="field.type === 'textarea'"
+                                    :id="'field-' + field.name"
+                                    :class="getFieldClass(field)"
+                                    :placeholder="field.placeholder || ''"
+                                    :required="field.required"
+                                    :disabled="loading || field.disabled"
+                                    :rows="field.rows || 3"
+                                    v-model="formData[field.name]"
+                                ></textarea>
+                                
+                                <!-- Select -->
+                                <select 
+                                    v-else-if="field.type === 'select'"
+                                    :id="'field-' + field.name"
+                                    :class="getFieldClass(field)"
+                                    :required="field.required"
+                                    :disabled="loading || field.disabled"
+                                    v-model="formData[field.name]"
+                                >
+                                    <option value="" v-if="!field.required">-- Выберите --</option>
+                                    <option 
+                                        v-for="option in field.options" 
+                                        :key="option.value" 
+                                        :value="option.value"
+                                    >
+                                        [[ option.label || option.value ]]
+                                    </option>
+                                </select>
+                                
+                                <!-- Checkbox -->
+                                <div v-else-if="field.type === 'checkbox'" class="form-check">
+                                    <input 
+                                        :id="'field-' + field.name"
+                                        type="checkbox"
+                                        class="form-check-input"
+                                        :required="field.required"
+                                        :disabled="loading || field.disabled"
+                                        v-model="formData[field.name]"
+                                    />
+                                    <label :for="'field-' + field.name" class="form-check-label" v-if="field.checkboxLabel">
+                                        [[ field.checkboxLabel ]]
+                                    </label>
+                                </div>
+                                
+                                <!-- Radio buttons -->
+                                <div v-else-if="field.type === 'radio'" class="form-check" v-for="option in field.options" :key="option.value">
+                                    <input 
+                                        :id="'field-' + field.name + '-' + option.value"
+                                        type="radio"
+                                        :name="field.name"
+                                        class="form-check-input"
+                                        :value="option.value"
+                                        :required="field.required"
+                                        :disabled="loading || field.disabled"
+                                        v-model="formData[field.name]"
+                                    />
+                                    <label :for="'field-' + field.name + '-' + option.value" class="form-check-label">
+                                        [[ option.label || option.value ]]
+                                    </label>
+                                </div>
+                                
+                                <!-- Error message -->
+                                <div v-if="getFieldError(field.name)" class="invalid-feedback d-block">
+                                    [[ getFieldError(field.name) ]]
+                                </div>
+                                
+                                <!-- Help text -->
+                                <small v-if="field.help" class="form-text text-muted">
+                                    [[ field.help ]]
+                                </small>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button 
+                            type="button" 
+                            class="btn btn-secondary" 
+                            @click="handleCancel"
+                            :disabled="loading">
+                            [[ cancelText ]]
+                        </button>
+                        <button 
+                            type="button" 
+                            class="btn btn-primary" 
+                            @click="handleSubmit"
+                            :disabled="loading">
+                            <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+                            [[ submitText ]]
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `
+});
+
 // Dashboard Component
 Vue.component('Dashboard', {
     delimiters: ['[[', ']]'],
@@ -9016,6 +9377,68 @@ Vue.component('DealConversation', {
                 @on_refresh_history="handleRefreshHistory"
                 @on_fetch_history="handleFetchHistory"
             ></chat>
+        </div>
+    `
+});
+
+// Arbiter Component
+Vue.component('Arbiter', {
+    delimiters: ['[[', ']]'],
+    data() {
+        return {
+            isInitialized: false,
+            loading: true,
+            error: null
+        };
+    },
+    mounted() {
+        this.checkInitialization();
+    },
+    methods: {
+        async checkInitialization() {
+            this.loading = true;
+            this.error = null;
+            try {
+                const response = await fetch('/api/marketplace/arbiter/is-initialized');
+                if (!response.ok) {
+                    throw new Error('Ошибка проверки инициализации арбитра');
+                }
+                const data = await response.json();
+                this.isInitialized = data.initialized || false;
+            } catch (error) {
+                console.error('Error checking arbiter initialization:', error);
+                this.error = error.message || 'Ошибка проверки инициализации';
+            } finally {
+                this.loading = false;
+            }
+        }
+    },
+    template: `
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="fas fa-gavel me-1"></i>
+                Арбитр
+            </div>
+            <div class="card-body">
+                <div v-if="loading" class="text-center py-3">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                </div>
+                <div v-else-if="error" class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    [[ error ]]
+                </div>
+                <div v-else-if="!isInitialized" class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Внимание!</strong> Кошелек арбитра не инициализирован. 
+                    Пожалуйста, инициализируйте кошелек арбитра для работы с арбитражем.
+                </div>
+                <div v-else class="text-center py-5">
+                    <h3 class="text-muted">Арбитр</h3>
+                    <p class="text-muted">Раздел находится в разработке</p>
+                </div>
+            </div>
         </div>
     `
 });

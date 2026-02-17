@@ -19,6 +19,19 @@
     <link href="/static/css/sb-admin.css" rel="stylesheet" />
     <!-- Profile Component CSS -->
     <link href="/static/css/profile.css" rel="stylesheet" />
+    <style>
+        .nav-link.arbiter-not-initialized {
+            color: #dc3545 !important;
+            border-left: 3px solid #dc3545;
+        }
+        .nav-link.arbiter-not-initialized:hover {
+            color: #c82333 !important;
+            background-color: rgba(220, 53, 69, 0.1);
+        }
+        .nav-link.arbiter-not-initialized i.fa-gavel {
+            color: #dc3545;
+        }
+    </style>
     {% endblock %}
     
     {% block head_extra %}{% endblock %}
@@ -76,7 +89,10 @@
                                 <template v-for="item in menu.items">
                                     <a :key="'item-' + item.id"
                                        class="nav-link collapsed"
-                                       :class="{'active': selected_menu === item.id}"
+                                       :class="{
+                                           'active': selected_menu === item.id,
+                                           'arbiter-not-initialized': item.id === 'arbiter' && !arbiterInitialized
+                                       }"
                                        @click.prevent="selectMenu(item.id)"
                                        :href="item.href"
                                        data-bs-toggle="collapse"
@@ -87,6 +103,9 @@
                                             <i :class="item.icon_class"></i>
                                         </div>
                                         [[ item.label ]]
+                                        <i v-if="item.id === 'arbiter' && !arbiterInitialized" 
+                                           class="fas fa-exclamation-circle ms-2" 
+                                           style="color: #dc3545; font-size: 0.9em;"></i>
                                         <div v-if="item.sub && item.sub.length > 0" class="sb-sidenav-collapse-arrow">
                                             <i class="fas fa-angle-down"></i>
                                         </div>
@@ -174,6 +193,9 @@
     <!-- Node Initialization Flag -->
     <script id="is-node-initialized" type="application/json">{{ is_node_initialized|default(false)|tojson }}</script>
     
+    <!-- Arbiter Initialization Flag -->
+    <script id="arbiter-initialized" type="application/json">{{ arbiter_initialized|default(false)|tojson }}</script>
+    
     {% block scripts %}
     <!-- Ethers.js (for mnemonic generation) -->
     <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
@@ -212,9 +234,16 @@
                         selected_menu: '{{ selected_menu|default("dashboard") }}',
                         current_page: '{{ current_page|default("Dashboard") }}',
                         side_menu: {{ side_menu|default([])|tojson }},
-                        labels: {{ labels|default({})|tojson }}
+                        labels: {{ labels|default({})|tojson }},
+                        arbiterInitialized: true
                     },
                     mounted() {
+                        // Read arbiter initialization status
+                        const arbiterScript = document.getElementById('arbiter-initialized');
+                        if (arbiterScript) {
+                            this.arbiterInitialized = JSON.parse(arbiterScript.textContent);
+                        }
+                        
                         // Set initial page component if not set
                         if (!this.current_page) {
                             const menu = this.getMenu(this.selected_menu);

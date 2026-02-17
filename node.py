@@ -11,6 +11,7 @@ from routers.billing import router as billing_router
 from routers import wallets
 from routers import admin
 from routers.chat import router as chat_router
+from routers.marketplace import router as marketplace_router
 from dependencies import UserDepends, AdminDepends, RequireAdminDepends, SettingsDepends, PrivKeyDepends, DbDepends, get_admin_from_cookie
 from schemas.node import (
     NodeInitRequest, NodeInitPemRequest, NodeInitResponse,
@@ -71,6 +72,7 @@ app.include_router(billing_router)
 app.include_router(wallets.router)
 app.include_router(admin.router)
 app.include_router(chat_router)
+app.include_router(marketplace_router)
 
 
 @app.get("/tron-sign-test", response_class=HTMLResponse)
@@ -132,6 +134,14 @@ async def root(
                     "label": "Пользователи",
                     "sub": [],
                     "page": "WalletUsers"
+                },
+                {
+                    "id": "arbiter",
+                    "href": "/arbiter",
+                    "icon_class": "fas fa-gavel",
+                    "label": "Арбитр",
+                    "sub": [],
+                    "page": "Arbiter"
                 }
             ]
         },
@@ -166,6 +176,12 @@ async def root(
         }
     ]
     
+    # Проверяем статус инициализации арбитра
+    arbiter_initialized = bool(
+        settings.marketplace.arbiter_mnemonic.phrase or 
+        settings.marketplace.arbiter_mnemonic.encrypted_phrase
+    )
+    
     return templates.TemplateResponse(
         "panel.html",
         {
@@ -177,7 +193,8 @@ async def root(
             "selected_menu": "dashboard",
             "current_page": "Dashboard",
             "labels": {},
-            "is_node_initialized": is_node_initialized
+            "is_node_initialized": is_node_initialized,
+            "arbiter_initialized": arbiter_initialized
         }
     )
 

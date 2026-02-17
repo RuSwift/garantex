@@ -208,6 +208,42 @@ class TronSettings(BaseSettings):
     )
 
 
+class ArbiterMnemonicSettings(BaseSettings):
+    """Настройки для хранения mnemonic phrase арбитра"""
+    
+    model_config = SettingsConfigDict(
+        env_prefix="MARKETPLACE_ARBITER_MNEMONIC_",
+        case_sensitive=False,
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+    
+    phrase: Optional[SecretStr] = Field(
+        default=None,
+        description="Мнемоническая фраза для генерации ключей арбитра (опционально)"
+    )
+    
+    encrypted_phrase: Optional[SecretStr] = Field(
+        default=None,
+        description="Зашифрованная мнемоническая фраза арбитра (опционально)"
+    )
+
+
+class MarketplaceSettings(BaseSettings):
+    """Настройки маркетплейса"""
+    
+    model_config = SettingsConfigDict(
+        env_prefix="MARKETPLACE_",
+        case_sensitive=False,
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+    
+    arbiter_mnemonic: ArbiterMnemonicSettings = Field(default_factory=ArbiterMnemonicSettings)
+
+
 class Settings(BaseSettings):
     """Основные настройки приложения"""
     
@@ -255,6 +291,9 @@ class Settings(BaseSettings):
     # Настройки TRON
     tron: TronSettings = Field(default_factory=TronSettings)
     
+    # Настройки маркетплейса
+    marketplace: MarketplaceSettings = Field(default_factory=MarketplaceSettings)
+    
     # Настройки PEM ключа
     pem: Optional[str] = Field(
         default=None,
@@ -279,4 +318,6 @@ __all__ = [
     "RedisSettings",
     "AdminSettings",
     "TronSettings",
+    "MarketplaceSettings",
+    "ArbiterMnemonicSettings",
 ]
