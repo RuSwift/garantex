@@ -93,6 +93,25 @@
             animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
         
+        /* Shake animation for badges */
+        @keyframes shake {
+            0% { transform: translateX(0) translateY(0); }
+            1% { transform: translateX(-2px) translateY(-1px); }
+            2% { transform: translateX(2px) translateY(1px); }
+            3% { transform: translateX(-2px) translateY(-1px); }
+            4% { transform: translateX(2px) translateY(1px); }
+            5% { transform: translateX(-2px) translateY(-1px); }
+            6% { transform: translateX(2px) translateY(1px); }
+            7% { transform: translateX(-2px) translateY(-1px); }
+            8% { transform: translateX(2px) translateY(1px); }
+            9% { transform: translateX(0) translateY(0); }
+            100% { transform: translateX(0) translateY(0); }
+        }
+        
+        .badge-shake {
+            animation: shake 15s ease-in-out infinite;
+        }
+        
         /* Компактные стили для компонента TRON Auth на главной странице */
         .web3-auth-container {
             min-height: auto !important;
@@ -441,19 +460,41 @@
                                     </div>
                                 </div>
 
-                                <div class="p-4 bg-gray-50 border-t flex items-center justify-between group-hover:bg-blue-600 transition-colors">
-                                    <span :class="['text-xs font-medium transition-colors', ad.is_active ? 'text-green-600 group-hover:text-green-100' : 'text-gray-500 group-hover:text-gray-300']">
-                                        [[ ad.is_active ? 'Активно' : 'Неактивно' ]]
-                                    </span>
-                                    <button 
-                                        @click="openDealConversation(ad.id)"
-                                        class="flex items-center gap-2 bg-white text-blue-600 px-4 py-2 rounded-lg font-bold text-sm shadow-sm group-hover:shadow-md transition-all"
-                                    >
-                                        Создать сделку
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                                        </svg>
-                                    </button>
+                                <div class="p-4 bg-gray-50 border-t flex items-center gap-3">
+                                    <div class="flex-1 relative">
+                                        <button 
+                                            @click="openDealsChat"
+                                            class="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                                            </svg>
+                                            Чат
+                                        </button>
+                                        <span class="absolute -top-6 -right-2 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 whitespace-nowrap badge-shake z-10">
+                                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                                            </svg>
+                                            2 непрочитанных
+                                        </span>
+                                    </div>
+                                    <div class="flex-1 relative">
+                                        <button 
+                                            @click="openDealConversation(ad.id)"
+                                            class="w-full bg-orange-600 hover:bg-orange-700 text-white px-4 py-2.5 rounded-lg font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2"
+                                        >
+                                            Сделка
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                                            </svg>
+                                        </button>
+                                        <span class="absolute -top-6 -right-2 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 whitespace-nowrap badge-shake z-10">
+                                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                                            </svg>
+                                            3 непросмотренных
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
