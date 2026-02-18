@@ -6063,6 +6063,7 @@ Vue.component('TronAuth', {
         removeToken() {
             // Remove from cookies
             document.cookie = 'tron_auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+            document.cookie = 'admin_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
             
             // Remove from localStorage (used on main page)
             localStorage.removeItem('access_token');
@@ -6457,10 +6458,24 @@ Vue.component('TronAuth', {
                         this.walletAddress = userInfo.wallet_address;
                         this.isAuthenticated = true;
                         return;
+                    } else {
+                        // Token is invalid, remove from cookies
+                        console.log('TronAuth: Invalid token in cookies, removing...');
+                        document.cookie = 'tron_auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
                     }
                 } catch (error) {
                     console.error('Error checking auth:', error);
+                    // Remove invalid token from cookies
+                    document.cookie = 'tron_auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
                 }
+            }
+            
+            // Also check and remove admin_token if present (cleanup)
+            const adminTokenCookie = cookies.find(c => c.trim().startsWith('admin_token='));
+            if (adminTokenCookie) {
+                // Remove admin_token as it's not used for TRON auth
+                document.cookie = 'admin_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                console.log('TronAuth: Removed admin_token cookie');
             }
 
             // If no valid token, check if TronWeb is already connected
@@ -9094,14 +9109,34 @@ Vue.component('DealConversation', {
                     }
                 });
             }
+            // Если есть dealId, открываем чат сделки
+            if (newVal && this.dealId && this.isAuthenticated) {
+                this.$nextTick(() => {
+                    this.openDealChat();
+                });
+            }
         },
         isAuthenticated(newVal) {
             if (newVal && !this.sessionsLoaded) {
                 this.loadLastSessions();
             }
+            // Если авторизовались и есть dealId, открываем чат сделки
+            if (newVal && this.dealId && this.show) {
+                this.$nextTick(() => {
+                    this.openDealChat();
+                });
+            }
         },
         currentUserDid(newVal) {
             this.userDid = newVal;
+        },
+        dealId(newVal) {
+            // Когда dealId изменяется, открываем чат сделки
+            if (newVal && this.show && this.isAuthenticated) {
+                this.$nextTick(() => {
+                    this.openDealChat();
+                });
+            }
         }
     },
     async mounted() {
@@ -9248,6 +9283,61 @@ Vue.component('DealConversation', {
             });
         },
         
+        async openDealChat() {
+            if (!this.dealId || !this.isAuthenticated || !this.userDid) {
+                return;
+            }
+            
+            try {
+                const token = this.getAuthToken();
+                if (!token) return;
+                
+                // Загружаем информацию о сделке
+                const response = await fetch(`/api/payment-request/${this.dealId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    console.error('Failed to load deal info');
+                    return;
+                }
+                
+                const dealInfo = await response.json();
+                
+                // Определяем, с каким участником открыть чат
+                // Открываем чат с тем участником, который не является текущим пользователем
+                let contactDid = null;
+                if (dealInfo.sender_did === this.userDid) {
+                    // Если текущий пользователь - sender, открываем чат с receiver
+                    contactDid = dealInfo.receiver_did;
+                } else if (dealInfo.receiver_did === this.userDid) {
+                    // Если текущий пользователь - receiver, открываем чат с sender
+                    contactDid = dealInfo.sender_did;
+                } else if (dealInfo.arbiter_did === this.userDid) {
+                    // Если текущий пользователь - arbiter, открываем чат с sender
+                    contactDid = dealInfo.sender_did;
+                } else {
+                    // Если текущий пользователь не является участником, открываем чат с sender
+                    contactDid = dealInfo.sender_did;
+                }
+                
+                if (!contactDid) {
+                    console.warn('No contact DID found for deal chat');
+                    return;
+                }
+                
+                // Открываем чат с найденным участником
+                this.openChatWithOwner(contactDid, {
+                    deal_uid: this.dealId
+                });
+                
+            } catch (error) {
+                console.error('Error opening deal chat:', error);
+            }
+        },
+        
         async loadChatHistory(conversationId) {
             if (!this.isAuthenticated || !this.userDid) {
                 return;
@@ -9312,7 +9402,7 @@ Vue.component('DealConversation', {
                     },
                     body: JSON.stringify({
                         message: messageData,
-                        deal_uid: null
+                        deal_uid: this.dealId || null
                     })
                 });
                 
@@ -9361,7 +9451,7 @@ Vue.component('DealConversation', {
                     },
                     body: JSON.stringify({
                         message: messageData,
-                        deal_uid: null
+                        deal_uid: this.dealId || null
                     })
                 });
                 
