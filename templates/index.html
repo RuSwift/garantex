@@ -728,6 +728,7 @@
                                 <p class="text-gray-500 mt-1">Управление вашими предложениями</p>
                             </div>
                             <button 
+                                v-if="myAdsTab === 'ads'"
                                 @click="openAdForm()"
                                 class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors flex items-center gap-2"
                             >
@@ -736,7 +737,48 @@
                                 </svg>
                                 Создать объявление
                             </button>
+                            <button 
+                                v-else
+                                @click="openApplicationFormForm()"
+                                class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors flex items-center gap-2"
+                            >
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                Создать форму заявки
+                            </button>
                         </div>
+
+                        <!-- Tabs -->
+                        <div class="mb-6 border-b border-gray-200">
+                            <nav class="flex space-x-8">
+                                <button
+                                    @click="myAdsTab = 'ads'"
+                                    :class="[
+                                        'py-4 px-1 border-b-2 font-semibold text-sm transition-colors',
+                                        myAdsTab === 'ads'
+                                            ? 'border-blue-600 text-blue-600'
+                                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                    ]"
+                                >
+                                    Объявления
+                                </button>
+                                <button
+                                    @click="myAdsTab = 'forms'"
+                                    :class="[
+                                        'py-4 px-1 border-b-2 font-semibold text-sm transition-colors',
+                                        myAdsTab === 'forms'
+                                            ? 'border-blue-600 text-blue-600'
+                                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                    ]"
+                                >
+                                    Формы заявок
+                                </button>
+                            </nav>
+                        </div>
+
+                        <!-- Ads Tab Content -->
+                        <div v-if="myAdsTab === 'ads'">
 
                         <!-- Loading State -->
                         <div v-if="isLoadingMyAds" class="text-center py-12">
@@ -909,6 +951,117 @@
                             >
                                 Вперед
                             </button>
+                        </div>
+                        </div>
+
+                        <!-- Application Forms Tab Content -->
+                        <div v-if="myAdsTab === 'forms'">
+                            <!-- Loading State -->
+                            <div v-if="isLoadingApplicationForms" class="text-center py-12">
+                                <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                                <p class="mt-4 text-gray-500">Загрузка форм заявок...</p>
+                            </div>
+
+                            <!-- Empty State -->
+                            <div v-else-if="applicationForms.length === 0" class="bg-white rounded-2xl border p-12 text-center">
+                                <div class="w-20 h-20 bg-gray-100 rounded-full mx-auto mb-6 flex items-center justify-center">
+                                    <svg class="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                    </svg>
+                                </div>
+                                <h3 class="text-xl font-bold text-gray-900 mb-2">Пока нет форм заявок</h3>
+                                <p class="text-gray-500 mb-6">Создайте форму заявки для сбора информации и выставления счетов</p>
+                                <button 
+                                    @click="openApplicationFormForm()"
+                                    class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors inline-flex items-center gap-2"
+                                >
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                    </svg>
+                                    Создать форму заявки
+                                </button>
+                            </div>
+
+                            <!-- Application Forms List -->
+                            <div v-else class="space-y-6">
+                                <div v-for="form in applicationForms" :key="form.id" 
+                                    class="bg-white rounded-2xl border hover:shadow-lg transition-all overflow-hidden">
+                                    <div class="p-6">
+                                        <div class="flex justify-between items-start mb-4">
+                                            <div class="flex-1">
+                                                <div class="flex items-center gap-3 mb-2">
+                                                    <h3 class="font-bold text-xl text-gray-900">[[ form.name ]]</h3>
+                                                    <span :class="['px-3 py-1 rounded-full text-xs font-bold uppercase', 
+                                                                 form.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700']">
+                                                        [[ form.is_active ? 'Активна' : 'Неактивна' ]]
+                                                    </span>
+                                                </div>
+                                                <p class="text-gray-600 text-sm mb-3">[[ form.description || 'Без описания' ]]</p>
+                                                <div class="flex items-center gap-4 text-sm text-gray-500">
+                                                    <span>Поля: [[ form.fields ? form.fields.length : 0 ]]</span>
+                                                    <span v-if="form.advertisement_id">Привязана к объявлению: #[[ form.advertisement_id ]]</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="flex items-center justify-between pt-4 border-t">
+                                            <span class="text-xs text-gray-500">
+                                                Создано: [[ formatDate(form.created_at) ]]
+                                            </span>
+                                            <div class="flex items-center gap-2">
+                                                <button 
+                                                    @click="toggleApplicationFormStatus(form.id, form.is_active)"
+                                                    :disabled="isTogglingForm === form.id"
+                                                    :class="['px-4 py-2 rounded-lg font-semibold text-sm transition-colors',
+                                                             form.is_active 
+                                                                 ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' 
+                                                                 : 'bg-green-100 text-green-700 hover:bg-green-200']"
+                                                >
+                                                    <span v-if="isTogglingForm !== form.id">
+                                                        [[ form.is_active ? 'Деактивировать' : 'Активировать' ]]
+                                                    </span>
+                                                    <span v-else>Обработка...</span>
+                                                </button>
+                                                <button 
+                                                    @click="openApplicationFormForm(form)"
+                                                    class="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-semibold text-sm hover:bg-blue-200 transition-colors"
+                                                >
+                                                    Редактировать
+                                                </button>
+                                                <button 
+                                                    @click="deleteApplicationForm(form.id)"
+                                                    :disabled="isDeletingForm === form.id"
+                                                    class="px-4 py-2 bg-red-100 text-red-700 rounded-lg font-semibold text-sm hover:bg-red-200 transition-colors disabled:opacity-50"
+                                                >
+                                                    <span v-if="isDeletingForm !== form.id">Удалить</span>
+                                                    <span v-else>Удаление...</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Pagination for Forms -->
+                            <div v-if="applicationFormsTotal > applicationFormsPageSize" class="mt-8 flex justify-center items-center gap-4">
+                                <button 
+                                    @click="applicationFormsPage = Math.max(1, applicationFormsPage - 1); loadApplicationForms()"
+                                    :disabled="applicationFormsPage === 1 || isLoadingApplicationForms"
+                                    class="px-4 py-2 border rounded-xl hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    Назад
+                                </button>
+                                <span class="text-gray-600">
+                                    Страница [[ applicationFormsPage ]] из [[ Math.ceil(applicationFormsTotal / applicationFormsPageSize) ]]
+                                </span>
+                                <button 
+                                    @click="applicationFormsPage++; loadApplicationForms()"
+                                    :disabled="applicationFormsPage >= Math.ceil(applicationFormsTotal / applicationFormsPageSize) || isLoadingApplicationForms"
+                                    class="px-4 py-2 border rounded-xl hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    Вперед
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -1168,6 +1321,267 @@
                             type="button"
                             @click="closeAdForm"
                             :disabled="isSavingAd"
+                            class="px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-semibold transition-colors disabled:opacity-50"
+                        >
+                            Отмена
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Application Form Modal -->
+        <div v-if="showApplicationFormModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeApplicationFormModal">
+            <div class="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                <div class="p-6 border-b flex items-center justify-between sticky top-0 bg-white">
+                    <h3 class="text-2xl font-bold text-gray-900">
+                        [[ editingApplicationForm ? 'Редактировать форму заявки' : 'Создать форму заявки' ]]
+                    </h3>
+                    <button 
+                        @click="closeApplicationFormModal"
+                        class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                        <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <form @submit.prevent="saveApplicationForm" class="p-6 space-y-6">
+                    <!-- Name -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            Название формы *
+                        </label>
+                        <input 
+                            type="text" 
+                            v-model="applicationFormForm.name"
+                            required
+                            maxlength="255"
+                            class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Например: Форма заявки на SWIFT перевод"
+                        />
+                    </div>
+
+                    <!-- Description -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            Описание
+                        </label>
+                        <textarea 
+                            v-model="applicationFormForm.description"
+                            rows="3"
+                            class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Описание формы заявки..."
+                        ></textarea>
+                    </div>
+
+                    <!-- Advertisement Selection -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">
+                            Привязать к объявлению (опционально)
+                        </label>
+                        <select 
+                            v-model="applicationFormForm.advertisement_id"
+                            class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                            <option :value="null">Не привязывать</option>
+                            <option v-for="ad in myAds" :key="ad.id" :value="ad.id">
+                                [[ ad.name ]]
+                            </option>
+                        </select>
+                    </div>
+
+                    <!-- Form Fields -->
+                    <div>
+                        <div class="flex items-center justify-between mb-4">
+                            <label class="block text-sm font-semibold text-gray-700">
+                                Поля формы *
+                            </label>
+                            <button 
+                                type="button"
+                                @click="addFormField"
+                                class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
+                            >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                Добавить поле
+                            </button>
+                        </div>
+                        
+                        <div v-if="applicationFormForm.fields.length === 0" class="text-center py-8 border-2 border-dashed border-gray-300 rounded-xl">
+                            <p class="text-gray-500">Добавьте поля для формы заявки</p>
+                        </div>
+                        
+                        <div v-else class="space-y-4">
+                            <div v-for="(field, index) in applicationFormForm.fields" :key="index" 
+                                class="p-4 border rounded-xl bg-gray-50">
+                                <div class="flex items-start justify-between mb-3">
+                                    <h4 class="font-semibold text-gray-900">Поле #[[ index + 1 ]]</h4>
+                                    <button 
+                                        type="button"
+                                        @click="removeFormField(index)"
+                                        class="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                    >
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                                
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Название поля *</label>
+                                        <input 
+                                            type="text" 
+                                            v-model="field.label"
+                                            required
+                                            class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            placeholder="Например: ФИО"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Тип поля *</label>
+                                        <select 
+                                            v-model="field.type"
+                                            required
+                                            class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option value="text">Текст</option>
+                                            <option value="textarea">Многострочный текст</option>
+                                            <option value="email">Email</option>
+                                            <option value="tel">Телефон</option>
+                                            <option value="number">Число</option>
+                                            <option value="date">Дата</option>
+                                            <option value="select">Выпадающий список</option>
+                                            <option value="checkbox">Чекбокс</option>
+                                            <option value="image">Картинка</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Placeholder</label>
+                                        <input 
+                                            type="text" 
+                                            v-model="field.placeholder"
+                                            class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            placeholder="Подсказка для поля"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label class="flex items-center gap-2">
+                                            <input 
+                                                type="checkbox" 
+                                                v-model="field.required"
+                                                class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                            />
+                                            <span class="text-xs font-semibold text-gray-600">Обязательное поле</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <!-- Options for select type -->
+                                <div v-if="field.type === 'select'" class="mt-3">
+                                    <label class="block text-xs font-semibold text-gray-600 mb-1">Варианты выбора (каждый с новой строки) *</label>
+                                    <textarea 
+                                        v-model="field.options"
+                                        rows="3"
+                                        required
+                                        class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="Вариант 1&#10;Вариант 2&#10;Вариант 3"
+                                    ></textarea>
+                                </div>
+                                
+                                <!-- Options for image type -->
+                                <div v-if="field.type === 'image'" class="mt-3 space-y-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-semibold text-gray-600 mb-1">Максимальный размер (MB)</label>
+                                            <input 
+                                                type="number" 
+                                                v-model.number="field.maxSize"
+                                                min="0.1"
+                                                max="50"
+                                                step="0.1"
+                                                class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                placeholder="5"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-semibold text-gray-600 mb-1">Допустимые форматы</label>
+                                            <select 
+                                                v-model="field.acceptedFormats"
+                                                class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            >
+                                                <option value="all">Все изображения</option>
+                                                <option value="jpg,jpeg">JPG/JPEG</option>
+                                                <option value="png">PNG</option>
+                                                <option value="gif">GIF</option>
+                                                <option value="webp">WebP</option>
+                                                <option value="jpg,jpeg,png">JPG, PNG</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="flex items-center gap-2">
+                                            <input 
+                                                type="checkbox" 
+                                                v-model="field.multiple"
+                                                class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                            />
+                                            <span class="text-xs font-semibold text-gray-600">Разрешить загрузку нескольких изображений</span>
+                                        </label>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Максимальное количество изображений (если разрешено несколько)</label>
+                                        <input 
+                                            type="number" 
+                                            v-model.number="field.maxFiles"
+                                            min="1"
+                                            max="20"
+                                            class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            placeholder="5"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Active Status (only for editing) -->
+                    <div v-if="editingApplicationForm">
+                        <label class="flex items-center gap-3">
+                            <input 
+                                type="checkbox" 
+                                v-model="applicationFormForm.is_active"
+                                class="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span class="text-sm font-semibold text-gray-700">Форма активна</span>
+                        </label>
+                    </div>
+
+                    <!-- Error/Success messages -->
+                    <div v-if="applicationFormMessage" class="p-4 rounded-xl" :class="{
+                        'bg-green-50 text-green-700': applicationFormMessageType === 'success',
+                        'bg-red-50 text-red-700': applicationFormMessageType === 'error'
+                    }">
+                        [[ applicationFormMessage ]]
+                    </div>
+
+                    <!-- Buttons -->
+                    <div class="flex gap-3 pt-4 border-t">
+                        <button 
+                            type="submit"
+                            :disabled="isSavingApplicationForm"
+                            class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            <span v-if="!isSavingApplicationForm">[[ editingApplicationForm ? 'Сохранить изменения' : 'Создать форму' ]]</span>
+                            <span v-else>Сохранение...</span>
+                        </button>
+                        <button 
+                            type="button"
+                            @click="closeApplicationFormModal"
+                            :disabled="isSavingApplicationForm"
                             class="px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-semibold transition-colors disabled:opacity-50"
                         >
                             Отмена
@@ -1459,6 +1873,27 @@
                 isLoadingMyAds: false,
                 isTogglingAd: null,
                 isDeletingAd: null,
+                myAdsTab: 'ads', // 'ads' or 'forms'
+                // Application Forms
+                applicationForms: [],
+                applicationFormsPage: 1,
+                applicationFormsPageSize: 20,
+                applicationFormsTotal: 0,
+                isLoadingApplicationForms: false,
+                isTogglingForm: null,
+                isDeletingForm: null,
+                showApplicationFormModal: false,
+                editingApplicationForm: null,
+                isSavingApplicationForm: false,
+                applicationFormMessage: '',
+                applicationFormMessageType: 'success',
+                applicationFormForm: {
+                    name: '',
+                    description: '',
+                    advertisement_id: null,
+                    is_active: true,
+                    fields: []
+                },
                 // Advertisement Form
                 showAdForm: false,
                 editingAd: null,
@@ -1548,7 +1983,11 @@
             watch: {
                 activeView(newView) {
                     if (newView === 'my_ads' && this.isAuthenticated) {
-                        this.loadMyAds();
+                        if (this.myAdsTab === 'ads') {
+                            this.loadMyAds();
+                        } else {
+                            this.loadApplicationForms();
+                        }
                     } else if (newView === 'marketplace' && this.isAuthenticated) {
                         this.searchMarketplace();
                     } else if (newView === 'deals' && this.isAuthenticated) {
@@ -1556,6 +1995,11 @@
                     } else if (newView === 'profile' && this.isAuthenticated) {
                         this.loadUserProfile();
                         this.loadBillingHistory();
+                    }
+                },
+                myAdsTab(newTab) {
+                    if (newTab === 'forms' && this.isAuthenticated && this.activeView === 'my_ads') {
+                        this.loadApplicationForms();
                     }
                 }
             },
@@ -2243,6 +2687,287 @@
                     // Возвращаемся к предыдущему виду, если был открыт вид "deals"
                     if (this.activeView === 'deals') {
                         this.activeView = 'marketplace';
+                    }
+                },
+                // Application Forms methods
+                async loadApplicationForms() {
+                    this.isLoadingApplicationForms = true;
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+
+                        const response = await fetch(`/api/application-forms?page=${this.applicationFormsPage}&page_size=${this.applicationFormsPageSize}`, {
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+
+                        if (!response.ok) {
+                            // Если API еще не реализовано, просто показываем пустой список
+                            if (response.status === 404) {
+                                this.applicationForms = [];
+                                this.applicationFormsTotal = 0;
+                                return;
+                            }
+                            throw new Error('Failed to load application forms');
+                        }
+
+                        const data = await response.json();
+                        this.applicationForms = data.forms || data.application_forms || [];
+                        this.applicationFormsTotal = data.total || 0;
+                    } catch (error) {
+                        console.error('Error loading application forms:', error);
+                        // Если API не существует, просто показываем пустой список
+                        this.applicationForms = [];
+                        this.applicationFormsTotal = 0;
+                    } finally {
+                        this.isLoadingApplicationForms = false;
+                    }
+                },
+                openApplicationFormForm(form = null) {
+                    this.editingApplicationForm = form;
+                    if (form) {
+                        // Editing existing form
+                        this.applicationFormForm = {
+                            name: form.name,
+                            description: form.description || '',
+                            advertisement_id: form.advertisement_id || null,
+                            is_active: form.is_active,
+                            fields: form.fields ? form.fields.map(field => {
+                                // Восстанавливаем все свойства поля, включая настройки для image
+                                const fieldData = {
+                                    label: field.label || '',
+                                    type: field.type || 'text',
+                                    placeholder: field.placeholder || '',
+                                    required: field.required || false,
+                                    options: field.options || (field.type === 'select' ? '' : ''),
+                                    // Настройки для image типа
+                                    maxSize: field.maxSize || 5,
+                                    acceptedFormats: field.acceptedFormats || 'all',
+                                    multiple: field.multiple || false,
+                                    maxFiles: field.maxFiles || 5
+                                };
+                                
+                                // Если это select, преобразуем массив опций в строку
+                                if (field.type === 'select' && Array.isArray(field.options)) {
+                                    fieldData.options = field.options.join('\n');
+                                }
+                                
+                                return fieldData;
+                            }) : []
+                        };
+                    } else {
+                        // Creating new form
+                        this.applicationFormForm = {
+                            name: '',
+                            description: '',
+                            advertisement_id: null,
+                            is_active: true,
+                            fields: []
+                        };
+                    }
+                    this.applicationFormMessage = '';
+                    this.showApplicationFormModal = true;
+                },
+                closeApplicationFormModal() {
+                    this.showApplicationFormModal = false;
+                    this.editingApplicationForm = null;
+                    this.applicationFormMessage = '';
+                    this.applicationFormForm = {
+                        name: '',
+                        description: '',
+                        advertisement_id: null,
+                        is_active: true,
+                        fields: []
+                    };
+                },
+                addFormField() {
+                    this.applicationFormForm.fields.push({
+                        label: '',
+                        type: 'text',
+                        placeholder: '',
+                        required: false,
+                        options: '',
+                        // Для типа image
+                        maxSize: 5,
+                        acceptedFormats: 'all',
+                        multiple: false,
+                        maxFiles: 5
+                    });
+                },
+                removeFormField(index) {
+                    this.applicationFormForm.fields.splice(index, 1);
+                },
+                async saveApplicationForm() {
+                    // Валидация полей
+                    if (this.applicationFormForm.fields.length === 0) {
+                        this.applicationFormMessage = 'Добавьте хотя бы одно поле в форму';
+                        this.applicationFormMessageType = 'error';
+                        return;
+                    }
+
+                    // Валидация каждого поля
+                    for (let i = 0; i < this.applicationFormForm.fields.length; i++) {
+                        const field = this.applicationFormForm.fields[i];
+                        if (!field.label || !field.type) {
+                            this.applicationFormMessage = `Заполните все обязательные поля для поля #${i + 1}`;
+                            this.applicationFormMessageType = 'error';
+                            return;
+                        }
+                        if (field.type === 'select' && !field.options) {
+                            this.applicationFormMessage = `Укажите варианты выбора для поля #${i + 1}`;
+                            this.applicationFormMessageType = 'error';
+                            return;
+                        }
+                    }
+
+                    this.isSavingApplicationForm = true;
+                    this.applicationFormMessage = '';
+
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+
+                        // Подготовка данных для отправки
+                        const formData = {
+                            name: this.applicationFormForm.name,
+                            description: this.applicationFormForm.description || null,
+                            advertisement_id: this.applicationFormForm.advertisement_id || null,
+                            is_active: this.applicationFormForm.is_active,
+                            fields: this.applicationFormForm.fields.map(field => {
+                                const fieldData = {
+                                    label: field.label,
+                                    type: field.type,
+                                    placeholder: field.placeholder || null,
+                                    required: field.required || false
+                                };
+                                
+                                // Для select типа добавляем опции
+                                if (field.type === 'select' && field.options) {
+                                    fieldData.options = field.options.split('\n').filter(opt => opt.trim()).map(opt => opt.trim());
+                                }
+                                
+                                // Для image типа добавляем настройки изображения
+                                if (field.type === 'image') {
+                                    fieldData.maxSize = field.maxSize || 5;
+                                    fieldData.acceptedFormats = field.acceptedFormats || 'all';
+                                    fieldData.multiple = field.multiple || false;
+                                    if (field.multiple) {
+                                        fieldData.maxFiles = field.maxFiles || 5;
+                                    }
+                                }
+                                
+                                return fieldData;
+                            })
+                        };
+
+                        const url = this.editingApplicationForm 
+                            ? `/api/application-forms/${this.editingApplicationForm.id}`
+                            : '/api/application-forms';
+                        
+                        const method = this.editingApplicationForm ? 'PUT' : 'POST';
+
+                        const response = await fetch(url, {
+                            method: method,
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(formData)
+                        });
+
+                        if (!response.ok) {
+                            const error = await response.json().catch(() => ({ detail: 'Failed to save application form' }));
+                            throw new Error(error.detail || 'Failed to save application form');
+                        }
+
+                        this.applicationFormMessage = this.editingApplicationForm 
+                            ? 'Форма заявки успешно обновлена!' 
+                            : 'Форма заявки успешно создана!';
+                        this.applicationFormMessageType = 'success';
+
+                        // Reload forms
+                        await this.loadApplicationForms();
+                        
+                        // Close form after delay
+                        setTimeout(() => {
+                            this.closeApplicationFormModal();
+                        }, 1500);
+
+                    } catch (error) {
+                        console.error('Error saving application form:', error);
+                        this.applicationFormMessage = error.message || 'Ошибка при сохранении формы заявки';
+                        this.applicationFormMessageType = 'error';
+                    } finally {
+                        this.isSavingApplicationForm = false;
+                    }
+                },
+                async toggleApplicationFormStatus(formId, currentStatus) {
+                    if (this.isTogglingForm === formId) return;
+                    
+                    this.isTogglingForm = formId;
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+
+                        const response = await fetch(`/api/application-forms/${formId}/toggle-active`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+
+                        if (!response.ok) {
+                            throw new Error('Failed to toggle status');
+                        }
+
+                        // Reload forms
+                        await this.loadApplicationForms();
+                    } catch (error) {
+                        console.error('Error toggling form status:', error);
+                        alert('Ошибка при изменении статуса формы заявки');
+                    } finally {
+                        this.isTogglingForm = null;
+                    }
+                },
+                async deleteApplicationForm(formId) {
+                    if (!confirm('Вы уверены, что хотите удалить эту форму заявки?')) {
+                        return;
+                    }
+
+                    if (this.isDeletingForm === formId) return;
+                    
+                    this.isDeletingForm = formId;
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+
+                        const response = await fetch(`/api/application-forms/${formId}`, {
+                            method: 'DELETE',
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+
+                        if (!response.ok) {
+                            throw new Error('Failed to delete application form');
+                        }
+
+                        // Reload forms
+                        await this.loadApplicationForms();
+                    } catch (error) {
+                        console.error('Error deleting application form:', error);
+                        alert('Ошибка при удалении формы заявки');
+                    } finally {
+                        this.isDeletingForm = null;
                     }
                 }
             }
