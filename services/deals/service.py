@@ -77,7 +77,8 @@ class DealsService:
         sender_did: str,
         receiver_did: str,
         arbiter_did: str,
-        label: str
+        label: str,
+        need_receiver_approve: bool = False
     ) -> Deal:
         """
         Create a new deal
@@ -87,6 +88,7 @@ class DealsService:
             receiver_did: DID получателя (тот, кто выставляет счет)
             arbiter_did: DID арбитра
             label: Описание сделки
+            need_receiver_approve: Требуется ли одобрение получателя (default: False)
             
         Returns:
             Created Deal object
@@ -110,7 +112,8 @@ class DealsService:
             sender_did=sender_did,
             receiver_did=receiver_did,
             arbiter_did=arbiter_did,
-            label=label
+            label=label,
+            need_receiver_approve=need_receiver_approve
         )
         
         self.session.add(deal)
@@ -141,6 +144,24 @@ class DealsService:
         # Проверяем, что owner_did является участником сделки
         if not self._is_participant(deal):
             return None
+        
+        return deal
+    
+    async def get_deal_public(self, deal_uid: str) -> Optional[Deal]:
+        """
+        Get deal by UID (public access, no participant check)
+        
+        Args:
+            deal_uid: Deal UID (base58 UUID)
+            
+        Returns:
+            Deal object if found, None otherwise
+        """
+        # Загружаем сделку
+        result = await self.session.execute(
+            select(Deal).where(Deal.uid == deal_uid)
+        )
+        deal = result.scalar_one_or_none()
         
         return deal
     

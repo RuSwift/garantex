@@ -10544,21 +10544,201 @@ Vue.component('Deals', {
         isAuthenticated: {
             type: Boolean,
             default: false
+        },
+        currentUserDid: {
+            type: String,
+            default: null
         }
     },
     data() {
         return {
-            // Component data will be added here
+            showCreateModal: false,
+            paymentRequests: [],
+            isLoading: false,
+            createForm: {
+                amount: '',
+                currency: 'USDT',
+                payerAddress: '',
+                label: '',
+                description: ''
+            },
+            createFormError: '',
+            createFormSuccess: ''
         }
     },
     mounted() {
-        // Component initialization
+        // Пытаемся загрузить сразу, если уже авторизован
+        if (this.isAuthenticated && this.currentUserDid) {
+            this.loadPaymentRequests();
+        }
+    },
+    watch: {
+        isAuthenticated(newVal) {
+            // Загружаем сделки при авторизации
+            if (newVal && this.currentUserDid) {
+                this.loadPaymentRequests();
+            }
+        },
+        currentUserDid(newVal) {
+            // Загружаем сделки когда DID становится доступным
+            if (newVal && this.isAuthenticated) {
+                this.loadPaymentRequests();
+            }
+        }
     },
     methods: {
         createInvoice() {
-            // Метод для создания счета
-            console.log('Создание счета...');
-            // Здесь будет логика создания счета
+            this.showCreateModal = true;
+            this.createFormError = '';
+            this.createFormSuccess = '';
+        },
+        closeCreateModal() {
+            this.showCreateModal = false;
+            this.createForm = {
+                amount: '',
+                currency: 'USDT',
+                payerAddress: '',
+                label: '',
+                description: ''
+            };
+            this.createFormError = '';
+            this.createFormSuccess = '';
+        },
+        async createPaymentRequest() {
+            // Валидация
+            if (!this.createForm.amount || parseFloat(this.createForm.amount) <= 0) {
+                this.createFormError = 'Введите корректную сумму';
+                return;
+            }
+            
+            if (!this.createForm.payerAddress || !this.createForm.payerAddress.trim()) {
+                this.createFormError = 'Введите адрес плательщика';
+                return;
+            }
+            
+            if (!this.createForm.label || !this.createForm.label.trim()) {
+                this.createFormError = 'Введите название заявки';
+                return;
+            }
+            
+            this.isLoading = true;
+            this.createFormError = '';
+            this.createFormSuccess = '';
+            
+            try {
+                const token = localStorage.getItem('access_token');
+                if (!token) {
+                    throw new Error('Not authenticated');
+                }
+                
+                // Формируем label с суммой и валютой
+                let label = this.createForm.label;
+                if (this.createForm.description && this.createForm.description.trim()) {
+                    label = `${label} - ${this.createForm.description.trim()}`;
+                }
+                label = `${label} - ${this.createForm.amount} ${this.createForm.currency}`;
+                
+                // Арбитр выбирается автоматически на бэкенде
+                const response = await fetch('/api/payment-request/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        payer_address: this.createForm.payerAddress.trim(),
+                        label: label
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to create payment request');
+                }
+                
+                const data = await response.json();
+                this.createFormSuccess = 'Заявка на оплату успешно создана!';
+                
+                // Обновляем список заявок
+                await this.loadPaymentRequests();
+                
+                // Закрываем модалку через 1.5 секунды
+                setTimeout(() => {
+                    this.closeCreateModal();
+                }, 1500);
+                
+            } catch (error) {
+                console.error('Error creating payment request:', error);
+                this.createFormError = error.message || 'Ошибка при создании заявки на оплату';
+            } finally {
+                this.isLoading = false;
+            }
+        },
+        async loadPaymentRequests() {
+            if (!this.isAuthenticated) {
+                return;
+            }
+            
+            this.isLoading = true;
+            try {
+                const token = localStorage.getItem('access_token');
+                if (!token) {
+                    return;
+                }
+                
+                const response = await fetch('/api/payment-request/list?page=1&page_size=100', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to load payment requests');
+                }
+                
+                const data = await response.json();
+                this.paymentRequests = data.payment_requests || [];
+            } catch (error) {
+                console.error('Error loading payment requests:', error);
+                this.paymentRequests = [];
+            } finally {
+                this.isLoading = false;
+            }
+        },
+        formatDate(dateString) {
+            if (!dateString) return '';
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleString('ru-RU', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (e) {
+                return dateString;
+            }
+        },
+        getStatusText(request) {
+            if (request.need_receiver_approve) {
+                return 'Ожидает подтверждения';
+            }
+            return 'Подтверждено';
+        },
+        getStatusClass(request) {
+            if (request.need_receiver_approve) {
+                return 'bg-yellow-100 text-yellow-700';
+            }
+            return 'bg-green-100 text-green-700';
+        },
+        refresh() {
+            // Обновление списка заявок
+            this.loadPaymentRequests();
+        },
+        openDealChat(dealUid) {
+            // Отправляем событие родительскому компоненту для открытия чата сделки
+            this.$emit('open-deal-chat', dealUid);
         }
     },
     template: `
@@ -10568,33 +10748,221 @@ Vue.component('Deals', {
                     <h2 class="text-3xl font-bold text-gray-900">Сделки</h2>
                     <p class="text-gray-500 mt-1">Управление вашими сделками</p>
                 </div>
-                <button 
-                    @click="createInvoice"
-                    class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors flex items-center gap-2"
-                >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                    </svg>
-                    Выставить счет
-                </button>
+                <div class="flex items-center gap-3">
+                    <button 
+                        @click="refresh"
+                        :disabled="isLoading"
+                        class="px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                        title="Обновить список"
+                    >
+                        <svg class="w-5 h-5" :class="{ 'animate-spin': isLoading }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        Обновить
+                    </button>
+                    <button 
+                        @click="createInvoice"
+                        class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors flex items-center gap-2"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                        Выставить счет
+                    </button>
+                </div>
             </div>
             
-            <div class="bg-white rounded-2xl border p-12 text-center">
+            <!-- Payment Requests Table -->
+            <div v-if="isLoading && paymentRequests.length === 0" class="bg-white rounded-2xl border p-12 text-center">
+                <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                <p class="mt-4 text-gray-500">Загрузка заявок...</p>
+            </div>
+            
+            <div v-else-if="paymentRequests.length === 0" class="bg-white rounded-2xl border p-12 text-center">
                 <div class="w-20 h-20 bg-gray-100 rounded-full mx-auto mb-6 flex items-center justify-center">
                     <svg class="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                     </svg>
                 </div>
-                <h3 class="text-xl font-bold text-gray-900 mb-2">Компонент в разработке</h3>
-                <p class="text-gray-500">Здесь будет отображаться список ваших сделок</p>
+                <h3 class="text-xl font-bold text-gray-900 mb-2">Нет заявок на оплату</h3>
+                <p class="text-gray-500">Создайте заявку на оплату, нажав кнопку "Выставить счет"</p>
+            </div>
+            
+            <div v-else class="bg-white rounded-2xl border overflow-hidden">
+                <table class="w-full">
+                    <thead class="bg-gray-50 border-b">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Описание</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Плательщик</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Дата создания</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Статус</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Чат</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider"></th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <tr v-for="request in paymentRequests" :key="request.deal_uid" class="hover:bg-gray-50">
+                            <td class="px-4 py-4">
+                                <div class="text-sm font-medium text-gray-900 break-words">[[ request.label ]]</div>
+                            </td>
+                            <td class="px-4 py-4">
+                                <div class="text-sm text-gray-600 font-mono break-all">[[ request.sender_did ]]</div>
+                            </td>
+                            <td class="px-4 py-4">
+                                <div class="text-sm text-gray-600 whitespace-nowrap">[[ formatDate(request.created_at) ]]</div>
+                            </td>
+                            <td class="px-4 py-4">
+                                <span :class="['px-3 py-1 rounded-full text-xs font-bold uppercase whitespace-nowrap', getStatusClass(request)]">
+                                    [[ getStatusText(request) ]]
+                                </span>
+                            </td>
+                            <td class="px-4 py-4">
+                                <button 
+                                    @click="openDealChat(request.deal_uid)"
+                                    class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-200 transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                                    title="Открыть чат сделки"
+                                >
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                                    </svg>
+                                    Чат
+                                </button>
+                            </td>
+                            <td class="px-4 py-4">
+                                <a 
+                                    :href="'/deal/' + request.deal_uid"
+                                    target="_blank"
+                                    class="text-blue-600 hover:text-blue-800 transition-colors"
+                                    title="Открыть страницу сделки"
+                                >
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                    </svg>
+                                </a>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Create Payment Request Modal -->
+            <div v-if="showCreateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeCreateModal">
+                <div class="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                    <div class="p-6 border-b flex items-center justify-between sticky top-0 bg-white">
+                        <h3 class="text-2xl font-bold text-gray-900">Выставить счет</h3>
+                        <button 
+                            @click="closeCreateModal"
+                            class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                        >
+                            <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <form @submit.prevent="createPaymentRequest" class="p-6 space-y-6">
+                        <!-- Amount -->
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Сумма *
+                            </label>
+                            <input 
+                                type="number" 
+                                v-model.number="createForm.amount"
+                                step="0.01"
+                                min="0.01"
+                                required
+                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="100.00"
+                            />
+                        </div>
+                        
+                        <!-- Currency -->
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Валюта *
+                            </label>
+                            <select 
+                                v-model="createForm.currency"
+                                required
+                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="USDT">USDT</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Payer Address -->
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Tron адрес плательщика *
+                            </label>
+                            <input 
+                                type="text" 
+                                v-model="createForm.payerAddress"
+                                required
+                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                placeholder="TQn9Y2khEsLMWD..."
+                            />
+                        </div>
+                        
+                        <!-- Label -->
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Название заявки *
+                            </label>
+                            <input 
+                                type="text" 
+                                v-model="createForm.label"
+                                required
+                                maxlength="255"
+                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="Например: Оплата за услуги"
+                            />
+                        </div>
+                        
+                        <!-- Description -->
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Описание (необязательно)
+                            </label>
+                            <textarea 
+                                v-model="createForm.description"
+                                rows="3"
+                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="Дополнительная информация о заявке..."
+                            ></textarea>
+                        </div>
+                        
+                        <!-- Error/Success messages -->
+                        <div v-if="createFormError" class="p-4 rounded-xl bg-red-50 text-red-700">
+                            [[ createFormError ]]
+                        </div>
+                        <div v-if="createFormSuccess" class="p-4 rounded-xl bg-green-50 text-green-700">
+                            [[ createFormSuccess ]]
+                        </div>
+                        
+                        <!-- Buttons -->
+                        <div class="flex gap-3 pt-4 border-t">
+                            <button 
+                                type="submit"
+                                :disabled="isLoading"
+                                class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                <span v-if="!isLoading">Создать заявку</span>
+                                <span v-else>Создание...</span>
+                            </button>
+                            <button 
+                                type="button"
+                                @click="closeCreateModal"
+                                :disabled="isLoading"
+                                class="px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-semibold transition-colors disabled:opacity-50"
+                            >
+                                Отмена
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
-    `,
-    methods: {
-        createInvoice() {
-            // Метод для создания счета
-            console.log('Создание счета...');
-            // Здесь будет логика создания счета
-        }
-    }
+    `
 });

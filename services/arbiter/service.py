@@ -169,7 +169,7 @@ class ArbiterService:
         return list(result.scalars().all())
     
     @staticmethod
-    async def get_arbiter_wallet(wallet_id: int, db: AsyncSession) -> Optional[Wallet]:
+    async def get_arbiter_wallet_by_id(wallet_id: int, db: AsyncSession) -> Optional[Wallet]:
         """
         Получает адрес арбитра по ID (активный или резервный)
         
@@ -190,6 +190,24 @@ class ArbiterService:
         return result.scalar_one_or_none()
     
     @staticmethod
+    async def get_active_arbiter_wallet(db: AsyncSession) -> Optional[Wallet]:
+        """
+        Получает активный адрес арбитра (role='arbiter')
+        
+        Args:
+            db: Database session
+            
+        Returns:
+            Активный адрес арбитра или None если не найден
+        """
+        result = await db.execute(
+            select(Wallet)
+            .where(Wallet.role == 'arbiter')
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+    
+    @staticmethod
     async def update_arbiter_address_name(
         wallet_id: int,
         name: str,
@@ -206,7 +224,7 @@ class ArbiterService:
         Returns:
             Обновленный адрес арбитра или None если не найден
         """
-        wallet = await ArbiterService.get_arbiter_wallet(wallet_id, db)
+        wallet = await ArbiterService.get_arbiter_wallet_by_id(wallet_id, db)
         if not wallet:
             return None
         
@@ -228,7 +246,7 @@ class ArbiterService:
         Returns:
             True если адрес удален, False если не найден
         """
-        wallet = await ArbiterService.get_arbiter_wallet(wallet_id, db)
+        wallet = await ArbiterService.get_arbiter_wallet_by_id(wallet_id, db)
         if not wallet:
             return False
         
@@ -271,7 +289,7 @@ class ArbiterService:
             ValueError: Если адрес не найден, не является резервным, или нет активного адреса для переключения
         """
         # Получаем адрес, который нужно сделать активным
-        wallet_to_activate = await ArbiterService.get_arbiter_wallet(wallet_id, db)
+        wallet_to_activate = await ArbiterService.get_arbiter_wallet_by_id(wallet_id, db)
         if not wallet_to_activate:
             raise ValueError("Адрес арбитра не найден")
         

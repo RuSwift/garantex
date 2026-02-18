@@ -152,7 +152,7 @@ async def get_arbiter_address(
         Arbiter address information
     """
     try:
-        wallet = await ArbiterService.get_arbiter_wallet(wallet_id, db)
+        wallet = await ArbiterService.get_arbiter_wallet_by_id(wallet_id, db)
         
         if not wallet:
             raise HTTPException(

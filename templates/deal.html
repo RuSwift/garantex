@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сделка | {{ app_name }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Bootstrap CSS (for modal-window component) -->
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet" onerror="this.onerror=null; this.href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css'" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+    
+    <!-- TronWeb library -->
+    <script src="https://cdn.jsdelivr.net/npm/tronweb@5.3.2/dist/TronWeb.js"></script>
+    
+    <!-- WalletConnect library (for mobile support) -->
+    <script src="https://cdn.jsdelivr.net/npm/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js"></script>
+    
+    <!-- Modal Window CSS -->
+    <link href="/static/css/sb-admin.css" rel="stylesheet" />
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        [v-cloak] { 
+            display: none; 
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <div id="app" v-cloak>
+        <!-- Header -->
+        <header class="bg-white border-b px-8 py-4">
+            <div class="max-w-7xl mx-auto flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <a href="/" class="text-blue-600 hover:text-blue-800 font-bold text-xl">
+                        {{ app_name }}
+                    </a>
+                    <span class="text-gray-400">/</span>
+                    <span class="text-gray-600">Сделка</span>
+                </div>
+                <div v-if="isAuthenticated" class="flex items-center gap-3">
+                    <span class="text-sm text-gray-600">[[ walletAddress.substring(0, 6) ]]...[[ walletAddress.substring(walletAddress.length - 4) ]]</span>
+                    <button 
+                        @click="logout"
+                        class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-semibold transition-colors"
+                    >
+                        Выйти
+                    </button>
+                </div>
+                <div v-else class="flex items-center gap-3">
+                    <a 
+                        href="/"
+                        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors"
+                    >
+                        Войти
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto p-8">
+            <!-- Loading State -->
+            <div v-if="isLoading" class="text-center py-12">
+                <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                <p class="mt-4 text-gray-500">Загрузка информации о сделке...</p>
+            </div>
+
+            <!-- Error State -->
+            <div v-else-if="error" class="bg-white rounded-2xl border p-12 text-center">
+                <div class="w-20 h-20 bg-red-100 rounded-full mx-auto mb-6 flex items-center justify-center">
+                    <svg class="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold text-gray-900 mb-2">Ошибка загрузки</h3>
+                <p class="text-gray-500 mb-6">[[ error ]]</p>
+                <a href="/" class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors inline-block">
+                    Вернуться на главную
+                </a>
+            </div>
+
+            <!-- Deal Info -->
+            <div v-else-if="dealInfo" class="fade-in">
+                <div class="bg-white rounded-2xl border p-8 mb-6">
+                    <div class="flex items-start justify-between mb-6">
+                        <div>
+                            <h1 class="text-3xl font-bold text-gray-900 mb-2">[[ dealInfo.label ]]</h1>
+                            <p class="text-gray-500">UID сделки: <span class="font-mono text-sm">[[ dealInfo.deal_uid ]]</span></p>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span :class="['px-4 py-2 rounded-full text-sm font-bold uppercase', dealInfo.need_receiver_approve ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700']">
+                                [[ dealInfo.need_receiver_approve ? 'Ожидает подтверждения' : 'Подтверждено' ]]
+                            </span>
+                            <button 
+                                v-if="dealInfo.need_receiver_approve && isAuthenticated && currentUserDid === dealInfo.sender_did"
+                                @click="approveDeal"
+                                :disabled="isApproving"
+                                class="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors"
+                            >
+                                [[ isApproving ? 'Подтверждение...' : 'Подтвердить сделку' ]]
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                        <div class="bg-gray-50 rounded-xl p-4">
+                            <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Отправитель</p>
+                            <p class="text-sm font-mono text-gray-900 break-all">[[ dealInfo.sender_did ]]</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-xl p-4">
+                            <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Получатель</p>
+                            <p class="text-sm font-mono text-gray-900 break-all">[[ dealInfo.receiver_did ]]</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-xl p-4">
+                            <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Арбитр</p>
+                            <p class="text-sm font-mono text-gray-900 break-all">[[ dealInfo.arbiter_did ]]</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Дата создания</p>
+                            <p class="text-sm text-gray-900">[[ formatDate(dealInfo.created_at) ]]</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Последнее обновление</p>
+                            <p class="text-sm text-gray-900">[[ formatDate(dealInfo.updated_at) ]]</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Requisites -->
+                <div v-if="dealInfo.requisites" class="bg-white rounded-2xl border p-8 mb-6">
+                    <h2 class="text-xl font-bold text-gray-900 mb-4">Реквизиты</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div v-for="(value, key) in dealInfo.requisites" :key="key">
+                            <p class="text-xs text-gray-500 uppercase font-semibold mb-1">[[ key ]]</p>
+                            <p class="text-sm text-gray-900">[[ value ]]</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Attachments -->
+                <div v-if="dealInfo.attachments && dealInfo.attachments.length > 0" class="bg-white rounded-2xl border p-8 mb-6">
+                    <h2 class="text-xl font-bold text-gray-900 mb-4">Вложения</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div v-for="(attachment, index) in dealInfo.attachments" :key="index" class="border rounded-lg p-4">
+                            <p class="text-sm font-semibold text-gray-900 mb-1">[[ attachment.name || 'Файл' ]]</p>
+                            <p class="text-xs text-gray-500">[[ attachment.type || 'Неизвестный тип' ]]</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Section -->
+                <div v-if="isAuthenticated" class="bg-white rounded-2xl border p-8">
+                    <h2 class="text-xl font-bold text-gray-900 mb-4">Чат сделки</h2>
+                    <deal-conversation 
+                        ref="dealConversation"
+                        :show="true"
+                        :wallet-address="walletAddress"
+                        :is-authenticated="isAuthenticated"
+                        :deal-id="dealInfo.deal_uid"
+                        :current-user-did="currentUserDid"
+                        @close="() => {}"
+                    ></deal-conversation>
+                </div>
+                
+                <!-- Auth Prompt for Unauthenticated Users -->
+                <div v-else class="bg-blue-50 border-2 border-blue-200 rounded-2xl p-8 text-center">
+                    <div class="w-16 h-16 bg-blue-100 rounded-full mx-auto mb-4 flex items-center justify-center">
+                        <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                        </svg>
+                    </div>
+                    <h2 class="text-2xl font-bold text-gray-900 mb-2">Авторизуйтесь для доступа к чату</h2>
+                    <p class="text-gray-600 mb-6">Чтобы участвовать в обсуждении сделки и видеть полную информацию, необходимо войти в систему</p>
+                    <a 
+                        href="/"
+                        class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors inline-block"
+                    >
+                        Войти через кошелек TRON
+                    </a>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/js/chat.js"></script>
+    <script src="/static/js/components.js"></script>
+    <script>
+        new Vue({
+            el: '#app',
+            delimiters: ['[[', ']]'],
+            data: {
+                isAuthenticated: false,
+                walletAddress: '',
+                currentUserDid: null,
+                dealInfo: null,
+                isLoading: true,
+                error: null,
+                dealUid: null,
+                isApproving: false
+            },
+            mounted() {
+                // Получаем deal_uid из URL
+                const pathParts = window.location.pathname.split('/');
+                this.dealUid = pathParts[pathParts.length - 1];
+                
+                // Проверяем авторизацию
+                this.checkAuth();
+                
+                // Загружаем информацию о сделке
+                this.loadDealInfo();
+            },
+            methods: {
+                checkAuth() {
+                    const token = localStorage.getItem('access_token');
+                    const walletAddress = localStorage.getItem('wallet_address');
+                    
+                    if (token && walletAddress) {
+                        this.isAuthenticated = true;
+                        this.walletAddress = walletAddress;
+                        this.loadUserProfile();
+                    }
+                },
+                async loadUserProfile() {
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) return;
+                        
+                        const response = await fetch('/api/profile/me', {
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            const profile = await response.json();
+                            this.currentUserDid = profile.did || null;
+                        }
+                    } catch (error) {
+                        console.error('Error loading profile:', error);
+                    }
+                },
+                async loadDealInfo() {
+                    this.isLoading = true;
+                    this.error = null;
+                    
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        const headers = {
+                            'Content-Type': 'application/json'
+                        };
+                        
+                        if (token) {
+                            headers['Authorization'] = `Bearer ${token}`;
+                        }
+                        
+                        const response = await fetch(`/api/payment-request/${this.dealUid}`, {
+                            headers: headers
+                        });
+                        
+                        if (!response.ok) {
+                            if (response.status === 404) {
+                                this.error = 'Сделка не найдена или у вас нет доступа к этой сделке';
+                            } else {
+                                const errorData = await response.json();
+                                this.error = errorData.detail || 'Ошибка загрузки информации о сделке';
+                            }
+                            return;
+                        }
+                        
+                        this.dealInfo = await response.json();
+                    } catch (error) {
+                        console.error('Error loading deal info:', error);
+                        this.error = 'Ошибка при загрузке информации о сделке';
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
+                formatDate(dateString) {
+                    if (!dateString) return '';
+                    try {
+                        const date = new Date(dateString);
+                        return date.toLocaleString('ru-RU', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                    } catch (e) {
+                        return dateString;
+                    }
+                },
+                logout() {
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('wallet_address');
+                    window.location.href = '/';
+                },
+                async approveDeal() {
+                    if (!this.isAuthenticated || !this.dealInfo) {
+                        return;
+                    }
+                    
+                    this.isApproving = true;
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        if (!token) {
+                            this.error = 'Необходима авторизация';
+                            return;
+                        }
+                        
+                        const response = await fetch('/api/payment-request/receiver-approve', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({
+                                deal_uid: this.dealInfo.deal_uid
+                            })
+                        });
+                        
+                        if (!response.ok) {
+                            const errorData = await response.json();
+                            throw new Error(errorData.detail || 'Ошибка при подтверждении сделки');
+                        }
+                        
+                        const result = await response.json();
+                        
+                        // Обновляем информацию о сделке
+                        await this.loadDealInfo();
+                        
+                        // Показываем сообщение об успехе
+                        alert('Сделка успешно подтверждена');
+                    } catch (error) {
+                        console.error('Error approving deal:', error);
+                        alert('Ошибка при подтверждении сделки: ' + error.message);
+                    } finally {
+                        this.isApproving = false;
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+

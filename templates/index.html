@@ -1187,6 +1187,8 @@
                         <deals 
                             :wallet-address="walletAddress"
                             :is-authenticated="isAuthenticated"
+                            :current-user-did="userProfile && userProfile.did ? userProfile.did : null"
+                            @open-deal-chat="handleOpenDealChat"
                         ></deals>
                     </div>
 
@@ -2818,6 +2820,11 @@
                     if (this.activeView === 'chats') {
                         this.activeView = 'deals';
                     }
+                },
+                handleOpenDealChat(dealUid) {
+                    // Открываем чат сделки
+                    this.currentDealId = dealUid;
+                    this.showDealConversation = true;
                 },
                 // Application Forms methods
                 async loadApplicationForms() {

@@ -9,6 +9,7 @@ from routers.wallet_users import profile_router, router as wallet_users_router
 from routers.advertisements import marketplace_router, my_ads_router, admin_ads_router
 from routers.billing import router as billing_router
 from routers.chat import router as chat_router
+from routers.payment_request import router as payment_request_router
 from dependencies import UserDepends
 from settings import Settings
 from db import init_db
@@ -48,6 +49,7 @@ app.include_router(my_ads_router)
 app.include_router(admin_ads_router)
 app.include_router(billing_router)
 app.include_router(chat_router)
+app.include_router(payment_request_router)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -173,6 +175,32 @@ async def tron_multisig_test(request: Request):
         "tron-multisig-test.html",
         {
             "request": request
+        }
+    )
+
+
+@app.get("/deal/{deal_uid}", response_class=HTMLResponse)
+async def deal_page(
+    deal_uid: str,
+    request: Request,
+    user_info: UserDepends
+):
+    """
+    Страница сделки
+    
+    Args:
+        deal_uid: UID сделки (base58 UUID)
+        request: Request object
+        user_info: User info from dependency
+    """
+    return templates.TemplateResponse(
+        "deal.html",
+        {
+            "request": request,
+            "user": user_info,
+            "is_authenticated": user_info is not None,
+            "app_name": "Гильдия",
+            "deal_uid": deal_uid
         }
     )
 
