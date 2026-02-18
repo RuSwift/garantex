@@ -16,6 +16,9 @@
     <!-- WalletConnect library (for mobile support) -->
     <script src="https://cdn.jsdelivr.net/npm/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js"></script>
     
+    <!-- TRON Auth CSS -->
+    <link href="/static/css/web3-auth.css" rel="stylesheet" />
+    <link href="/static/css/web3-auth-mobile.css" rel="stylesheet" />
     <!-- Modal Window CSS -->
     <link href="/static/css/sb-admin.css" rel="stylesheet" />
     
@@ -59,12 +62,12 @@
                     </button>
                 </div>
                 <div v-else class="flex items-center gap-3">
-                    <a 
-                        href="/"
+                    <button 
+                        @click="scrollToAuth"
                         class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors"
                     >
                         Войти
-                    </a>
+                    </button>
                 </div>
             </div>
         </header>
@@ -116,15 +119,24 @@
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                         <div class="bg-gray-50 rounded-xl p-4">
-                            <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Отправитель</p>
+                            <div class="flex items-center justify-between mb-1">
+                                <p class="text-xs text-gray-500 uppercase font-semibold">Отправитель</p>
+                                <span v-if="isCurrentUser(dealInfo.sender_did)" class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">Вы</span>
+                            </div>
                             <p class="text-sm font-mono text-gray-900 break-all">[[ dealInfo.sender_did ]]</p>
                         </div>
                         <div class="bg-gray-50 rounded-xl p-4">
-                            <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Получатель</p>
+                            <div class="flex items-center justify-between mb-1">
+                                <p class="text-xs text-gray-500 uppercase font-semibold">Получатель</p>
+                                <span v-if="isCurrentUser(dealInfo.receiver_did)" class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">Вы</span>
+                            </div>
                             <p class="text-sm font-mono text-gray-900 break-all">[[ dealInfo.receiver_did ]]</p>
                         </div>
                         <div class="bg-gray-50 rounded-xl p-4">
-                            <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Арбитр</p>
+                            <div class="flex items-center justify-between mb-1">
+                                <p class="text-xs text-gray-500 uppercase font-semibold">Арбитр</p>
+                                <span v-if="isCurrentUser(dealInfo.arbiter_did)" class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">Вы</span>
+                            </div>
                             <p class="text-sm font-mono text-gray-900 break-all">[[ dealInfo.arbiter_did ]]</p>
                         </div>
                     </div>
@@ -172,13 +184,25 @@
                     </div>
                     <h2 class="text-2xl font-bold text-gray-900 mb-2">Авторизуйтесь для доступа к чату</h2>
                     <p class="text-gray-600 mb-6">Чтобы участвовать в обсуждении сделки и видеть полную информацию, необходимо войти в систему</p>
-                    <a 
-                        href="/"
+                    <button 
+                        @click="scrollToAuth"
                         class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors inline-block"
                     >
                         Войти через кошелек TRON
-                    </a>
+                    </button>
                 </div>
+            </div>
+            
+            <!-- TronAuth Panel (visible when not authenticated, placed after deal info) -->
+            <div v-show="!isAuthenticated && dealInfo" id="tron-auth-panel" class="bg-white rounded-2xl border p-8 mb-8 fade-in">
+                <h2 class="text-2xl font-bold text-gray-900 mb-4 text-center">Авторизация через TRON кошелек</h2>
+                <p class="text-gray-600 mb-6 text-center">Подключите ваш TRON кошелек через TronLink, TrustWallet или WalletConnect</p>
+                <tron-auth ref="tronAuth" @authenticated="handleAuthSuccess"></tron-auth>
+            </div>
+            
+            <!-- Hidden TronAuth component (always in DOM for logout functionality) -->
+            <div v-show="isAuthenticated" style="position: absolute; visibility: hidden; height: 0; overflow: hidden; width: 0;">
+                <tron-auth ref="tronAuthHidden" @authenticated="handleAuthSuccess"></tron-auth>
             </div>
             
             <!-- Back to Deals List Button -->
@@ -194,11 +218,6 @@
                 </a>
             </div>
         </main>
-        
-        <!-- Hidden TronAuth component for logout functionality -->
-        <div style="display: none;">
-            <tron-auth ref="tronAuth"></tron-auth>
-        </div>
     </div>
 
     <script src="/static/js/chat.js"></script>
@@ -237,6 +256,33 @@
                         this.isAuthenticated = true;
                         this.walletAddress = walletAddress;
                         this.loadUserProfile();
+                    }
+                },
+                handleAuthSuccess(address, token) {
+                    // Обработчик успешной авторизации от компонента TronAuth
+                    console.log('Authentication successful:', address);
+                    this.walletAddress = address;
+                    this.isAuthenticated = true;
+                    
+                    // Сохраняем в localStorage
+                    localStorage.setItem('access_token', token);
+                    localStorage.setItem('wallet_address', address);
+                    
+                    // Загружаем профиль пользователя
+                    this.loadUserProfile();
+                    
+                    // Перезагружаем информацию о сделке с новым токеном
+                    this.loadDealInfo();
+                },
+                scrollToAuth() {
+                    // Прокручиваем к панели авторизации
+                    const authPanel = document.getElementById('tron-auth-panel');
+                    if (authPanel) {
+                        authPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        // Небольшая задержка для лучшей видимости
+                        setTimeout(() => {
+                            authPanel.focus();
+                        }, 300);
                     }
                 },
                 async loadUserProfile() {
@@ -309,12 +355,19 @@
                         return dateString;
                     }
                 },
+                isCurrentUser(did) {
+                    // Проверяем, является ли переданный DID текущим пользователем
+                    return this.currentUserDid && did && this.currentUserDid === did;
+                },
                 logout() {
                     console.log('Logout initiated...');
                     
                     // Вызываем disconnect в компоненте TronAuth для полной очистки
+                    // Проверяем оба возможных ref (видимый и скрытый)
                     if (this.$refs.tronAuth) {
                         this.$refs.tronAuth.disconnect();
+                    } else if (this.$refs.tronAuthHidden) {
+                        this.$refs.tronAuthHidden.disconnect();
                     }
                     
                     // Сбрасываем состояние родительского компонента

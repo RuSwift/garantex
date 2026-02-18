@@ -10829,6 +10829,10 @@ Vue.component('Deals', {
         openDealChat(dealUid) {
             // Отправляем событие родительскому компоненту для открытия чата сделки
             this.$emit('open-deal-chat', dealUid);
+        },
+        isCurrentUser(did) {
+            // Проверяем, является ли переданный DID текущим пользователем
+            return this.currentUserDid && did && this.currentUserDid === did;
         }
     },
     template: `
@@ -10883,52 +10887,68 @@ Vue.component('Deals', {
                     <thead class="bg-gray-50 border-b">
                         <tr>
                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Описание</th>
-                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Плательщик</th>
-                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Дата создания</th>
-                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Статус</th>
-                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Чат</th>
-                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider"></th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider" style="width: 50%;">Участники</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Статус / Чат</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
                         <tr v-for="request in paymentRequests" :key="request.deal_uid" class="hover:bg-gray-50">
                             <td class="px-4 py-4">
-                                <div class="text-sm font-medium text-gray-900 break-words">[[ request.label ]]</div>
+                                <div class="flex items-start gap-2">
+                                    <a 
+                                        :href="'/deal/' + request.deal_uid"
+                                        target="_blank"
+                                        class="text-blue-600 hover:text-blue-800 transition-colors flex-shrink-0"
+                                        title="Открыть страницу сделки"
+                                    >
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                        </svg>
+                                    </a>
+                                    <div class="flex-1">
+                                        <div class="text-sm font-medium text-gray-900 break-words">[[ request.label ]]</div>
+                                        <div class="text-xs text-gray-500 mt-1">[[ formatDate(request.created_at) ]]</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="px-4 py-4" style="width: 50%;">
+                                <div class="space-y-2">
+                                    <!-- Отправитель -->
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs text-gray-500 font-semibold">Отправитель:</span>
+                                        <span class="text-xs font-mono text-gray-900 break-all">[[ request.sender_did ]]</span>
+                                        <span v-if="isCurrentUser(request.sender_did)" class="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full whitespace-nowrap">Вы</span>
+                                    </div>
+                                    <!-- Получатель -->
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs text-gray-500 font-semibold">Получатель:</span>
+                                        <span class="text-xs font-mono text-gray-900 break-all">[[ request.receiver_did ]]</span>
+                                        <span v-if="isCurrentUser(request.receiver_did)" class="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full whitespace-nowrap">Вы</span>
+                                    </div>
+                                    <!-- Арбитр -->
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs text-gray-500 font-semibold">Арбитр:</span>
+                                        <span class="text-xs font-mono text-gray-900 break-all">[[ request.arbiter_did ]]</span>
+                                        <span v-if="isCurrentUser(request.arbiter_did)" class="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full whitespace-nowrap">Вы</span>
+                                    </div>
+                                </div>
                             </td>
                             <td class="px-4 py-4">
-                                <div class="text-sm text-gray-600 font-mono break-all">[[ request.sender_did ]]</div>
-                            </td>
-                            <td class="px-4 py-4">
-                                <div class="text-sm text-gray-600 whitespace-nowrap">[[ formatDate(request.created_at) ]]</div>
-                            </td>
-                            <td class="px-4 py-4">
-                                <span :class="['px-3 py-1 rounded-full text-xs font-bold uppercase whitespace-nowrap', getStatusClass(request)]">
-                                    [[ getStatusText(request) ]]
-                                </span>
-                            </td>
-                            <td class="px-4 py-4">
-                                <button 
-                                    @click="openDealChat(request.deal_uid)"
-                                    class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-200 transition-colors flex items-center gap-1.5 whitespace-nowrap"
-                                    title="Открыть чат сделки"
-                                >
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
-                                    </svg>
-                                    Чат
-                                </button>
-                            </td>
-                            <td class="px-4 py-4">
-                                <a 
-                                    :href="'/deal/' + request.deal_uid"
-                                    target="_blank"
-                                    class="text-blue-600 hover:text-blue-800 transition-colors"
-                                    title="Открыть страницу сделки"
-                                >
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
-                                    </svg>
-                                </a>
+                                <div class="flex flex-col gap-2">
+                                    <span :class="['px-3 py-1 rounded-full text-xs font-bold uppercase whitespace-nowrap inline-block', getStatusClass(request)]">
+                                        [[ getStatusText(request) ]]
+                                    </span>
+                                    <button 
+                                        @click="openDealChat(request.deal_uid)"
+                                        class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-200 transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                                        title="Открыть чат сделки"
+                                    >
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                                        </svg>
+                                        Чат
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                     </tbody>
