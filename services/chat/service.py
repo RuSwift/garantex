@@ -8,7 +8,7 @@ from sqlalchemy import select, func, desc, and_
 
 from db.models import Storage, Deal
 from ledgers.chat.schemas import ChatMessage, ChatMessageCreate, FileAttachment
-from core.utils import get_image_dimensions, get_deal_did, get_deal_did
+from core.utils import get_image_dimensions
 
 
 class ChatService:
@@ -71,6 +71,7 @@ class ChatService:
             receiver_id=message.receiver_id,
             conversation_id=None,  # Будет рассчитан для каждого owner_did
             deal_uid=message.deal_uid,
+            deal_label=message.deal_label,
             reply_to_message_uuid=message.reply_to_message_uuid,
             text=message.text,
             attachments=processed_attachments if processed_attachments else message.attachments,
@@ -121,8 +122,8 @@ class ChatService:
             for owner_did_value in owner_dids:
                 # Рассчитываем conversation_id для каждого owner_did
                 if deal_uid:
-                    # Если сообщение связано со сделкой, conversation_id = get_deal_did(deal_uid)
-                    conversation_id = get_deal_did(deal_uid)
+                    # Если сообщение связано со сделкой, conversation_id = deal_uid
+                    conversation_id = deal_uid
                 else:
                     # Иначе conversation_id = контрагент (тот, кто не является owner_did_value)
                     if owner_did_value == message.sender_id:
