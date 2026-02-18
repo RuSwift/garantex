@@ -23,6 +23,10 @@
     <!-- WalletConnect library (for mobile support) -->
     <script src="https://cdn.jsdelivr.net/npm/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js"></script>
     
+    <!-- Intro.js library -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intro.js@7.2.0/minified/introjs.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/intro.js@7.2.0/minified/intro.min.js"></script>
+    
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -212,6 +216,107 @@
         .fade-enter, .fade-leave-to {
             opacity: 0;
         }
+        
+        /* Intro.js custom styles */
+        .customTooltip {
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+        
+        .customHighlight {
+            border-radius: 12px;
+        }
+        
+        .introjs-tooltip {
+            font-family: 'Inter', sans-serif;
+            min-width: 400px !important;
+            max-width: 500px !important;
+            width: auto !important;
+        }
+        
+        .introjs-tooltipReferenceLayer {
+            min-width: 400px !important;
+            max-width: 500px !important;
+        }
+        
+        .introjs-tooltiptext {
+            font-size: 15px;
+            line-height: 1.6;
+            padding: 16px 20px;
+        }
+        
+        .introjs-tooltipbuttons {
+            padding: 12px 20px;
+            border-top: 1px solid #e5e7eb;
+            background: #f9fafb;
+        }
+        
+        .introjs-button {
+            border-radius: 8px;
+            font-weight: 600;
+            padding: 10px 20px;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            border: none;
+            cursor: pointer;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+        
+        .introjs-button.introjs-prevbutton {
+            background: #f3f4f6;
+            color: #374151;
+            margin-right: 8px;
+        }
+        
+        .introjs-button.introjs-prevbutton:hover:not(:disabled) {
+            background: #e5e7eb;
+            color: #111827;
+        }
+        
+        .introjs-button.introjs-prevbutton:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .introjs-button.introjs-nextbutton {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white !important;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+            text-shadow: none;
+        }
+        
+        .introjs-button.introjs-nextbutton:hover:not(:disabled) {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+            transform: translateY(-1px);
+            color: white !important;
+        }
+        
+        .introjs-button.introjs-skipbutton {
+            background: transparent;
+            color: #6b7280;
+            padding: 8px 12px;
+            font-size: 13px;
+        }
+        
+        .introjs-button.introjs-skipbutton:hover {
+            color: #374151;
+            background: #f3f4f6;
+        }
+        
+        .introjs-button.introjs-donebutton {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+        
+        .introjs-button.introjs-donebutton:hover {
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+            transform: translateY(-1px);
+        }
     </style>
 </head>
 <body class="bg-slate-50">
@@ -224,7 +329,7 @@
             
             <div class="max-w-md w-full glass rounded-[2.5rem] p-12 relative z-10 text-center shadow-2xl fade-in">
                 <!-- Logo -->
-                <div class="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-3xl mx-auto mb-8 flex items-center justify-center text-white shadow-xl shadow-blue-900/40">
+                <div class="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-3xl mx-auto mb-8 flex items-center justify-center text-white shadow-xl shadow-blue-900/40" data-intro="Добро пожаловать в {{ app_name }}! Это децентрализованная P2P платформа для безопасных транзакций." data-step="0">
                     <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
                     </svg>
@@ -236,7 +341,7 @@
                 </p>
                 
                 <!-- TronAuth Component -->
-                <tron-auth ref="tronAuth" @authenticated="handleAuthSuccess"></tron-auth>
+                <tron-auth ref="tronAuth" @authenticated="handleAuthSuccess" data-intro="Для начала работы подключите ваш TRON кошелек через TronLink, TrustWallet или WalletConnect." data-step="1"></tron-auth>
                 
                 <p class="mt-8 text-slate-500 text-sm italic">
                     Безопасная авторизация через TronLink, TrustWallet или WalletConnect
@@ -260,7 +365,7 @@
                 </div>
 
                 <!-- Navigation -->
-                <nav class="flex-1 mt-6 px-4 space-y-2">
+                <nav class="flex-1 mt-6 px-4 space-y-2" data-intro="Навигационное меню. Здесь вы можете переключаться между разделами: Маркетплейс, Мои объявления, Чаты, KYC, Антифрод и Профиль." data-step="2">
                     <button 
                         v-for="item in menuItems" 
                         :key="item.id"
@@ -296,10 +401,22 @@
                 <!-- Header -->
                 <header class="h-16 bg-white border-b px-8 flex items-center justify-between sticky top-0 z-30">
                     <div class="flex items-center gap-4">
-                        <div class="px-3 py-1 bg-green-50 text-green-600 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 border border-green-100">
+                        <div class="px-3 py-1 bg-green-50 text-green-600 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 border border-green-100" data-intro="Это индикатор сети TRON Mainnet. Все транзакции выполняются в основной сети TRON." data-step="1">
                             <span class="w-2 h-2 bg-green-500 rounded-full relative pulse-ring"></span>
                             TRON Mainnet
                         </div>
+                        <button 
+                            v-if="isAuthenticated"
+                            @click="startTour"
+                            class="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-colors flex items-center gap-1.5"
+                            title="Запустить обучающий тур"
+                            data-intro="Нажмите эту кнопку, чтобы запустить обучающий тур по интерфейсу в любое время." data-step="0"
+                        >
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                            Тур по интерфейсу
+                        </button>
                     </div>
 
                     <div class="flex items-center gap-6">
@@ -334,7 +451,7 @@
                 <div class="fade-in">
                     <!-- Marketplace View -->
                     <div v-if="activeView === 'marketplace'" class="p-8 max-w-7xl mx-auto">
-                        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8" data-intro="В разделе Маркетплейс вы можете найти и выбрать проверенных агентов для SWIFT переводов. Используйте поиск для фильтрации объявлений." data-step="3">
                             <div>
                                 <h2 class="text-3xl font-bold text-gray-900">Маркетплейс</h2>
                                 <p class="text-gray-500 mt-1">Выберите проверенного агента для SWIFT переводов</p>
@@ -2969,6 +3086,40 @@
                     } finally {
                         this.isDeletingForm = null;
                     }
+                },
+                // Intro.js methods
+                startTour() {
+                    if (typeof introJs === 'undefined') {
+                        console.error('Intro.js не загружен');
+                        return;
+                    }
+                    
+                    // Запускаем тур для всех элементов с data-intro
+                    introJs().setOptions({
+                        nextLabel: 'Следующий →',
+                        prevLabel: '← Предыдущий',
+                        skipLabel: 'Пропустить',
+                        doneLabel: 'Завершить',
+                        tooltipClass: 'customTooltip',
+                        highlightClass: 'customHighlight',
+                        exitOnOverlayClick: false,
+                        showStepNumbers: true,
+                        showBullets: true,
+                        showProgress: true,
+                        keyboardNavigation: true,
+                        scrollToElement: true,
+                        scrollTo: 'tooltip',
+                        scrollPadding: 30
+                    }).start();
+                },
+                startHints() {
+                    if (typeof introJs === 'undefined') {
+                        console.error('Intro.js не загружен');
+                        return;
+                    }
+                    
+                    // Добавляем подсказки для элементов с data-hint
+                    introJs().hints().addHints();
                 }
             }
         });
