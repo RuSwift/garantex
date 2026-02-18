@@ -294,6 +294,9 @@ class Deal(Base):
     # Current attachments (JSONB array of file references) - ссылки на файлы в Storage
     attachments = Column(JSONB, nullable=True, comment="Ссылки на файлы в Storage (массив объектов с uuid, name, type и др.)")
     
+    # Need receiver approval flag
+    need_receiver_approve = Column(Boolean, nullable=False, server_default='false', default=False, comment="Требуется ли одобрение получателя")
+    
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="Last update timestamp (UTC)")
