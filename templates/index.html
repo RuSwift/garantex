@@ -365,14 +365,14 @@
                 </div>
 
                 <!-- Navigation -->
-                <nav class="flex-1 mt-6 px-4 space-y-2" data-intro="Навигационное меню. Здесь вы можете переключаться между разделами: Сделки, Маркетплейс, Мои объявления, Чаты, KYC, Антифрод и Профиль." data-step="2">
+                <nav class="flex-1 mt-6 px-4 space-y-2" data-intro="Навигационное меню. Здесь вы можете переключаться между разделами: Сделки, Маркетплейс, Мои объявления, KYC, Антифрод и Профиль." data-step="2">
                     <button 
                         v-for="item in menuItems" 
                         :key="item.id"
-                        @click="item.id === 'chats' ? openDealsChat() : (activeView = item.id)"
+                        @click="activeView = item.id"
                         :class="[
                             'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-left',
-                            (activeView === item.id || (item.id === 'chats' && showDealConversation)) 
+                            activeView === item.id 
                                 ? 'bg-blue-50 text-blue-600 font-semibold shadow-sm' 
                                 : 'text-gray-500 hover:bg-gray-50'
                         ]"
@@ -1192,16 +1192,6 @@
                         ></deals>
                     </div>
 
-                    <!-- Chats View - Placeholder (скрыто, так как чат открывается в модальном окне) -->
-                    <div v-if="activeView === 'chats' && !showDealConversation" class="p-8 max-w-7xl mx-auto">
-                        <div class="text-center py-12">
-                            <svg class="w-20 h-20 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
-                            </svg>
-                            <h3 class="text-xl font-bold text-gray-900 mb-2">Чаты</h3>
-                            <p class="text-gray-500 mb-6">Нажмите на "Чаты" в меню, чтобы открыть чат</p>
-                        </div>
-                    </div>
 
                     <!-- KYC View -->
                     <div v-if="activeView === 'kyc'" class="p-8 max-w-7xl mx-auto">
@@ -2050,6 +2040,7 @@
                         label: 'Сделки',
                         icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>'
                     },
+                    /*
                     {
                         id: 'marketplace',
                         label: 'Маркетплейс',
@@ -2060,11 +2051,7 @@
                         label: 'Мои объявления',
                         icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>'
                     },
-                    {
-                        id: 'chats',
-                        label: 'Чаты',
-                        icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>'
-                    },
+                    */
                     {
                         id: 'kyc',
                         label: 'KYC',
@@ -2122,8 +2109,6 @@
                         }
                     } else if (newView === 'marketplace' && this.isAuthenticated) {
                         this.searchMarketplace();
-                    } else if (newView === 'chats' && this.isAuthenticated) {
-                        this.openDealsChat();
                     } else if (newView === 'profile' && this.isAuthenticated) {
                         this.loadUserProfile();
                         this.loadBillingHistory();
@@ -2816,10 +2801,6 @@
                 closeDealConversation() {
                     this.showDealConversation = false;
                     this.currentDealId = null;
-                    // Возвращаемся к предыдущему виду, если был открыт вид "chats"
-                    if (this.activeView === 'chats') {
-                        this.activeView = 'deals';
-                    }
                 },
                 handleOpenDealChat(dealUid) {
                     // Открываем чат сделки

@@ -9306,31 +9306,43 @@ Vue.component('DealConversation', {
                 
                 const dealInfo = await response.json();
                 
-                // Определяем, с каким участником открыть чат
-                // Открываем чат с тем участником, который не является текущим пользователем
-                let contactDid = null;
-                if (dealInfo.sender_did === this.userDid) {
-                    // Если текущий пользователь - sender, открываем чат с receiver
-                    contactDid = dealInfo.receiver_did;
-                } else if (dealInfo.receiver_did === this.userDid) {
-                    // Если текущий пользователь - receiver, открываем чат с sender
-                    contactDid = dealInfo.sender_did;
-                } else if (dealInfo.arbiter_did === this.userDid) {
-                    // Если текущий пользователь - arbiter, открываем чат с sender
-                    contactDid = dealInfo.sender_did;
-                } else {
-                    // Если текущий пользователь не является участником, открываем чат с sender
-                    contactDid = dealInfo.sender_did;
-                }
+                // Генерируем conversation_id в формате DID для сделки
+                const dealConversationId = `did:deal:${this.dealId}`;
                 
-                if (!contactDid) {
-                    console.warn('No contact DID found for deal chat');
-                    return;
-                }
-                
-                // Открываем чат с найденным участником
-                this.openChatWithOwner(contactDid, {
-                    deal_uid: this.dealId
+                // Ensure chat component is ready
+                this.$nextTick(() => {
+                    if (!this.$refs.chatComponent) {
+                        console.error('Chat component not ready');
+                        return;
+                    }
+                    
+                    const chat = this.$refs.chatComponent;
+                    
+                    // Проверяем, существует ли уже контакт сделки
+                    let dealContact = chat.contacts.find(c => c.id === dealConversationId);
+                    
+                    if (!dealContact) {
+                        // Создаем контакт сделки
+                        const dealLabel = dealInfo.label || `Сделка ${this.dealId}`;
+                        dealContact = {
+                            id: dealConversationId,
+                            name: dealLabel.length > 30 ? dealLabel.substring(0, 30) + '...' : dealLabel,
+                            avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${this.dealId}`,
+                            status: 'online',
+                            lastMessage: '',
+                            did: dealConversationId,
+                            deal_uid: this.dealId,
+                            isTyping: false
+                        };
+                        chat.contacts.push(dealContact);
+                    }
+                    
+                    // Выбираем контакт сделки для conversation_id
+                    chat.selectContact(dealContact);
+                    this.chatVisible = true;
+                    
+                    // Загружаем историю чата для сделки
+                    this.loadChatHistory(dealConversationId);
                 });
                 
             } catch (error) {
@@ -10645,6 +10657,7 @@ Vue.component('Deals', {
             showCreateModal: false,
             paymentRequests: [],
             isLoading: false,
+            searchQuery: '',
             createForm: {
                 amount: '',
                 currency: 'USDT',
@@ -10654,6 +10667,44 @@ Vue.component('Deals', {
             },
             createFormError: '',
             createFormSuccess: ''
+        }
+    },
+    computed: {
+        filteredPaymentRequests() {
+            if (!this.searchQuery || this.searchQuery.trim() === '') {
+                return this.paymentRequests;
+            }
+            
+            const query = this.searchQuery.toLowerCase().trim();
+            
+            return this.paymentRequests.filter(request => {
+                // Поиск по названию (label)
+                if (request.label && request.label.toLowerCase().includes(query)) {
+                    return true;
+                }
+                
+                // Поиск по deal_uid
+                if (request.deal_uid && request.deal_uid.toLowerCase().includes(query)) {
+                    return true;
+                }
+                
+                // Поиск по отправителю (sender_did)
+                if (request.sender_did && request.sender_did.toLowerCase().includes(query)) {
+                    return true;
+                }
+                
+                // Поиск по получателю (receiver_did)
+                if (request.receiver_did && request.receiver_did.toLowerCase().includes(query)) {
+                    return true;
+                }
+                
+                // Поиск по арбитру (arbiter_did)
+                if (request.arbiter_did && request.arbiter_did.toLowerCase().includes(query)) {
+                    return true;
+                }
+                
+                return false;
+            });
         }
     },
     mounted() {
@@ -10866,6 +10917,36 @@ Vue.component('Deals', {
                 </div>
             </div>
             
+            <!-- Search Bar -->
+            <div v-if="paymentRequests.length > 0" class="mb-6">
+                <div class="bg-white rounded-xl border p-4">
+                    <div class="flex items-center gap-3">
+                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                        <input 
+                            type="text"
+                            v-model="searchQuery"
+                            placeholder="Поиск по названию, участникам, UID сделки..."
+                            class="flex-1 border-none outline-none text-gray-700 placeholder-gray-400"
+                        />
+                        <button 
+                            v-if="searchQuery"
+                            @click="searchQuery = ''"
+                            class="text-gray-400 hover:text-gray-600 transition-colors"
+                            title="Очистить поиск"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div v-if="searchQuery" class="mt-2 text-sm text-gray-500">
+                    Найдено: [[ filteredPaymentRequests.length ]] из [[ paymentRequests.length ]]
+                </div>
+            </div>
+            
             <!-- Payment Requests Table -->
             <div v-if="isLoading && paymentRequests.length === 0" class="bg-white rounded-2xl border p-12 text-center">
                 <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -10882,6 +10963,16 @@ Vue.component('Deals', {
                 <p class="text-gray-500">Создайте заявку на оплату, нажав кнопку "Выставить счет"</p>
             </div>
             
+            <div v-else-if="filteredPaymentRequests.length === 0 && searchQuery" class="bg-white rounded-2xl border p-12 text-center">
+                <div class="w-20 h-20 bg-gray-100 rounded-full mx-auto mb-6 flex items-center justify-center">
+                    <svg class="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold text-gray-900 mb-2">Ничего не найдено</h3>
+                <p class="text-gray-500">Попробуйте изменить поисковый запрос</p>
+            </div>
+            
             <div v-else class="bg-white rounded-2xl border overflow-hidden">
                 <table class="w-full">
                     <thead class="bg-gray-50 border-b">
@@ -10892,7 +10983,7 @@ Vue.component('Deals', {
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
-                        <tr v-for="request in paymentRequests" :key="request.deal_uid" class="hover:bg-gray-50">
+                        <tr v-for="request in filteredPaymentRequests" :key="request.deal_uid" class="hover:bg-gray-50">
                             <td class="px-4 py-4">
                                 <div class="flex items-start gap-2">
                                     <a 
