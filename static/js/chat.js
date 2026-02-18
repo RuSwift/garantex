@@ -1744,25 +1744,6 @@ Vue.component('Chat', {
                                                     <span style="fontFamily: 'monospace', opacity: 0.75, fontSize: '10px';">[[ m.signature.substring(0, 20) ]]...[[ m.signature.substring(m.signature.length - 10) ]]</span>
                                                 </div>
                                                 
-                                                <!-- Sign button (hidden for service messages) -->
-                                                <div v-if="m.type !== 'service' && m.sender === 'mine' && isAuthenticated && (!m.signature || !m.signature.startsWith('0x'))" style="marginTop: 8px;">
-                                                    <button 
-                                                        @click="handleSignExistingMessage(m)"
-                                                        :style="{
-                                                            fontSize: '11px',
-                                                            padding: '2px 8px',
-                                                            border: 'none',
-                                                            borderRadius: '4px',
-                                                            background: m.sender === 'mine' ? 'rgba(255,255,255,0.9)' : '#f0f0f0',
-                                                            color: '#212121',
-                                                            cursor: 'pointer'
-                                                        }"
-                                                        title="Подписать сообщение"
-                                                    >
-                                                        🔐 Подписать
-                                                    </button>
-                                                </div>
-                                                
                                                 <!-- Timestamp and Status (hidden for service messages) -->
                                                 <div v-if="m.type !== 'service'" :style="{
                                                     position: 'absolute',

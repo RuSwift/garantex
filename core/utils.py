@@ -36,6 +36,10 @@ def get_user_did(wallet_address: str, blockchain: str) -> str:
     return did
 
 
+def get_deal_did(deal_uid: str) -> str:
+    return f'did:deal:{deal_uid}'
+
+
 def generate_base58_uuid() -> str:
     """
     Generate a base58-encoded UUID v4
