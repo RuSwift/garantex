@@ -10532,3 +10532,69 @@ Vue.component('kyc-component', {
         </div>
     `
 });
+
+// Deals Component
+Vue.component('Deals', {
+    delimiters: ['[[', ']]'],
+    props: {
+        walletAddress: {
+            type: String,
+            default: ''
+        },
+        isAuthenticated: {
+            type: Boolean,
+            default: false
+        }
+    },
+    data() {
+        return {
+            // Component data will be added here
+        }
+    },
+    mounted() {
+        // Component initialization
+    },
+    methods: {
+        createInvoice() {
+            // Метод для создания счета
+            console.log('Создание счета...');
+            // Здесь будет логика создания счета
+        }
+    },
+    template: `
+        <div class="p-8 max-w-7xl mx-auto">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                <div>
+                    <h2 class="text-3xl font-bold text-gray-900">Сделки</h2>
+                    <p class="text-gray-500 mt-1">Управление вашими сделками</p>
+                </div>
+                <button 
+                    @click="createInvoice"
+                    class="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors flex items-center gap-2"
+                >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                    </svg>
+                    Выставить счет
+                </button>
+            </div>
+            
+            <div class="bg-white rounded-2xl border p-12 text-center">
+                <div class="w-20 h-20 bg-gray-100 rounded-full mx-auto mb-6 flex items-center justify-center">
+                    <svg class="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold text-gray-900 mb-2">Компонент в разработке</h3>
+                <p class="text-gray-500">Здесь будет отображаться список ваших сделок</p>
+            </div>
+        </div>
+    `,
+    methods: {
+        createInvoice() {
+            // Метод для создания счета
+            console.log('Создание счета...');
+            // Здесь будет логика создания счета
+        }
+    }
+});

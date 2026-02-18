@@ -83,7 +83,7 @@ class DealsService:
         Create a new deal
         
         Args:
-            sender_did: DID отправителя (owner сделки, должен совпадать с self.owner_did)
+            sender_did: DID отправителя (owner сделки)
             receiver_did: DID получателя (тот, кто выставляет счет)
             arbiter_did: DID арбитра
             label: Описание сделки
@@ -92,11 +92,14 @@ class DealsService:
             Created Deal object
             
         Raises:
-            ValueError: If sender_did doesn't match owner_did
+            ValueError: If owner_did is not a participant (sender, receiver or arbiter)
         """
-        # Проверяем, что sender_did совпадает с owner_did
-        if sender_did != self.owner_did:
-            raise ValueError(f"sender_did ({sender_did}) must match owner_did ({self.owner_did})")
+        # Проверяем, что owner_did является участником сделки
+        if self.owner_did not in [sender_did, receiver_did, arbiter_did]:
+            raise ValueError(
+                f"owner_did ({self.owner_did}) must be a participant "
+                f"(sender_did, receiver_did or arbiter_did)"
+            )
         
         # Генерируем base58 UUID для сделки
         deal_uid = generate_base58_uuid()

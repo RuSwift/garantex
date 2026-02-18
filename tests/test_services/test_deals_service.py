@@ -33,18 +33,54 @@ class TestDealsServiceOwnership:
         assert deal.arbiter_did == "did:test:arbiter1"
     
     @pytest.mark.asyncio
-    async def test_create_deal_by_non_owner_fails(self, test_db):
-        """Test creating deal with wrong sender_did - should fail"""
+    async def test_create_deal_by_non_participant_fails(self, test_db):
+        """Test creating deal where owner_did is not a participant - should fail"""
         owner_did = "did:test:owner1"
         service = DealsService(session=test_db, owner_did=owner_did)
         
-        with pytest.raises(ValueError, match="sender_did.*must match owner_did"):
+        with pytest.raises(ValueError, match="owner_did.*must be a participant"):
             await service.create_deal(
-                sender_did="did:test:wrong_owner",
+                sender_did="did:test:sender1",
                 receiver_did="did:test:receiver1",
                 arbiter_did="did:test:arbiter1",
                 label="Test Deal"
             )
+    
+    @pytest.mark.asyncio
+    async def test_create_deal_as_receiver(self, test_db):
+        """Test creating deal where owner_did is receiver - should succeed"""
+        owner_did = "did:test:receiver1"
+        service = DealsService(session=test_db, owner_did=owner_did)
+        
+        deal = await service.create_deal(
+            sender_did="did:test:sender1",
+            receiver_did=owner_did,
+            arbiter_did="did:test:arbiter1",
+            label="Test Deal as Receiver"
+        )
+        
+        assert deal is not None
+        assert deal.receiver_did == owner_did
+        assert deal.sender_did == "did:test:sender1"
+        assert deal.arbiter_did == "did:test:arbiter1"
+    
+    @pytest.mark.asyncio
+    async def test_create_deal_as_arbiter(self, test_db):
+        """Test creating deal where owner_did is arbiter - should succeed"""
+        owner_did = "did:test:arbiter1"
+        service = DealsService(session=test_db, owner_did=owner_did)
+        
+        deal = await service.create_deal(
+            sender_did="did:test:sender1",
+            receiver_did="did:test:receiver1",
+            arbiter_did=owner_did,
+            label="Test Deal as Arbiter"
+        )
+        
+        assert deal is not None
+        assert deal.arbiter_did == owner_did
+        assert deal.sender_did == "did:test:sender1"
+        assert deal.receiver_did == "did:test:receiver1"
     
     @pytest.mark.asyncio
     async def test_update_deal_by_owner(self, test_db):
