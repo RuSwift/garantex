@@ -238,6 +238,9 @@ class EscrowModel(Base):
     # Arbiter address (escrow_address is initially set to arbiter address)
     arbiter_address = Column(String(255), nullable=True, comment="Arbiter address (can be changed by participants)")
     
+    # Encrypted mnemonic phrase (optional)
+    encrypted_mnemonic = Column(Text, nullable=True, comment="Encrypted mnemonic phrase for escrow (optional)")
+    
     # Escrow status
     status = Column(
         String(50),
@@ -264,6 +267,52 @@ class EscrowModel(Base):
     
     def __repr__(self):
         return f"<EscrowModel(id={self.id}, blockchain={self.blockchain}, network={self.network}, escrow_address={self.escrow_address}, type={self.escrow_type})>"
+
+
+class EscrowTxnModel(Base):
+    """Model for storing escrow transactions and events"""
+    
+    __tablename__ = "escrow_txn"
+    
+    id = Column(BigInteger, primary_key=True, autoincrement=True, index=True, comment="Autoincrement primary key")
+    
+    # One-to-one relationship with EscrowModel
+    escrow_id = Column(
+        BigInteger,
+        ForeignKey('escrow_operations.id', ondelete='CASCADE'),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="Reference to escrow operation (one-to-one)"
+    )
+    
+    # Transaction or event data (JSONB, nullable)
+    txn = Column(JSONB, nullable=True, comment="Transaction or event data (JSONB)")
+    
+    # Type: txn | event
+    type = Column(
+        String(20),
+        nullable=False,
+        comment="Type: 'txn' for transaction, 'event' for event"
+    )
+    
+    # Comment (required)
+    comment = Column(Text, nullable=False, comment="Comment describing the transaction or event")
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="Last update timestamp (UTC)")
+    
+    # Indexes
+    __table_args__ = (
+        # GIN index on txn for efficient JSONB queries
+        Index('ix_escrow_txn_data', 'txn', postgresql_using='gin'),
+        # Index on type for filtering
+        Index('ix_escrow_txn_type', 'type'),
+    )
+    
+    def __repr__(self):
+        return f"<EscrowTxnModel(id={self.id}, escrow_id={self.escrow_id}, type={self.type})>"
 
 
 class Deal(Base):
