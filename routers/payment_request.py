@@ -7,11 +7,15 @@ from pydantic import BaseModel, Field
 
 from routers.auth import get_current_tron_user, UserInfo
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from dependencies import DbDepends
+from dependencies import DbDepends, SettingsDepends
 from services.deals.service import DealsService
 from services.wallet_user import WalletUserService
 from services.arbiter.service import ArbiterService
+from services.escrow.service import EscrowService
 from ledgers import get_user_did
+from routers.utils import get_wallet_address_by_did
+from sqlalchemy import select, and_, or_
+from db.models import EscrowModel
 
 
 router = APIRouter(
@@ -27,6 +31,7 @@ class CreatePaymentRequestRequest(BaseModel):
     """Request для создания заявки на оплату"""
     payer_address: str = Field(..., description="Tron адрес плательщика (того, кто должен оплатить)")
     label: str = Field(..., description="Заголовок/описание заявки на оплату")
+    blockchain: str = Field(default="tron", description="Blockchain name (tron, eth, etc.)")
 
 
 class PaymentRequestResponse(BaseModel):
@@ -38,6 +43,8 @@ class PaymentRequestResponse(BaseModel):
     label: str = Field(..., description="Заголовок/описание")
     need_receiver_approve: bool = Field(..., description="Требуется ли одобрение получателя")
     created_at: str = Field(..., description="Дата создания")
+    escrow_address: Optional[str] = Field(None, description="Escrow address")
+    escrow_status: Optional[str] = Field(None, description="Escrow status (pending, active, inactive)")
 
 
 class ReceiverApproveRequest(BaseModel):
@@ -92,7 +99,8 @@ async def get_deals_service(
 async def create_payment_request(
     request: CreatePaymentRequestRequest,
     deals_service: DealsService = Depends(get_deals_service),
-    db: DbDepends = None
+    db: DbDepends = None,
+    settings: SettingsDepends = None
 ):
     """
     Создать заявку на оплату
@@ -124,14 +132,63 @@ async def create_payment_request(
         # Получаем DID плательщика по адресу
         payer_did = get_user_did(request.payer_address, 'tron')
         
+        # Создаем Escrow через EscrowService перед созданием сделки
+        escrow_address = None
+        escrow_status = None
+        escrow_id = None
+        try:
+            # Получаем адреса кошельков по DID из БД
+            # Для арбитра используем адрес напрямую из active_arbiter
+            arbiter_address = active_arbiter.tron_address
+            sender_address = await get_wallet_address_by_did(payer_did, db)
+            receiver_address = await get_wallet_address_by_did(deals_service.owner_did, db)
+            
+            # Получаем secret из settings
+            secret = settings.secret.get_secret_value()
+            
+            # Создаем EscrowService
+            escrow_service = EscrowService(
+                session=db,
+                owner_did=deals_service.owner_did,
+                secret=secret,
+                escrow_type="multisig",
+                blockchain=request.blockchain,
+                network="mainnet"
+            )
+            
+            # Создаем или получаем существующий escrow
+            escrow = await escrow_service.ensure_exists(
+                arbiter_address=arbiter_address,
+                sender_address=sender_address,
+                receiver_address=receiver_address
+            )
+            
+            escrow_address = escrow.escrow_address
+            escrow_status = escrow.status
+            escrow_id = escrow.id
+            
+            # Flush чтобы получить escrow.id, commit будет сделан в create_deal
+            await db.flush()
+            
+        except HTTPException:
+            # Пробрасываем HTTPException дальше
+            raise
+        except Exception as e:
+            # Логируем ошибку, но не прерываем создание сделки
+            print(f"Error creating escrow: {str(e)}")
+            # Продолжаем без escrow информации
+        
         # Создаем сделку, где текущий пользователь является receiver
         # owner_did (receiver) создает сделку для sender
+        # Передаем escrow_id если escrow был создан
+        # create_deal сделает commit транзакции
         deal = await deals_service.create_deal(
             sender_did=payer_did,
             receiver_did=deals_service.owner_did,  # Текущий пользователь - receiver
             arbiter_did=arbiter_did,
             label=request.label,
-            need_receiver_approve=True  # Всегда true для заявок на оплату
+            need_receiver_approve=True,  # Всегда true для заявок на оплату
+            escrow_id=escrow_id
         )
         
         return PaymentRequestResponse(
@@ -141,7 +198,9 @@ async def create_payment_request(
             arbiter_did=deal.arbiter_did,
             label=deal.label,
             need_receiver_approve=deal.need_receiver_approve,
-            created_at=deal.created_at.isoformat()
+            created_at=deal.created_at.isoformat(),
+            escrow_address=escrow_address,
+            escrow_status=escrow_status
         )
         
     except ValueError as e:
@@ -230,7 +289,8 @@ async def receiver_approve(
 async def list_payment_requests(
     page: int = 1,
     page_size: int = 50,
-    deals_service: DealsService = Depends(get_deals_service)
+    deals_service: DealsService = Depends(get_deals_service),
+    db: DbDepends = None
 ):
     """
     Получить список всех сделок, где текущий пользователь является участником
@@ -240,6 +300,7 @@ async def list_payment_requests(
         page: Номер страницы (начиная с 1)
         page_size: Количество заявок на странице
         deals_service: DealsService instance
+        db: Database session
         
     Returns:
         Список всех сделок пользователя с пагинацией
@@ -263,6 +324,19 @@ async def list_payment_requests(
             elif deal.arbiter_did == deals_service.owner_did:
                 user_role = 'arbiter'
             
+            # Получаем информацию об escrow для сделки
+            escrow_status = None
+            escrow_address = None
+            if deal.escrow_id:
+                # Если есть escrow_id, получаем escrow напрямую
+                escrow_stmt = select(EscrowModel).where(EscrowModel.id == deal.escrow_id)
+                escrow_result = await db.execute(escrow_stmt)
+                escrow = escrow_result.scalar_one_or_none()
+                if escrow:
+                    escrow_status = escrow.status
+                    escrow_address = escrow.escrow_address
+            # Если escrow_id нет, возвращаем пустые значения (escrow_status и escrow_address уже None)
+            
             payment_requests.append({
                 'deal_uid': deal.uid,
                 'sender_did': deal.sender_did,
@@ -272,7 +346,9 @@ async def list_payment_requests(
                 'need_receiver_approve': deal.need_receiver_approve,
                 'created_at': deal.created_at.isoformat() if deal.created_at else None,
                 'requisites': deal.requisites,
-                'user_role': user_role  # Добавляем роль пользователя
+                'user_role': user_role,  # Добавляем роль пользователя
+                'escrow_status': escrow_status,  # Статус escrow
+                'escrow_address': escrow_address  # Адрес escrow
             })
         
         return {

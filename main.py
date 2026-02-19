@@ -1,3 +1,6 @@
+from contextlib import asynccontextmanager
+import asyncio
+import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -13,15 +16,80 @@ from routers.payment_request import router as payment_request_router
 from dependencies import UserDepends
 from settings import Settings
 from db import init_db
+from cron import cron_task
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Инициализация настроек и базы данных
 settings = Settings()
 init_db(settings.database)
 
+
+async def run_cron_periodically():
+    """
+    Фоновая задача для периодического выполнения cron задач
+    Выполняется каждые 5 секунд
+    Перезапускается автоматически после падения
+    """
+    while True:
+        try:
+            print("Cron task execution started")
+            await cron_task()
+            print("Cron task execution completed")
+        except Exception as e:
+            # Логируем ошибку, но продолжаем работу
+            print(f"Error in cron task: {str(e)}")
+            print("Cron task will continue after 5 seconds...")
+        except BaseException as e:
+            # Обрабатываем критические ошибки (включая KeyboardInterrupt, SystemExit)
+            print(f"Critical error in cron task: {str(e)}")
+            print("Restarting cron task in 5 seconds...")
+        await asyncio.sleep(5)  # Ждем 5 секунд перед следующим вызовом
+
+
+async def run_cron_with_restart():
+    """
+    Обертка для запуска cron задачи с автоматическим перезапуском при падении
+    """
+    while True:
+        try:
+            await run_cron_periodically()
+        except Exception as e:
+            print(f"Cron task crashed: {str(e)}")
+            print("Restarting cron task in 5 seconds...")
+            await asyncio.sleep(5)
+        except BaseException as e:
+            print(f"Critical error in cron wrapper: {str(e)}")
+            print("Restarting cron task in 5 seconds...")
+            await asyncio.sleep(5)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager для FastAPI app
+    Выполняет код при старте и остановке приложения
+    """
+    # Startup: запускаем фоновую задачу для cron с автоматическим перезапуском
+    cron_task_handle = asyncio.create_task(run_cron_with_restart())
+    
+    yield
+    
+    # Shutdown: останавливаем фоновую задачу
+    cron_task_handle.cancel()
+    try:
+        await cron_task_handle
+    except asyncio.CancelledError:
+        pass
+
+
 app = FastAPI(
     title="Garantex API",
     description="FastAPI приложение с Web3 авторизацией",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Настройка Jinja2 шаблонов

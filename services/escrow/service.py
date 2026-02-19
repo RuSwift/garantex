@@ -8,6 +8,7 @@ from sqlalchemy import select, and_, or_
 
 from db.models import EscrowModel
 from services.tron.multisig import TronMultisig
+from services.tron.utils import keypair_from_mnemonic
 from services.node import NodeService
 from didcomm.crypto import EthCrypto
 
@@ -109,11 +110,20 @@ class EscrowService:
         participant1_address = sender_address
         participant2_address = receiver_address
         
-        # Determine escrow_address based on type
-        if self.escrow_type == "multisig":
-            # For multisig, escrow_address = arbiter_address
+        # Generate and encrypt mnemonic for escrow wallet management
+        mnemonic = EthCrypto.generate_mnemonic(strength=128)  # 12 words
+        encrypted_mnemonic = NodeService.encrypt_data(mnemonic, self.secret)
+        
+        # Get escrow address from mnemonic
+        # For TRON blockchain, derive address from mnemonic
+        if self.blockchain == 'tron':
+            escrow_address, _ = keypair_from_mnemonic(mnemonic, account_index=0)
+        else:
+            # For other blockchains, use arbiter address as fallback
             escrow_address = arbiter_address
-            
+        
+        # Determine multisig config based on type
+        if self.escrow_type == "multisig":
             # Create multisig config (2/3)
             config = self.multisig.create_multisig_config(
                 required_signatures=2,
@@ -121,8 +131,6 @@ class EscrowService:
             )
             multisig_config = config.model_dump()
         else:
-            # For contract type, escrow_address = arbiter_address (can be changed later)
-            escrow_address = arbiter_address
             # Minimal config for contract type
             multisig_config = {
                 "required_signatures": 2,
@@ -135,10 +143,6 @@ class EscrowService:
             participant2_address: "participant",
             arbiter_address: "arbiter"
         }
-        
-        # Generate and encrypt mnemonic for escrow wallet management
-        mnemonic = EthCrypto.generate_mnemonic(strength=128)  # 12 words
-        encrypted_mnemonic = NodeService.encrypt_data(mnemonic, self.secret)
         
         # Create escrow model
         escrow = EscrowModel(

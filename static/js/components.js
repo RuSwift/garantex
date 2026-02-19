@@ -10663,10 +10663,12 @@ Vue.component('Deals', {
                 currency: 'USDT',
                 payerAddress: '',
                 label: '',
-                description: ''
+                description: '',
+                blockchain: 'tron'
             },
             createFormError: '',
-            createFormSuccess: ''
+            createFormSuccess: '',
+            escrowInfo: null  // Информация об эскроу после создания
         }
     },
     computed: {
@@ -10740,10 +10742,12 @@ Vue.component('Deals', {
                 currency: 'USDT',
                 payerAddress: '',
                 label: '',
-                description: ''
+                description: '',
+                blockchain: 'tron'
             };
             this.createFormError = '';
             this.createFormSuccess = '';
+            this.escrowInfo = null;
         },
         async createPaymentRequest() {
             // Валидация
@@ -10788,7 +10792,8 @@ Vue.component('Deals', {
                     },
                     body: JSON.stringify({
                         payer_address: this.createForm.payerAddress.trim(),
-                        label: label
+                        label: label,
+                        blockchain: this.createForm.blockchain
                     })
                 });
                 
@@ -10798,15 +10803,34 @@ Vue.component('Deals', {
                 }
                 
                 const data = await response.json();
-                this.createFormSuccess = 'Заявка на оплату успешно создана!';
+                
+                // Сохраняем информацию об эскроу
+                if (data.escrow_address && data.escrow_status) {
+                    this.escrowInfo = {
+                        address: data.escrow_address,
+                        status: data.escrow_status
+                    };
+                    
+                    // Если статус pending, не закрываем модалку сразу
+                    if (data.escrow_status === 'pending') {
+                        this.createFormSuccess = 'Заявка на оплату создана! Создается эскроу...';
+                    } else {
+                        this.createFormSuccess = 'Заявка на оплату успешно создана!';
+                        // Закрываем модалку через 1.5 секунды
+                        setTimeout(() => {
+                            this.closeCreateModal();
+                        }, 1500);
+                    }
+                } else {
+                    this.createFormSuccess = 'Заявка на оплату успешно создана!';
+                    // Закрываем модалку через 1.5 секунды
+                    setTimeout(() => {
+                        this.closeCreateModal();
+                    }, 1500);
+                }
                 
                 // Обновляем список заявок
                 await this.loadPaymentRequests();
-                
-                // Закрываем модалку через 1.5 секунды
-                setTimeout(() => {
-                    this.closeCreateModal();
-                }, 1500);
                 
             } catch (error) {
                 console.error('Error creating payment request:', error);
@@ -10884,6 +10908,16 @@ Vue.component('Deals', {
         isCurrentUser(did) {
             // Проверяем, является ли переданный DID текущим пользователем
             return this.currentUserDid && did && this.currentUserDid === did;
+        },
+        getTronScanUrl(address) {
+            // Генерирует URL для TronScan по адресу
+            if (!address) return '#';
+            return `https://tronscan.org/#/address/${address}`;
+        },
+        getTronScanPermissionsUrl(address) {
+            // Генерирует URL для TronScan permissions по адресу
+            if (!address) return '#';
+            return `https://tronscan.org/#/address/${address}/permissions`;
         }
     },
     template: `
@@ -11029,6 +11063,27 @@ Vue.component('Deals', {
                                     <span :class="['px-3 py-1 rounded-full text-xs font-bold uppercase whitespace-nowrap inline-block', getStatusClass(request)]">
                                         [[ getStatusText(request) ]]
                                     </span>
+                                    <!-- Escrow Status with Progress Circle if pending -->
+                                    <div v-if="request.escrow_status === 'pending'" class="flex items-center gap-2 px-3 py-1 bg-blue-50 rounded-lg">
+                                        <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                        <span class="text-xs text-blue-600 font-semibold">Эскроу создается...</span>
+                                    </div>
+                                    <!-- Escrow Address with TronScan permissions link -->
+                                    <div v-if="request.escrow_address" class="px-3 py-1 bg-gray-50 rounded-lg">
+                                        <span class="text-xs text-gray-600 font-semibold mr-1">Эскроу:</span>
+                                        <a 
+                                            :href="getTronScanPermissionsUrl(request.escrow_address)"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="text-xs font-mono text-blue-600 hover:text-blue-800 underline flex items-center gap-1 inline-flex"
+                                            :title="request.escrow_address"
+                                        >
+                                            [[ request.escrow_address.substring(0, 8) + '...' + request.escrow_address.substring(request.escrow_address.length - 6) ]]
+                                            <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                            </svg>
+                                        </a>
+                                    </div>
                                     <button 
                                         @click="openDealChat(request.deal_uid)"
                                         class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-200 transition-colors flex items-center gap-1.5 whitespace-nowrap"
@@ -11062,76 +11117,94 @@ Vue.component('Deals', {
                     </div>
                     
                     <form @submit.prevent="createPaymentRequest" class="p-6 space-y-6">
-                        <!-- Amount -->
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                Сумма *
-                            </label>
-                            <input 
-                                type="number" 
-                                v-model.number="createForm.amount"
-                                step="0.01"
-                                min="0.01"
-                                required
-                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="100.00"
-                            />
-                        </div>
-                        
-                        <!-- Currency -->
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                Валюта *
-                            </label>
-                            <select 
-                                v-model="createForm.currency"
-                                required
-                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            >
-                                <option value="USDT">USDT</option>
-                            </select>
-                        </div>
-                        
-                        <!-- Payer Address -->
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                Tron адрес плательщика *
-                            </label>
-                            <input 
-                                type="text" 
-                                v-model="createForm.payerAddress"
-                                required
-                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                                placeholder="TQn9Y2khEsLMWD..."
-                            />
-                        </div>
-                        
-                        <!-- Label -->
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                Название заявки *
-                            </label>
-                            <input 
-                                type="text" 
-                                v-model="createForm.label"
-                                required
-                                maxlength="255"
-                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="Например: Оплата за услуги"
-                            />
-                        </div>
-                        
-                        <!-- Description -->
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                Описание (необязательно)
-                            </label>
-                            <textarea 
-                                v-model="createForm.description"
-                                rows="3"
-                                class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="Дополнительная информация о заявке..."
-                            ></textarea>
+                        <!-- Form Fields - скрываются когда escrowInfo существует -->
+                        <div v-if="!escrowInfo">
+                            <!-- Amount -->
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Сумма *
+                                </label>
+                                <input 
+                                    type="number" 
+                                    v-model.number="createForm.amount"
+                                    step="0.01"
+                                    min="0.01"
+                                    required
+                                    class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="100.00"
+                                />
+                            </div>
+                            
+                            <!-- Currency -->
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Валюта *
+                                </label>
+                                <select 
+                                    v-model="createForm.currency"
+                                    required
+                                    class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                    <option value="USDT">USDT</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Payer Address -->
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Tron адрес плательщика *
+                                </label>
+                                <input 
+                                    type="text" 
+                                    v-model="createForm.payerAddress"
+                                    required
+                                    class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                    placeholder="TQn9Y2khEsLMWD..."
+                                />
+                            </div>
+                            
+                            <!-- Label -->
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Название заявки *
+                                </label>
+                                <input 
+                                    type="text" 
+                                    v-model="createForm.label"
+                                    required
+                                    maxlength="255"
+                                    class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Например: Оплата за услуги"
+                                />
+                            </div>
+                            
+                            <!-- Description -->
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Описание (необязательно)
+                                </label>
+                                <textarea 
+                                    v-model="createForm.description"
+                                    rows="3"
+                                    class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Дополнительная информация о заявке..."
+                                ></textarea>
+                            </div>
+                            
+                            <!-- Blockchain Selection -->
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Блокчейн *
+                                </label>
+                                <select 
+                                    v-model="createForm.blockchain"
+                                    required
+                                    class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                    <option value="tron">TRON</option>
+                                    <option value="ethereum">Ethereum</option>
+                                </select>
+                            </div>
                         </div>
                         
                         <!-- Error/Success messages -->
@@ -11142,11 +11215,31 @@ Vue.component('Deals', {
                             [[ createFormSuccess ]]
                         </div>
                         
+                        <!-- Escrow Info with Progress Circle if pending -->
+                        <div v-if="escrowInfo" class="p-4 rounded-xl border-2 border-blue-200 bg-blue-50">
+                            <div class="flex items-center gap-3 mb-2">
+                                <h4 class="text-sm font-semibold text-gray-900">Информация об эскроу</h4>
+                                <div v-if="escrowInfo.status === 'pending'" class="flex items-center gap-2">
+                                    <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                    <span class="text-xs text-blue-600 font-semibold">Создается...</span>
+                                </div>
+                                <span v-else-if="escrowInfo.status === 'active'" class="px-2 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
+                                    Активен
+                                </span>
+                                <span v-else class="px-2 py-1 bg-gray-100 text-gray-700 text-xs font-semibold rounded-full">
+                                    [[ escrowInfo.status ]]
+                                </span>
+                            </div>
+                            <div class="text-xs text-gray-600">
+                                <div class="font-mono break-all">Адрес: [[ escrowInfo.address ]]</div>
+                            </div>
+                        </div>
+                        
                         <!-- Buttons -->
                         <div class="flex gap-3 pt-4 border-t">
                             <button 
                                 type="submit"
-                                :disabled="isLoading"
+                                :disabled="isLoading || escrowInfo"
                                 class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >
                                 <span v-if="!isLoading">Создать заявку</span>
