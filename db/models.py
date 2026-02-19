@@ -299,6 +299,9 @@ class EscrowTxnModel(Base):
     # Comment (required)
     comment = Column(Text, nullable=False, comment="Comment describing the transaction or event")
     
+    # Counter for duplicate events
+    counter = Column(Integer, nullable=False, default=1, server_default='1', comment="Counter for duplicate events (incremented when same event occurs)")
+    
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="Last update timestamp (UTC)")

@@ -45,6 +45,7 @@ class PaymentRequestResponse(BaseModel):
     created_at: str = Field(..., description="Дата создания")
     escrow_address: Optional[str] = Field(None, description="Escrow address")
     escrow_status: Optional[str] = Field(None, description="Escrow status (pending, active, inactive)")
+    escrow_id: Optional[int] = Field(None, description="Escrow ID")
 
 
 class ReceiverApproveRequest(BaseModel):
@@ -200,7 +201,8 @@ async def create_payment_request(
             need_receiver_approve=deal.need_receiver_approve,
             created_at=deal.created_at.isoformat(),
             escrow_address=escrow_address,
-            escrow_status=escrow_status
+            escrow_status=escrow_status,
+            escrow_id=escrow_id
         )
         
     except ValueError as e:
@@ -348,7 +350,8 @@ async def list_payment_requests(
                 'requisites': deal.requisites,
                 'user_role': user_role,  # Добавляем роль пользователя
                 'escrow_status': escrow_status,  # Статус escrow
-                'escrow_address': escrow_address  # Адрес escrow
+                'escrow_address': escrow_address,  # Адрес escrow
+                'escrow_id': deal.escrow_id  # ID escrow
             })
         
         return {

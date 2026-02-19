@@ -10668,7 +10668,14 @@ Vue.component('Deals', {
             },
             createFormError: '',
             createFormSuccess: '',
-            escrowInfo: null  // Информация об эскроу после создания
+            escrowInfo: null,  // Информация об эскроу после создания
+            showEscrowLogsModal: false,
+            escrowLogs: [],
+            loadingEscrowLogs: false,
+            currentEscrowId: null,
+            escrowLogsRefreshTimer: null,
+            escrowLogsCountdownInterval: null,
+            escrowLogsRefreshCountdown: 0
         }
     },
     computed: {
@@ -10726,6 +10733,15 @@ Vue.component('Deals', {
             // Загружаем сделки когда DID становится доступным
             if (newVal && this.isAuthenticated) {
                 this.loadPaymentRequests();
+            }
+        },
+        showEscrowLogsModal(newVal) {
+            if (newVal) {
+                // Запускаем автообновление при открытии модалки
+                this.startEscrowLogsAutoRefresh();
+            } else {
+                // Останавливаем автообновление при закрытии модалки
+                this.stopEscrowLogsAutoRefresh();
             }
         }
     },
@@ -10918,6 +10934,108 @@ Vue.component('Deals', {
             // Генерирует URL для TronScan permissions по адресу
             if (!address) return '#';
             return `https://tronscan.org/#/address/${address}/permissions`;
+        },
+        async showEscrowLogs(escrowId) {
+            if (!escrowId) return;
+            
+            this.currentEscrowId = escrowId;
+            this.showEscrowLogsModal = true;
+            await this.loadEscrowLogs();
+        },
+        async loadEscrowLogs() {
+            if (!this.currentEscrowId) return;
+            
+            this.loadingEscrowLogs = true;
+            
+            try {
+                const token = localStorage.getItem('access_token');
+                if (!token) {
+                    throw new Error('Not authenticated');
+                }
+                
+                const response = await fetch(`/api/escrow/${this.currentEscrowId}/logs`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to load escrow logs');
+                }
+                
+                const data = await response.json();
+                console.log('Escrow logs response:', data);
+                this.escrowLogs = data.logs || [];
+                console.log('Escrow logs after assignment:', this.escrowLogs);
+            } catch (error) {
+                console.error('Error loading escrow logs:', error);
+                this.escrowLogs = [];
+            } finally {
+                this.loadingEscrowLogs = false;
+            }
+        },
+        startEscrowLogsAutoRefresh() {
+            // Останавливаем предыдущий таймер если есть
+            this.stopEscrowLogsAutoRefresh();
+            
+            // Сбрасываем счетчик
+            this.escrowLogsRefreshCountdown = 10;
+            
+            // Запускаем таймер обратного отсчета
+            const countdownInterval = setInterval(() => {
+                this.escrowLogsRefreshCountdown--;
+                if (this.escrowLogsRefreshCountdown <= 0) {
+                    this.escrowLogsRefreshCountdown = 10;
+                }
+            }, 1000);
+            
+            // Запускаем автообновление каждые 10 секунд
+            this.escrowLogsRefreshTimer = setInterval(() => {
+                if (this.showEscrowLogsModal && this.currentEscrowId) {
+                    this.loadEscrowLogs();
+                }
+            }, 10000);
+            
+            // Сохраняем interval для countdown чтобы можно было его очистить
+            this.escrowLogsCountdownInterval = countdownInterval;
+        },
+        stopEscrowLogsAutoRefresh() {
+            if (this.escrowLogsRefreshTimer) {
+                clearInterval(this.escrowLogsRefreshTimer);
+                this.escrowLogsRefreshTimer = null;
+            }
+            if (this.escrowLogsCountdownInterval) {
+                clearInterval(this.escrowLogsCountdownInterval);
+                this.escrowLogsCountdownInterval = null;
+            }
+            this.escrowLogsRefreshCountdown = 0;
+        },
+        closeEscrowLogsModal() {
+            this.showEscrowLogsModal = false;
+            this.currentEscrowId = null;
+            this.escrowLogs = [];
+            this.stopEscrowLogsAutoRefresh();
+        },
+        formatLogDate(dateString) {
+            if (!dateString) return '';
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleString('ru-RU', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+            } catch (e) {
+                return dateString;
+            }
+        },
+        beforeDestroy() {
+            // Очищаем таймеры при уничтожении компонента
+            this.stopEscrowLogsAutoRefresh();
         }
     },
     template: `
@@ -11064,7 +11182,16 @@ Vue.component('Deals', {
                                         [[ getStatusText(request) ]]
                                     </span>
                                     <!-- Escrow Status with Progress Circle if pending -->
-                                    <div v-if="request.escrow_status === 'pending'" class="flex items-center gap-2 px-3 py-1 bg-blue-50 rounded-lg">
+                                    <button 
+                                        v-if="request.escrow_status === 'pending' && request.escrow_id"
+                                        @click="showEscrowLogs(request.escrow_id)"
+                                        class="flex items-center gap-2 px-3 py-1 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer"
+                                        title="Показать историю инициализации эскроу"
+                                    >
+                                        <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                        <span class="text-xs text-blue-600 font-semibold">Эскроу создается...</span>
+                                    </button>
+                                    <div v-else-if="request.escrow_status === 'pending'" class="flex items-center gap-2 px-3 py-1 bg-blue-50 rounded-lg">
                                         <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
                                         <span class="text-xs text-blue-600 font-semibold">Эскроу создается...</span>
                                     </div>
@@ -11257,6 +11384,116 @@ Vue.component('Deals', {
                     </form>
                 </div>
             </div>
+            
+            <!-- Escrow Logs Modal -->
+            <modal-window v-if="showEscrowLogsModal" :width="'90%'" :max-width="'800px'" @close="closeEscrowLogsModal">
+                <template #header>
+                    <div class="flex items-center justify-between w-full">
+                        <h3 class="text-xl font-bold text-gray-900">История инициализации эскроу</h3>
+                        <div class="flex items-center gap-3">
+                            <div v-if="escrowLogsRefreshCountdown > 0" class="flex items-center gap-2 text-sm text-gray-600">
+                                <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                <span>Обновление через: <strong>[[ escrowLogsRefreshCountdown ]]</strong> сек</span>
+                            </div>
+                            <button 
+                                @click="loadEscrowLogs"
+                                :disabled="loadingEscrowLogs"
+                                class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                title="Обновить логи"
+                            >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                                Обновить
+                            </button>
+                            <button 
+                                @click="closeEscrowLogsModal"
+                                class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                title="Закрыть"
+                            >
+                                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+                <template #body>
+                    <div v-if="loadingEscrowLogs" class="flex items-center justify-center py-8">
+                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        <span class="ml-3 text-gray-600">Загрузка логов...</span>
+                    </div>
+                    <div v-else-if="escrowLogs.length === 0" class="py-8 text-center text-gray-500">
+                        Логи пока отсутствуют
+                    </div>
+                    <div v-else class="space-y-4">
+                        <div 
+                            v-for="log in escrowLogs" 
+                            :key="log.id"
+                            class="border rounded-lg p-4"
+                            :class="{
+                                'bg-green-50 border-green-200': log.type === 'txn' && !log.txn?.error_code,
+                                'bg-red-50 border-red-200': log.txn?.error_code,
+                                'bg-blue-50 border-blue-200': log.type === 'event' && !log.txn?.error_code
+                            }"
+                        >
+                            <div class="flex items-start justify-between mb-2">
+                                <div class="flex items-center gap-2">
+                                    <span 
+                                        class="px-2 py-1 rounded text-xs font-semibold"
+                                        :class="{
+                                            'bg-green-100 text-green-700': log.type === 'txn' && !log.txn?.error_code,
+                                            'bg-red-100 text-red-700': log.txn?.error_code,
+                                            'bg-blue-100 text-blue-700': log.type === 'event' && !log.txn?.error_code
+                                        }"
+                                    >
+                                        [[ log.type === 'txn' ? 'Транзакция' : 'Событие' ]]
+                                    </span>
+                                    <span v-if="log.txn?.error_code" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-semibold">
+                                        Ошибка
+                                    </span>
+                                    <span class="px-2 py-1 rounded text-xs font-semibold" :class="(log.counter || 1) > 1 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-700'" title="Количество повторений события">
+                                        Повторений: [[ log.counter || 1 ]]
+                                    </span>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-xs font-semibold text-gray-700">
+                                        [[ formatLogDate(log.updated_at || log.created_at) ]]
+                                    </div>
+                                    <div v-if="log.created_at && log.updated_at && log.created_at !== log.updated_at" class="text-xs text-gray-500 mt-0.5">
+                                        Создано: [[ formatLogDate(log.created_at) ]]
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="text-sm text-gray-700 mb-2">
+                                [[ log.comment ]]
+                            </div>
+                            <div v-if="log.txn" class="mt-3 pt-3 border-t border-gray-200">
+                                <div v-if="log.txn.tx_id" class="text-xs text-gray-600 mb-1">
+                                    <strong>TX ID:</strong> 
+                                    <a 
+                                        :href="'https://tronscan.org/#/transaction/' + log.txn.tx_id"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="font-mono text-blue-600 hover:text-blue-800 underline"
+                                    >
+                                        [[ log.txn.tx_id ]]
+                                    </a>
+                                </div>
+                                <div v-if="log.txn.error_code" class="text-xs text-red-600 mb-1">
+                                    <strong>Код ошибки:</strong> [[ log.txn.error_code ]]
+                                </div>
+                                <div v-if="log.txn.error_message" class="text-xs text-red-600 mb-1">
+                                    <strong>Сообщение:</strong> [[ log.txn.error_message ]]
+                                </div>
+                                <div v-if="log.txn.amount" class="text-xs text-gray-600 mb-1">
+                                    <strong>Сумма:</strong> [[ log.txn.amount ]] TRX
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </modal-window>
         </div>
     `
 });

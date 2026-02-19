@@ -13,6 +13,7 @@ from routers.advertisements import marketplace_router, my_ads_router, admin_ads_
 from routers.billing import router as billing_router
 from routers.chat import router as chat_router
 from routers.payment_request import router as payment_request_router
+from routers.escrow import router as escrow_router
 from dependencies import UserDepends
 from settings import Settings
 from db import init_db
@@ -118,6 +119,7 @@ app.include_router(admin_ads_router)
 app.include_router(billing_router)
 app.include_router(chat_router)
 app.include_router(payment_request_router)
+app.include_router(escrow_router)
 
 
 @app.get("/", response_class=HTMLResponse)

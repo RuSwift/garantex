@@ -206,6 +206,11 @@ class TronSettings(BaseSettings):
         default="mainnet",
         description="TRON сеть: 'mainnet', 'shasta' (testnet), или 'nile' (testnet)"
     )
+    
+    escrow_min_trx_balance: float = Field(
+        default=110.0,
+        description="Минимальный баланс TRX на адресе эскроу для инициализации (по умолчанию 100 TRX для AccountPermissionUpdate)"
+    )
 
 
 class ArbiterMnemonicSettings(BaseSettings):
