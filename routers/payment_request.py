@@ -150,6 +150,8 @@ async def create_payment_request(
             detail=str(e)
         )
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(
             status_code=500,
             detail=f"Error creating payment request: {str(e)}"
