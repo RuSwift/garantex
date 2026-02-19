@@ -47,7 +47,6 @@ class TestEscrowServiceEnsureExists:
         assert escrow.participant1_address == sender_address
         assert escrow.participant2_address == receiver_address
         assert escrow.arbiter_address == arbiter_address
-        assert escrow.escrow_address == arbiter_address
         assert escrow.status == "pending"
         
         # Verify encrypted mnemonic was created
@@ -71,6 +70,13 @@ class TestEscrowServiceEnsureExists:
         decrypted_mnemonic = NodeService.decrypt_data(escrow.encrypted_mnemonic, secret)
         assert decrypted_mnemonic is not None
         assert len(decrypted_mnemonic.split()) == 12  # 12 words for strength=128
+        
+        # Verify escrow_address is generated from mnemonic (not arbiter_address)
+        # For TRON, escrow_address should be derived from the mnemonic
+        from services.tron.utils import keypair_from_mnemonic
+        expected_escrow_address, _ = keypair_from_mnemonic(decrypted_mnemonic, account_index=0)
+        assert escrow.escrow_address == expected_escrow_address
+        assert escrow.escrow_address != arbiter_address  # Should be different from arbiter
         
         # Verify multisig config
         assert escrow.multisig_config is not None
@@ -233,7 +239,7 @@ class TestEscrowServiceEnsureExists:
         await test_db.commit()
         
         # Delete the inactive escrow to avoid unique constraint violation
-        # (since escrow_address = arbiter_address and there's a unique constraint)
+        # (escrow_address is unique per blockchain/network combination)
         await test_db.delete(escrow1)
         await test_db.commit()
         
