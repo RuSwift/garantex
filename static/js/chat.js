@@ -69,6 +69,7 @@ Vue.component('Chat', {
             signPayoutSignature: '',
             showAppealConfirmModal: false,
             showPayloadModal: false,
+            confirmReceiptSigning: false,
             emojiCategories: {
                 'smileys': ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔'],
                 'gestures': ['👋', '🤚', '🖐', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝'],
@@ -129,6 +130,10 @@ Vue.component('Chat', {
         },
         dealIsArbiter() {
             return this.dealInfo && this.currentUserDid && this.dealInfo.arbiter_did === this.currentUserDid;
+        },
+        /** Эскроу активен: только тогда показываем панель статуса и кнопки. pending/inactive/null — показываем splash + progress */
+        escrowIsActive() {
+            return this.dealInfo && this.dealInfo.escrow_status === 'active';
         },
         payloadJson() {
             if (!this.dealInfo || !this.dealInfo.payout_txn) return '';
@@ -824,6 +829,75 @@ Vue.component('Chat', {
         closePayloadModal() {
             this.showPayloadModal = false;
         },
+        onChatTronSignError(e) {
+            this.showDealApiError('TronSign', (e && e.message) ? e.message : 'Ошибка');
+        },
+        onChatTronSignConnected() {
+            // Optional: parent may pass walletAddress; signer comes from ref when signing
+        },
+        async confirmReceiptAndSign() {
+            var contact = this.selectedContact;
+            if (!contact || !contact.deal_uid || !this.getAuthToken) return;
+            var token = this.getAuthToken();
+            if (!token) return;
+            if (!this.dealInfo || !this.dealInfo.payout_txn || !this.dealInfo.payout_txn.unsigned_tx) {
+                this.showDealApiError('Ошибка', 'Нет данных транзакции. Перезагрузите сделку.');
+                return;
+            }
+            var signRef = this.$refs.chatTronSign;
+            if (!signRef) {
+                this.showDealApiError('Ошибка', 'Компонент подписи недоступен');
+                return;
+            }
+            this.confirmReceiptSigning = true;
+            try {
+                if (!signRef.isConnected) {
+                    await signRef.connectWallet();
+                }
+                var unsignedTx = this.dealInfo.payout_txn.unsigned_tx;
+                if (!unsignedTx.visible) {
+                    unsignedTx = Object.assign({}, unsignedTx, { visible: true });
+                }
+                console.log('[confirmReceiptAndSign] unsigned_tx passed to signTransaction:', unsignedTx);
+                console.log('[confirmReceiptAndSign] unsigned_tx JSON:', JSON.stringify(unsignedTx, null, 2));
+                var signedTx = await signRef.signTransaction(unsignedTx);
+                var sig = signedTx && signedTx.signature;
+                var cleanSignature;
+                if (sig && Array.isArray(sig) && sig.length > 0) {
+                    cleanSignature = sig[0];
+                } else if (typeof sig === 'string') {
+                    cleanSignature = sig;
+                } else {
+                    this.showDealApiError('Ошибка подписи', 'Неожиданный формат ответа от TronLink');
+                    return;
+                }
+                if (cleanSignature && cleanSignature.indexOf('0x') === 0) {
+                    cleanSignature = cleanSignature.substring(2);
+                }
+                var signerAddress = signRef.walletAddress;
+                if (!signerAddress || !cleanSignature) {
+                    this.showDealApiError('Ошибка', 'Не удалось получить адрес или подпись');
+                    return;
+                }
+                var r = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/payout-signature', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ signer_address: signerAddress, signature: cleanSignature })
+                });
+                var data = await r.json().catch(function() { return {}; });
+                if (!r.ok) {
+                    this.showDealApiError('Ошибка подписи', data.detail || r.statusText || 'Ошибка');
+                    return;
+                }
+                if (data.payout_txn && this.dealInfo) {
+                    this.dealInfo.payout_txn = data.payout_txn;
+                }
+            } catch (e) {
+                this.showDealApiError('Ошибка', e.message || 'Ошибка сети');
+            } finally {
+                this.confirmReceiptSigning = false;
+            }
+        },
         async submitPayoutSignature() {
             var contact = this.selectedContact;
             if (!contact || !contact.deal_uid || !this.getAuthToken) return;
@@ -1512,6 +1586,7 @@ Vue.component('Chat', {
     },
     template: `
         <div>
+            <tron-sign ref="chatTronSign" @error="onChatTronSignError" @connected="onChatTronSignConnected"></tron-sign>
             <modal-window v-if="show" :width="'98%'" :height="'98%'" @close="close">
             <template #header>
                 <div class="d-flex justify-content-between align-items-center w-100" style="margin-bottom: 0;">
@@ -2019,8 +2094,14 @@ Vue.component('Chat', {
                                         <span>Создать сделку</span>
                                     </button>
                                 </div>
-                                <!-- Deal status and actions (when deal_uid and dealInfo) -->
-                                <div v-if="selectedContact && selectedContact.deal_uid && dealInfo && !dealInfo.need_receiver_approve" style="display: flex; flex-direction: column; align-items: center; margin-top: 16px; margin-bottom: 8px; padding: 12px; border: 1px solid #e5e5e5; border-radius: 12px; background: #fafafa;">
+                                <!-- Escrow не активен (pending/inactive): splash + progress-circle, без панели статуса и кнопок -->
+                                <div v-if="selectedContact && selectedContact.deal_uid && dealInfo && !dealInfo.need_receiver_approve && !escrowIsActive" style="display: flex; flex-direction: column; align-items: center; margin-top: 16px; margin-bottom: 8px; padding: 20px; border: 1px solid #e5e5e5; border-radius: 12px; background: #fafafa;">
+                                    <div style="width: 48px; height: 48px; margin-bottom: 12px; border: 3px solid #e5e5e5; border-top-color: #4082bc; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+                                    <p style="font-size: 14px; font-weight: 600; color: #212121; margin: 0 0 4px;">Подготовка эскроу-счёта</p>
+                                    <p style="font-size: 12px; color: #6b7280; margin: 0;">Счёт инициализируется в сети. Статус и кнопки появятся после активации.</p>
+                                </div>
+                                <!-- Deal status and actions (только когда escrow активен) -->
+                                <div v-else-if="selectedContact && selectedContact.deal_uid && dealInfo && !dealInfo.need_receiver_approve && escrowIsActive" style="display: flex; flex-direction: column; align-items: center; margin-top: 16px; margin-bottom: 8px; padding: 12px; border: 1px solid #e5e5e5; border-radius: 12px; background: #fafafa;">
                                     <div :style="{ fontSize: '14px', fontWeight: '700', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '6px 12px', borderRadius: '8px', border: '1px solid', color: dealStatusStyle.color || '#212121', backgroundColor: dealStatusStyle.backgroundColor || 'transparent', borderColor: dealStatusStyle.borderColor || '#e5e5e5' }">
                                         <span v-if="dealStatusStyle.showProgress" style="display: inline-block; width: 16px; height: 16px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
                                         <span>[[ dealStatusLabel ]]</span>
@@ -2029,7 +2110,7 @@ Vue.component('Chat', {
                                     <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;">
                                         <template v-if="dealInfo.status === 'processing'">
                                             <button v-if="dealIsSender" @click="() => {}" style="padding: 8px 16px; border: 1px solid #e5e5e5; border-radius: 20px; background: white; color: #4082bc; cursor: pointer; font-size: 13px; font-weight: 500;">Оплатил</button>
-                                            <button v-if="dealIsReceiver" @click="setDealStatus('success')" style="padding: 8px 16px; border: 1px solid #e5e5e5; border-radius: 20px; background: white; color: #4082bc; cursor: pointer; font-size: 13px; font-weight: 500;">Подтверждаю получение</button>
+                                            <button v-if="dealIsReceiver" @click="confirmReceiptAndSign" :disabled="confirmReceiptSigning" style="padding: 8px 16px; border: 1px solid #e5e5e5; border-radius: 20px; background: white; color: #4082bc; cursor: pointer; font-size: 13px; font-weight: 500;">[[ confirmReceiptSigning ? 'Ожидание подписи…' : 'Подтверждаю получение' ]]</button>
                                             <button v-if="dealIsSender || dealIsReceiver" @click="openAppealConfirmModal" style="padding: 8px 16px; border: 1px solid #e57373; border-radius: 20px; background: #ffebee; color: #c62828; cursor: pointer; font-size: 13px; font-weight: 500;">Подать на апелляцию</button>
                                         </template>
                                         <template v-if="dealInfo.status === 'appeal' && dealIsArbiter">
@@ -2211,12 +2292,16 @@ Vue.component('Chat', {
                 </div>
             </template>
         </modal-window>
-        <modal-window v-if="showDealErrorModal" :width="'400px'" @close="closeDealErrorModal">
-            <template #header>[[ dealErrorTitle ]]</template>
-            <div style="padding: 16px;">
-                <p style="white-space: pre-wrap; margin: 0;">[[ dealErrorMessage ]]</p>
-                <button @click="closeDealErrorModal" style="margin-top: 12px; padding: 8px 16px; cursor: pointer;">Закрыть</button>
-            </div>
+        <modal-window v-if="showDealErrorModal" :width="'400px'" :height="'auto'" @close="closeDealErrorModal">
+            <template #header>
+                <div style="padding: 10px 16px; background: #dc3545; color: white; font-weight: 600; border-radius: 8px 8px 0 0;">[[ dealErrorTitle ]]</div>
+            </template>
+            <template #body>
+                <div style="padding: 16px;">
+                    <p style="white-space: pre-wrap; margin: 0; padding: 12px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; color: #721c24; font-size: 14px;">[[ dealErrorMessage ]]</p>
+                    <button @click="closeDealErrorModal" style="margin-top: 14px; padding: 10px 20px; cursor: pointer; background: #dc3545; color: white; border: none; border-radius: 8px; font-weight: 500;">Закрыть</button>
+                </div>
+            </template>
         </modal-window>
         <modal-window v-if="showSignPayoutModal" :width="'480px'" @close="closeSignPayoutModal">
             <template #header>Подписать перевод</template>

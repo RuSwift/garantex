@@ -491,6 +491,7 @@ class DealInfoResponse(BaseModel):
     requisites: Optional[dict] = Field(None, description="Реквизиты сделки")
     attachments: Optional[list] = Field(None, description="Вложения")
     payout_txn: Optional[dict] = Field(None, description="Оффлайн-транзакция выплаты по сделке")
+    escrow_status: Optional[str] = Field(None, description="Статус эскроу: pending, active, inactive")
 
 
 async def get_optional_user(
@@ -552,6 +553,14 @@ async def get_deal_info(
             except Exception:
                 pass
 
+        escrow_status = None
+        if deal.escrow_id:
+            escrow_stmt = select(EscrowModel).where(EscrowModel.id == deal.escrow_id)
+            escrow_result = await db.execute(escrow_stmt)
+            escrow = escrow_result.scalar_one_or_none()
+            if escrow:
+                escrow_status = escrow.status
+
         return DealInfoResponse(
             deal_uid=deal.uid,
             sender_did=deal.sender_did,
@@ -565,7 +574,8 @@ async def get_deal_info(
             updated_at=deal.updated_at.isoformat() if deal.updated_at else None,
             requisites=deal.requisites,
             attachments=deal.attachments,
-            payout_txn=payout_txn
+            payout_txn=payout_txn,
+            escrow_status=escrow_status
         )
         
     except HTTPException:

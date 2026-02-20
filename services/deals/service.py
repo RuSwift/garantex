@@ -334,6 +334,8 @@ class DealsService:
             return None
 
         unsigned_tx = create_result["unsigned_tx"]
+        if unsigned_tx.get("visible") is not True:
+            unsigned_tx = {**unsigned_tx, "visible": True}
         contract_data = unsigned_tx.get("raw_data", {})
         contract_type = "TriggerSmartContract" if token_contract else "TransferContract"
 

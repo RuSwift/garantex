@@ -508,19 +508,14 @@ async def process_escrow(escrow: EscrowModel, session: AsyncSession) -> None:
         async with TronAPIClient(network=network, api_key=api_key) as api_client:
             account_info = await api_client.get_account(escrow.escrow_address)
             
+            # Если аккаунт не найден (ещё не активирован в сети) — считаем как нет permissions, идём к пополнению TRX
             if not account_info:
-                error_msg = f"Account {escrow.escrow_address} not found"
-                logger.error(f"Escrow {escrow.id}: {error_msg}")
-                await _update_escrow_txn(
-                    session, escrow_txn, 'event',
-                    f"Error: {error_msg}",
-                    error_code="ACCOUNT_NOT_FOUND",
-                    error_message=error_msg
-                )
-                return
+                logger.info(f"Escrow {escrow.id}: account {escrow.escrow_address} not found (not activated), will top up TRX")
+                active_permissions = []
+            else:
+                active_permissions = account_info.get("active_permission", [])
             
             # Проверяем, установлены ли permissions
-            active_permissions = account_info.get("active_permission", [])
             has_multisig = False
             
             for perm in active_permissions:
