@@ -9207,25 +9207,30 @@ Vue.component('DealConversation', {
                                 const lastMessage = session.last_message;
                                 const lastMessageTime = session.last_message_time;
                                 
-                                // Check if contact already exists
+                                // Check if contact already exists (by id or by deal_uid for deals — избегаем задвоения)
                                 const existingContact = this.$refs.chatComponent.contacts.find(
                                     c => c.id === conversationId
                                 );
-                                
                                 if (existingContact) {
-                                    // Update existing contact with last message info
-                                    if (lastMessage) {
-                                        existingContact.lastMessage = lastMessage.text || '';
-                                    }
-                                    if (lastMessageTime) {
-                                        existingContact.lastMessageTime = lastMessageTime;
-                                    }
+                                    if (lastMessage) existingContact.lastMessage = lastMessage.text || '';
+                                    if (lastMessageTime) existingContact.lastMessageTime = lastMessageTime;
                                     continue;
                                 }
                                 
                                 // Handle deal sessions (conversation_id starts with 'did:deal:')
                                 if (conversationId && conversationId.startsWith('did:deal:')) {
                                     const dealUid = conversationId.replace('did:deal:', '');
+                                    // Дедупликация: контакт с этим deal_uid уже мог быть добавлен с другим id
+                                    const existingByDeal = this.$refs.chatComponent.contacts.find(
+                                        c => c.deal_uid === dealUid
+                                    );
+                                    if (existingByDeal) {
+                                        existingByDeal.id = conversationId;
+                                        existingByDeal.did = conversationId;
+                                        if (lastMessage) existingByDeal.lastMessage = lastMessage.text || '';
+                                        if (lastMessageTime) existingByDeal.lastMessageTime = lastMessageTime;
+                                        continue;
+                                    }
                                     
                                     // Try to load deal info for better display
                                     try {
@@ -9301,21 +9306,29 @@ Vue.component('DealConversation', {
                                     });
                                 } else if (conversationId) {
                                     // Session without last message (e.g., deal without messages)
-                                    // This handles cases where last_message is null
                                     if (conversationId.startsWith('did:deal:')) {
                                         const dealUid = conversationId.replace('did:deal:', '');
-                                        this.$refs.chatComponent.contacts.push({
-                                            id: conversationId,
-                                            name: `Сделка ${dealUid.substring(0, 10)}...`,
-                                            description: null,
-                                            avatar: `https://api.dicebear.com/7.x/icons/svg?seed=${dealUid}`,
-                                            status: 'online',
-                                            lastMessage: '',
-                                            lastMessageTime: lastMessageTime || null,
-                                            did: conversationId,
-                                            deal_uid: dealUid,
-                                            isTyping: false
-                                        });
+                                        const existingByDeal = this.$refs.chatComponent.contacts.find(
+                                            c => c.deal_uid === dealUid
+                                        );
+                                        if (existingByDeal) {
+                                            existingByDeal.id = conversationId;
+                                            existingByDeal.did = conversationId;
+                                            if (lastMessageTime) existingByDeal.lastMessageTime = lastMessageTime;
+                                        } else {
+                                            this.$refs.chatComponent.contacts.push({
+                                                id: conversationId,
+                                                name: `Сделка ${dealUid.substring(0, 10)}...`,
+                                                description: null,
+                                                avatar: `https://api.dicebear.com/7.x/icons/svg?seed=${dealUid}`,
+                                                status: 'online',
+                                                lastMessage: '',
+                                                lastMessageTime: lastMessageTime || null,
+                                                did: conversationId,
+                                                deal_uid: dealUid,
+                                                isTyping: false
+                                            });
+                                        }
                                     }
                                 }
                             }
@@ -9409,11 +9422,19 @@ Vue.component('DealConversation', {
                     
                     const chat = this.$refs.chatComponent;
                     
-                    // Проверяем, существует ли уже контакт сделки
+                    // Проверяем, существует ли уже контакт сделки (по id или по deal_uid — избегаем задвоения)
                     let dealContact = chat.contacts.find(c => c.id === dealConversationId);
-                    
                     if (!dealContact) {
-                        // Создаем контакт сделки
+                        dealContact = chat.contacts.find(c => c.deal_uid === this.dealId);
+                        if (dealContact) {
+                            dealContact.id = dealConversationId;
+                            dealContact.did = dealConversationId;
+                            dealContact.name = (dealInfo.label && dealInfo.label.length > 30)
+                                ? dealInfo.label.substring(0, 30) + '...' : (dealInfo.label || dealContact.name);
+                            dealContact.description = dealInfo.description != null ? dealInfo.description : dealContact.description;
+                        }
+                    }
+                    if (!dealContact) {
                         const dealLabel = dealInfo.label || `Сделка ${this.dealId}`;
                         dealContact = {
                             id: dealConversationId,

@@ -504,14 +504,19 @@ Vue.component('Chat', {
                 }
             });
             
-            // Create or update contacts from history
+            // Create or update contacts from history (дедупликация по deal_uid для сделок)
             Object.keys(messagesByContact).forEach(conversationId => {
                 let contact = this.contacts.find(c => c.id === conversationId);
-                
+                if (!contact && conversationId.startsWith('did:deal:')) {
+                    const dealUid = conversationId.replace('did:deal:', '');
+                    contact = this.contacts.find(c => c.deal_uid === dealUid);
+                    if (contact) {
+                        contact.id = conversationId;
+                        contact.did = conversationId;
+                    }
+                }
                 if (!contact) {
-                    // Find contact info from first message (using reversedHistory for chronological order)
                     const firstMsg = reversedHistory.find(m => m.conversation_id === conversationId);
-                    // Create new contact if it doesn't exist
                     contact = {
                         id: conversationId,
                         name: (firstMsg && firstMsg.contactName) || `Contact ${conversationId}`,
@@ -520,10 +525,12 @@ Vue.component('Chat', {
                         lastMessage: '',
                         isTyping: false
                     };
+                    if (conversationId.startsWith('did:deal:')) {
+                        contact.did = conversationId;
+                        contact.deal_uid = conversationId.replace('did:deal:', '');
+                    }
                     this.contacts.push(contact);
                 }
-                
-                // Update last message
                 if (messagesByContact[conversationId].length > 0) {
                     const lastMsg = messagesByContact[conversationId][messagesByContact[conversationId].length - 1];
                     contact.lastMessage = lastMsg.text.substring(0, 50);
