@@ -3,9 +3,10 @@ Tests for ChatService
 """
 import pytest
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import select
 
+from core.utils import get_deal_did
 from services.chat.service import ChatService
 from db.models import Storage, Deal
 from ledgers.chat.schemas import (
@@ -95,7 +96,7 @@ class TestChatServiceAddMessage:
         # Should return single message for owner_did
         assert created_message is not None
         assert created_message.text == "Deal message"
-        assert created_message.conversation_id == deal_uid  # For deal messages, conversation_id = deal_uid
+        assert created_message.conversation_id == get_deal_did(deal_uid)  # For deal messages, conversation_id = did:deal:xxx
         
         # Check that 3 storage records were created (one for each participant)
         result = await test_db.execute(
@@ -324,10 +325,11 @@ class TestChatServiceGetHistory:
         assert len(result["messages"]) == 1
         assert result["messages"][0].text == "General message"
         
-        # Get history for deal conversation (conversation_id = deal_uid)
+        # Get history for deal conversation (conversation_id = deal_uid or did:deal:xxx)
         result = await service.get_history(conversation_id=deal_uid)
         assert len(result["messages"]) == 1
         assert result["messages"][0].text == "Deal message"
+        assert result["messages"][0].conversation_id == get_deal_did(deal_uid)
         
         # Note: Cannot get all messages without conversation_id filter
         # because get_history() filters by conversation_id IS NULL when conversation_id is not specified
@@ -448,11 +450,11 @@ class TestChatServiceGetHistory:
         )
         await service.add_message(message, deal_uid=deal_uid)
         
-        # Filter by conversation_id = deal_uid
+        # Filter by conversation_id = deal_uid (normalized to did:deal:xxx in service)
         result = await service.get_history(conversation_id=deal_uid)
         assert len(result["messages"]) == 1
         assert result["messages"][0].text == "Message related to deal"
-        assert result["messages"][0].conversation_id == deal_uid
+        assert result["messages"][0].conversation_id == get_deal_did(deal_uid)
     
     @pytest.mark.asyncio
     async def test_conversation_id_per_owner_did(self, test_db):
@@ -642,31 +644,34 @@ class TestChatServiceGetLastSessions:
         )
         await service.add_message(message3, deal_uid=deal2_uid)
         
-        # Get last sessions
+        # Get last sessions (могут быть и сессии с 0 сообщений от других сделок в БД)
         sessions = await service.get_last_sessions()
         
-        # Should have 3 sessions (general with sender1, deal1, deal2)
-        assert len(sessions) == 3
+        # Минимум 3 сессии: общий чат с sender1, deal1, deal2
+        assert len(sessions) >= 3
         
         # Check that sessions are sorted by last_message_time descending
+        min_dt = datetime.min.replace(tzinfo=timezone.utc)
         for i in range(len(sessions) - 1):
-            assert sessions[i]["last_message_time"] >= sessions[i+1]["last_message_time"]
+            t1 = sessions[i]["last_message_time"] or min_dt
+            t2 = sessions[i+1]["last_message_time"] or min_dt
+            assert t1 >= t2
         
         # Check session structure
+        conversation_ids = [s["conversation_id"] for s in sessions]
         for session in sessions:
             assert "conversation_id" in session
             assert "last_message_time" in session
             assert "message_count" in session
             assert "last_message" in session
-            # last_message is a ChatMessage object (Pydantic model)
-            assert hasattr(session["last_message"], "text")
-            assert hasattr(session["last_message"], "sender_id")
+            if session["last_message"] is not None:
+                assert hasattr(session["last_message"], "text")
+                assert hasattr(session["last_message"], "sender_id")
         
-        # Verify conversation_ids
-        conversation_ids = [s["conversation_id"] for s in sessions]
+        # Ожидаемые сессии должны присутствовать (могут быть и другие — сделки с 0 сообщений)
         assert "did:test:sender1" in conversation_ids  # General chat
-        assert deal1_uid in conversation_ids  # Deal 1
-        assert deal2_uid in conversation_ids  # Deal 2
+        assert get_deal_did(deal1_uid) in conversation_ids  # Deal 1
+        assert get_deal_did(deal2_uid) in conversation_ids  # Deal 2
     
     @pytest.mark.asyncio
     async def test_get_last_sessions_with_limit(self, test_db):
@@ -733,8 +738,8 @@ class TestChatServiceGetLastSessions:
         # Get last sessions
         sessions = await service.get_last_sessions()
         
-        # Find the deal session (conversation_id = deal_uid)
-        deal_session = next((s for s in sessions if s["conversation_id"] == deal_uid), None)
+        # Find the deal session (conversation_id = did:deal:xxx)
+        deal_session = next((s for s in sessions if s["conversation_id"] == get_deal_did(deal_uid)), None)
         assert deal_session is not None
         assert deal_session["message_count"] == 3
     
@@ -791,6 +796,6 @@ class TestChatServiceGetLastSessions:
         
         # Should return only deal session (with last message id > message1.id)
         assert len(result) == 1
-        assert result[0]["conversation_id"] == deal_uid
+        assert result[0]["conversation_id"] == get_deal_did(deal_uid)
         assert result[0]["last_message"].text == "Message 2"
 

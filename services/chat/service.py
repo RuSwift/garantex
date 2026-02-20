@@ -231,6 +231,11 @@ class ChatService:
         Raises:
             ValueError: If after_message_uid or before_message_uid is specified but message not found
         """
+        # Нормализация conversation_id: везде храним/принимаем did:deal:xxx для сделок
+        effective_conversation_id = conversation_id
+        if effective_conversation_id and not effective_conversation_id.startswith("did:"):
+            effective_conversation_id = get_deal_did(effective_conversation_id)
+        
         # Build query - всегда фильтруем по owner_did
         query = select(Storage).where(
             Storage.space == self.SPACE,
@@ -238,8 +243,8 @@ class ChatService:
         )
         
         # Filter by conversation_id
-        if conversation_id is not None:
-            query = query.where(Storage.conversation_id == conversation_id)
+        if effective_conversation_id is not None:
+            query = query.where(Storage.conversation_id == effective_conversation_id)
         else:
             query = query.where(Storage.conversation_id.is_(None))
         
@@ -253,9 +258,9 @@ class ChatService:
             )
             
             # Apply conversation_id filter if specified
-            if conversation_id is not None:
+            if effective_conversation_id is not None:
                 ref_message_query = ref_message_query.where(
-                    Storage.conversation_id == conversation_id
+                    Storage.conversation_id == effective_conversation_id
                 )
             else:
                 ref_message_query = ref_message_query.where(
@@ -282,9 +287,9 @@ class ChatService:
             )
             
             # Apply conversation_id filter if specified
-            if conversation_id is not None:
+            if effective_conversation_id is not None:
                 ref_message_query = ref_message_query.where(
-                    Storage.conversation_id == conversation_id
+                    Storage.conversation_id == effective_conversation_id
                 )
             else:
                 ref_message_query = ref_message_query.where(
@@ -583,11 +588,11 @@ class ChatService:
                     continue
                 
                 # Check if there are messages for this deal
-                # Messages are stored with conversation_id = deal_uid (not get_deal_did format)
+                # Messages are stored with conversation_id = did:deal:xxx
                 message_query_where = [
                     Storage.space == self.SPACE,
                     Storage.owner_did == self.owner_did,
-                    Storage.conversation_id == deal.uid  # Search by deal_uid as stored in Storage
+                    Storage.conversation_id == conversation_id  # did:deal:deal_uid
                 ]
                 
                 # Add filter by after_message_id if specified

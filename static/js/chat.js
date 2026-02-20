@@ -692,6 +692,8 @@ Vue.component('Chat', {
             
             // Start periodic history refresh for selected contact
             this.startHistoryRefresh();
+            // Сразу запрашиваем историю, не ждём первого тика таймера (3 сек)
+            this.refreshHistory();
         },
         
         // Start periodic history refresh
@@ -733,20 +735,15 @@ Vue.component('Chat', {
                 return;
             }
             
-            // Get last message UUID from current messages
+            // Get last message UUID from current messages (может быть пусто у сессии)
             const currentMessages = this.currentMessages;
-            const lastMessage = currentMessages && currentMessages.length > 0 
-                ? currentMessages[currentMessages.length - 1] 
+            const lastMessage = currentMessages && currentMessages.length > 0
+                ? currentMessages[currentMessages.length - 1]
                 : null;
-            
-            if (!lastMessage || !lastMessage.uuid) {
-                // No messages yet, skip refresh
-                return;
-            }
-            
+            const lastMessageUuid = lastMessage && lastMessage.uuid ? lastMessage.uuid : undefined;
+
             // Get conversation_id from selected contact and SAVE IT in closure
             const conversationId = this.selectedContactId; // Сохраняем в локальную переменную для замыкания
-            const lastMessageUuid = lastMessage.uuid;
             
             // Create promise for refresh
             let resolvePromise, rejectPromise;
@@ -1543,6 +1540,13 @@ Vue.component('Chat', {
 
                             <!-- Messages - Telegram Style -->
                             <div ref="messageList" @scroll="handleScroll" style="flex: 1; overflow-y: auto; padding: 8px 24px 8px 12px; z-index: 0;" class="telegram-scrollbar">
+                                <!-- Progress circle при пустой истории и задержке сети -->
+                                <div v-if="selectedContact && (!currentMessages || currentMessages.length === 0) && isRefreshingHistory" class="d-flex flex-column align-items-center justify-content-center" style="min-height: 220px; color: #4082bc;">
+                                    <div class="spinner-border" role="status" style="width: 2.5rem; height: 2.5rem;">
+                                        <span class="visually-hidden">Загрузка...</span>
+                                    </div>
+                                    <span class="mt-2" style="font-size: 14px;">Загрузка истории...</span>
+                                </div>
                                 <!-- Load More History Button or No More Messages Text -->
                                 <div v-if="currentMessages && currentMessages.length > 0" style="display: flex; justify-content: center; margin-bottom: 8px;">
                                     <!-- Button to load more -->

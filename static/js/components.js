@@ -9639,9 +9639,11 @@ Vue.component('DealConversation', {
                 const token = this.getAuthToken();
                 const conversationId = event.conversation_id;
                 const afterMessageUid = event.last_message_uid;
-                
-                const url = `/chat/api/history?conversation_id=${encodeURIComponent(conversationId)}&page=1&page_size=20&after_message_uid=${encodeURIComponent(afterMessageUid)}`;
-                
+
+                const url = afterMessageUid
+                    ? `/chat/api/history?conversation_id=${encodeURIComponent(conversationId)}&page=1&page_size=20&after_message_uid=${encodeURIComponent(afterMessageUid)}`
+                    : `/chat/api/history?conversation_id=${encodeURIComponent(conversationId)}&page=1&page_size=20`;
+
                 const response = await fetch(url, {
                     headers: {
                         'Authorization': `Bearer ${token}`
