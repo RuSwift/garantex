@@ -54,6 +54,7 @@ Vue.component('Chat', {
             isRefreshingHistory: false, // Track if history refresh is in progress
             isFetchingHistory: false, // Track if history fetch is in progress
             hasMoreOldMessages: {}, // Track if there are more old messages per conversation: {conversationId: true/false}
+            showDescriptionModal: false, // Show description modal for deals
             emojiCategories: {
                 'smileys': ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔'],
                 'gestures': ['👋', '🤚', '🖐', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝'],
@@ -1423,7 +1424,7 @@ Vue.component('Chat', {
                                                     [[ c.deal_uid ? 'Сделка' : 'Обычный Чат' ]]
                                                 </span>
                                             </div>
-                                            <span :style="{ fontSize: '12px', color: selectedContactId === c.id ? 'rgba(255,255,255,0.7)' : '#9ca3af', flexShrink: 0 }">[[ formatTime(Date.now() - 3600000) ]]</span>
+                                            <span :style="{ fontSize: '12px', color: selectedContactId === c.id ? 'rgba(255,255,255,0.7)' : '#9ca3af', flexShrink: 0 }">[[ c.lastMessageTime ? formatTime(new Date(c.lastMessageTime).getTime()) : '' ]]</span>
                                         </div>
                                         <p class="mb-0 text-truncate" :style="{ fontSize: '13px', color: selectedContactId === c.id ? 'rgba(255,255,255,0.8)' : '#707579' }">
                                             [[ c.isTyping ? 'печатает...' : (c.lastMessage || 'No messages yet') ]]
@@ -1468,14 +1469,24 @@ Vue.component('Chat', {
                                         <span v-else style="font-size: 18px;">[[ selectedContact.name.charAt(0).toUpperCase() ]]</span>
                                     </div>
                                     <div>
-                                        <p class="mb-0 fw-semibold" style="font-size: 15px; color: #212121; display: flex; align-items: center; gap: 6px;">
+                                        <p class="mb-0 fw-semibold" style="font-size: 15px; color: #212121; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                                             <span>[[ selectedContact.name ]]</span>
                                             <span style="font-size: 11px; color: #9ca3af; font-weight: 500; white-space: nowrap;">
                                                 [[ selectedContact.deal_uid ? 'Сделка' : 'Обычный Чат' ]]
                                             </span>
-                                            <span v-if="selectedContact.did" style="font-size: 12px; color: #707579; font-weight: normal;">
-                                                [[ selectedContact.did ]]
-                                            </span>
+                                            <!-- Description badge/button for deals -->
+                                            <button v-if="selectedContact.deal_uid && selectedContact.description"
+                                                    @click.stop="showDescriptionModal = true"
+                                                    style="padding: 4px 8px; border: 1px solid #e5e5e5; background: #f5f5f5; border-radius: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 11px; color: #707579; transition: all 0.2s;"
+                                                    @mouseenter="$event.target.style.background = '#e5e5e5'"
+                                                    @mouseleave="$event.target.style.background = '#f5f5f5'"
+                                                    title="Показать описание"
+                                            >
+                                                <svg style="width: 12px; height: 12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                </svg>
+                                                <span>Описание</span>
+                                            </button>
                                         </p>
                                         <p class="mb-0" :style="{ fontSize: '12px', color: selectedContact.status === 'online' ? '#4082bc' : '#707579' }">
                                             [[ selectedContact.status === 'online' ? 'online' : 'last seen recently' ]]
@@ -1503,6 +1514,32 @@ Vue.component('Chat', {
 
                             <!-- Custom Header Addon Slot -->
                             <slot name="chat-header-addon"></slot>
+                            
+                            <!-- Description Modal -->
+                            <div v-if="showDescriptionModal && selectedContact && selectedContact.description"
+                                 @click.self="showDescriptionModal = false"
+                                 style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 20px;"
+                            >
+                                <div style="background: white; border-radius: 12px; padding: 24px; max-width: 500px; width: 100%; box-shadow: 0 4px 12px rgba(0,0,0,0.15); position: relative;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                                        <h5 style="margin: 0; font-size: 18px; color: #212121; display: flex; align-items: center; gap: 8px;">
+                                            <svg style="width: 20px; height: 20px; color: #4082bc;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                            Описание сделки
+                                        </h5>
+                                        <button @click="showDescriptionModal = false"
+                                                style="padding: 4px; border: none; background: transparent; border-radius: 50%; cursor: pointer; color: #707579; display: flex; align-items: center; justify-content: center;"
+                                                title="Закрыть"
+                                        >
+                                            <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <p style="margin: 0; font-size: 14px; color: #212121; line-height: 1.6; white-space: pre-wrap;">[[ selectedContact.description ]]</p>
+                                </div>
+                            </div>
 
                             <!-- Messages - Telegram Style -->
                             <div ref="messageList" @scroll="handleScroll" style="flex: 1; overflow-y: auto; padding: 8px 24px 8px 12px; z-index: 0;" class="telegram-scrollbar">

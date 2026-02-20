@@ -9199,19 +9199,91 @@ Vue.component('DealConversation', {
                     this.sessionsLoaded = true;
                     
                     // Add contacts from sessions to chat component
-                    this.$nextTick(() => {
+                    this.$nextTick(async () => {
                         if (this.$refs.chatComponent && result.sessions) {
-                            result.sessions.forEach(session => {
+                            // Process sessions sequentially to avoid race conditions
+                            for (const session of result.sessions) {
                                 const conversationId = session.conversation_id;
                                 const lastMessage = session.last_message;
+                                const lastMessageTime = session.last_message_time;
                                 
                                 // Check if contact already exists
                                 const existingContact = this.$refs.chatComponent.contacts.find(
                                     c => c.id === conversationId
                                 );
                                 
-                                if (!existingContact && lastMessage) {
-                                    // Create contact from session
+                                if (existingContact) {
+                                    // Update existing contact with last message info
+                                    if (lastMessage) {
+                                        existingContact.lastMessage = lastMessage.text || '';
+                                    }
+                                    if (lastMessageTime) {
+                                        existingContact.lastMessageTime = lastMessageTime;
+                                    }
+                                    continue;
+                                }
+                                
+                                // Handle deal sessions (conversation_id starts with 'did:deal:')
+                                if (conversationId && conversationId.startsWith('did:deal:')) {
+                                    const dealUid = conversationId.replace('did:deal:', '');
+                                    
+                                    // Try to load deal info for better display
+                                    try {
+                                        const dealResponse = await fetch(`/api/payment-request/${dealUid}`, {
+                                            headers: {
+                                                'Authorization': `Bearer ${token}`
+                                            }
+                                        });
+                                        
+                                        if (dealResponse.ok) {
+                                            const dealInfo = await dealResponse.json();
+                                            const dealLabel = dealInfo.label || `Сделка ${dealUid}`;
+                                            
+                                            this.$refs.chatComponent.contacts.push({
+                                                id: conversationId,
+                                                name: dealLabel.length > 30 ? dealLabel.substring(0, 30) + '...' : dealLabel,
+                                                description: dealInfo.description || null,
+                                                avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${dealUid}`,
+                                                status: 'online',
+                                                lastMessage: lastMessage ? (lastMessage.text || '') : '',
+                                                lastMessageTime: lastMessageTime || null,
+                                                did: conversationId,
+                                                deal_uid: dealUid,
+                                                isTyping: false
+                                            });
+                                        } else {
+                                            // Fallback if deal info not available
+                                            this.$refs.chatComponent.contacts.push({
+                                                id: conversationId,
+                                                name: `Сделка ${dealUid.substring(0, 10)}...`,
+                                                description: null,
+                                                avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${dealUid}`,
+                                                status: 'online',
+                                                lastMessage: lastMessage ? (lastMessage.text || '') : '',
+                                                lastMessageTime: lastMessageTime || null,
+                                                did: conversationId,
+                                                deal_uid: dealUid,
+                                                isTyping: false
+                                            });
+                                        }
+                                    } catch (error) {
+                                        console.error(`Error loading deal info for ${dealUid}:`, error);
+                                        // Fallback contact creation
+                                        this.$refs.chatComponent.contacts.push({
+                                            id: conversationId,
+                                            name: `Сделка ${dealUid.substring(0, 10)}...`,
+                                            description: null,
+                                            avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${dealUid}`,
+                                            status: 'online',
+                                            lastMessage: lastMessage ? (lastMessage.text || '') : '',
+                                            lastMessageTime: lastMessageTime || null,
+                                            did: conversationId,
+                                            deal_uid: dealUid,
+                                            isTyping: false
+                                        });
+                                    }
+                                } else if (lastMessage) {
+                                    // Regular chat session (not a deal)
                                     const contactName = lastMessage.sender_id === this.userDid 
                                         ? (lastMessage.receiver_id || 'Contact')
                                         : (lastMessage.sender_id || 'Contact');
@@ -9222,12 +9294,31 @@ Vue.component('DealConversation', {
                                         avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${conversationId}`,
                                         status: 'online',
                                         lastMessage: lastMessage.text || '',
+                                        lastMessageTime: lastMessageTime || null,
                                         did: conversationId,
                                         deal_uid: lastMessage.deal_uid || null,
                                         isTyping: false
                                     });
+                                } else if (conversationId) {
+                                    // Session without last message (e.g., deal without messages)
+                                    // This handles cases where last_message is null
+                                    if (conversationId.startsWith('did:deal:')) {
+                                        const dealUid = conversationId.replace('did:deal:', '');
+                                        this.$refs.chatComponent.contacts.push({
+                                            id: conversationId,
+                                            name: `Сделка ${dealUid.substring(0, 10)}...`,
+                                            description: null,
+                                            avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${dealUid}`,
+                                            status: 'online',
+                                            lastMessage: '',
+                                            lastMessageTime: lastMessageTime || null,
+                                            did: conversationId,
+                                            deal_uid: dealUid,
+                                            isTyping: false
+                                        });
+                                    }
                                 }
-                            });
+                            }
                         }
                     });
                 }
@@ -9327,6 +9418,7 @@ Vue.component('DealConversation', {
                         dealContact = {
                             id: dealConversationId,
                             name: dealLabel.length > 30 ? dealLabel.substring(0, 30) + '...' : dealLabel,
+                            description: dealInfo.description || null,
                             avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${this.dealId}`,
                             status: 'online',
                             lastMessage: '',
@@ -10792,12 +10884,8 @@ Vue.component('Deals', {
                     throw new Error('Not authenticated');
                 }
                 
-                // Формируем label с суммой и валютой
-                let label = this.createForm.label;
-                if (this.createForm.description && this.createForm.description.trim()) {
-                    label = `${label} - ${this.createForm.description.trim()}`;
-                }
-                label = `${label} - ${this.createForm.amount} ${this.createForm.currency}`;
+                // Формируем label с суммой и валютой (без description, description отправляется отдельно)
+                const label = `${this.createForm.label} - ${this.createForm.amount} ${this.createForm.currency}`;
                 
                 // Арбитр выбирается автоматически на бэкенде
                 const response = await fetch('/api/payment-request/create', {
@@ -10809,6 +10897,7 @@ Vue.component('Deals', {
                     body: JSON.stringify({
                         payer_address: this.createForm.payerAddress.trim(),
                         label: label,
+                        description: this.createForm.description && this.createForm.description.trim() ? this.createForm.description.trim() : null,
                         blockchain: this.createForm.blockchain
                     })
                 });

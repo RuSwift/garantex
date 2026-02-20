@@ -79,7 +79,8 @@ class DealsService:
         arbiter_did: str,
         label: str,
         need_receiver_approve: bool = False,
-        escrow_id: Optional[int] = None
+        escrow_id: Optional[int] = None,
+        description: Optional[str] = None
     ) -> Deal:
         """
         Create a new deal
@@ -88,9 +89,10 @@ class DealsService:
             sender_did: DID отправителя (owner сделки)
             receiver_did: DID получателя (тот, кто выставляет счет)
             arbiter_did: DID арбитра
-            label: Описание сделки
+            label: Заголовок сделки
             need_receiver_approve: Требуется ли одобрение получателя (default: False)
             escrow_id: Optional escrow ID to link with the deal
+            description: Опциональное описание сделки
             
         Returns:
             Created Deal object
@@ -115,6 +117,7 @@ class DealsService:
             receiver_did=receiver_did,
             arbiter_did=arbiter_did,
             label=label,
+            description=description,
             need_receiver_approve=need_receiver_approve,
             escrow_id=escrow_id
         )

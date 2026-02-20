@@ -4,11 +4,11 @@ Service for managing chat messages and conversations
 from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, and_
+from sqlalchemy import select, func, desc, and_, or_
 
 from db.models import Storage, Deal
 from ledgers.chat.schemas import ChatMessage, ChatMessageCreate, FileAttachment
-from core.utils import get_image_dimensions
+from core.utils import get_image_dimensions, get_deal_did
 
 
 class ChatService:
@@ -123,7 +123,7 @@ class ChatService:
                 # Рассчитываем conversation_id для каждого owner_did
                 if deal_uid:
                     # Если сообщение связано со сделкой, conversation_id = deal_uid
-                    conversation_id = deal_uid
+                    conversation_id = get_deal_did(deal_uid)
                 else:
                     # Иначе conversation_id = контрагент (тот, кто не является owner_did_value)
                     if owner_did_value == message.sender_id:
@@ -414,6 +414,7 @@ class ChatService:
         """
         Get all last chat sessions grouped by conversation_id, sorted by time of last message
         (always filtered by owner_did)
+        Includes both chat sessions and deal sessions where user is a participant.
         Optimized version using subquery with MAX(id)
         
         Args:
@@ -423,10 +424,10 @@ class ChatService:
             
         Returns:
             List of dictionaries with session info:
-            - conversation_id: Conversation ID (DID контрагента или deal_uid)
-            - last_message_time: Time of last message in session
+            - conversation_id: Conversation ID (DID контрагента, deal_uid, or did:deal:{deal_uid})
+            - last_message_time: Time of last message in session (or deal.updated_at for deals without messages)
             - message_count: Number of messages in session
-            - last_message: Last message in session (ChatMessage)
+            - last_message: Last message in session (ChatMessage) or None if no messages
             
         Raises:
             ValueError: If after_message_uid is specified but message not found
@@ -481,14 +482,15 @@ class ChatService:
                 )
             )
             .order_by(desc(Storage.created_at))
-            .limit(limit)
         )
         
         result = await self.session.execute(query)
         sessions_list = result.scalars().all()
         
-        # Build sessions list with full info
-        sessions = []
+        # Build sessions list with full info from chat
+        chat_sessions = []
+        chat_conversation_ids = set()
+        
         for storage in sessions_list:
             try:
                 # Get message count for this conversation_id
@@ -527,8 +529,18 @@ class ChatService:
                 
                 last_message = ChatMessage(**payload)
                 
-                sessions.append({
-                    "conversation_id": storage.conversation_id,
+                conversation_id = storage.conversation_id
+                chat_conversation_ids.add(conversation_id)
+                
+                # Also add deal_uid if conversation_id is a deal_uid (for checking deals later)
+                # Messages for deals are stored with conversation_id = deal_uid (not get_deal_did format)
+                # This helps us skip deals that already have messages
+                if conversation_id and not conversation_id.startswith('did:'):
+                    # Might be a deal_uid, add it to check later
+                    chat_conversation_ids.add(conversation_id)
+                
+                chat_sessions.append({
+                    "conversation_id": conversation_id,
                     "last_message_time": storage.created_at,
                     "message_count": message_count,
                     "last_message": last_message
@@ -538,5 +550,105 @@ class ChatService:
                 print(f"Error parsing session from storage {storage.id}: {e}")
                 continue
         
-        return sessions
+        # Get deals where user is a participant (excluding need_receiver_approve=True)
+        deals_query = select(Deal).where(
+            and_(
+                or_(
+                    Deal.sender_did == self.owner_did,
+                    Deal.receiver_did == self.owner_did,
+                    Deal.arbiter_did == self.owner_did
+                ),
+                Deal.need_receiver_approve == False
+            )
+        )
+        
+        deals_result = await self.session.execute(deals_query)
+        deals = deals_result.scalars().all()
+        
+        # Build sessions list from deals
+        deal_sessions = []
+        for deal in deals:
+            try:
+                # Use get_deal_did to form conversation_id for the session response
+                conversation_id = get_deal_did(deal.uid)
+                
+                # Check if this deal already has messages (stored with conversation_id = deal.uid)
+                # If it does, it should already be in chat_sessions, so skip
+                # Messages for deals are stored with conversation_id = deal_uid (not get_deal_did format)
+                if deal.uid in chat_conversation_ids:
+                    continue
+                
+                # Also check if get_deal_did version exists (shouldn't happen, but just in case)
+                if conversation_id in chat_conversation_ids:
+                    continue
+                
+                # Check if there are messages for this deal
+                # Messages are stored with conversation_id = deal_uid (not get_deal_did format)
+                message_query_where = [
+                    Storage.space == self.SPACE,
+                    Storage.owner_did == self.owner_did,
+                    Storage.conversation_id == deal.uid  # Search by deal_uid as stored in Storage
+                ]
+                
+                # Add filter by after_message_id if specified
+                if after_message_id is not None:
+                    message_query_where.append(Storage.id > after_message_id)
+                
+                # Get message count
+                count_query = select(func.count(Storage.id)).where(and_(*message_query_where))
+                count_result = await self.session.execute(count_query)
+                message_count = count_result.scalar() or 0
+                
+                last_message = None
+                last_message_time = deal.updated_at or deal.created_at
+                
+                # If there are messages, get the last one
+                if message_count > 0:
+                    # Get the last message
+                    last_message_query = (
+                        select(Storage)
+                        .where(and_(*message_query_where))
+                        .order_by(desc(Storage.id))
+                        .limit(1)
+                    )
+                    
+                    last_message_result = await self.session.execute(last_message_query)
+                    last_storage = last_message_result.scalar_one_or_none()
+                    
+                    if last_storage:
+                        # Parse last message
+                        payload = last_storage.payload
+                        # Convert ISO format strings back to datetime if needed
+                        if 'timestamp' in payload and isinstance(payload['timestamp'], str):
+                            payload['timestamp'] = datetime.fromisoformat(payload['timestamp'].replace('Z', '+00:00'))
+                        if payload.get('edited_at') and isinstance(payload['edited_at'], str):
+                            payload['edited_at'] = datetime.fromisoformat(payload['edited_at'].replace('Z', '+00:00'))
+                        if payload.get('signature') and 'signed_at' in payload['signature']:
+                            if isinstance(payload['signature']['signed_at'], str):
+                                payload['signature']['signed_at'] = datetime.fromisoformat(
+                                    payload['signature']['signed_at'].replace('Z', '+00:00')
+                                )
+                        
+                        last_message = ChatMessage(**payload)
+                        last_message_time = last_storage.created_at
+                
+                deal_sessions.append({
+                    "conversation_id": conversation_id,
+                    "last_message_time": last_message_time,
+                    "message_count": message_count,
+                    "last_message": last_message
+                })
+            except Exception as e:
+                # Skip invalid deals
+                print(f"Error processing deal {deal.uid}: {e}")
+                continue
+        
+        # Combine chat and deal sessions
+        all_sessions = chat_sessions + deal_sessions
+        
+        # Sort by last_message_time descending
+        all_sessions.sort(key=lambda x: x["last_message_time"] if x["last_message_time"] else datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        
+        # Apply limit
+        return all_sessions[:limit]
 

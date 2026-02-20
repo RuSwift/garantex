@@ -340,6 +340,9 @@ class Deal(Base):
     # Label - text description of the deal
     label = Column(Text, nullable=False, comment="Text description of the deal")
     
+    # Description - дополнительное описание сделки (опционально)
+    description = Column(Text, nullable=True, comment="Описание сделки (дополнительное описание, отдельно от label)")
+    
     # Current requisites (JSONB for flexibility) - текущие реквизиты сделки
     requisites = Column(JSONB, nullable=True, comment="Текущие реквизиты сделки (ФИО, назначение, валюта и др.)")
     

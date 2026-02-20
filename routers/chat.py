@@ -202,7 +202,7 @@ class SessionInfo(BaseModel):
     conversation_id: Optional[str]
     last_message_time: Optional[str]  # ISO format datetime
     message_count: int
-    last_message: ChatMessage
+    last_message: Optional[ChatMessage]
 
 
 class GetSessionsResponse(BaseModel):

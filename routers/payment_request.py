@@ -1,6 +1,7 @@
 """
 Router for Payment Request API
 """
+import uuid
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
@@ -12,10 +13,12 @@ from services.deals.service import DealsService
 from services.wallet_user import WalletUserService
 from services.arbiter.service import ArbiterService
 from services.escrow.service import EscrowService
+from services.chat.service import ChatService
 from ledgers import get_user_did
+from ledgers.chat.schemas import ChatMessageCreate, MessageType
 from routers.utils import get_wallet_address_by_did
 from sqlalchemy import select, and_, or_
-from db.models import EscrowModel
+from db.models import EscrowModel, WalletUser
 
 
 router = APIRouter(
@@ -30,7 +33,8 @@ security_optional = HTTPBearer(auto_error=False)
 class CreatePaymentRequestRequest(BaseModel):
     """Request для создания заявки на оплату"""
     payer_address: str = Field(..., description="Tron адрес плательщика (того, кто должен оплатить)")
-    label: str = Field(..., description="Заголовок/описание заявки на оплату")
+    label: str = Field(..., description="Заголовок заявки на оплату")
+    description: Optional[str] = Field(None, description="Описание заявки на оплату (опционально)")
     blockchain: str = Field(default="tron", description="Blockchain name (tron, eth, etc.)")
 
 
@@ -40,7 +44,8 @@ class PaymentRequestResponse(BaseModel):
     sender_did: str = Field(..., description="DID отправителя")
     receiver_did: str = Field(..., description="DID получателя")
     arbiter_did: str = Field(..., description="DID арбитра")
-    label: str = Field(..., description="Заголовок/описание")
+    label: str = Field(..., description="Заголовок")
+    description: Optional[str] = Field(None, description="Описание сделки")
     need_receiver_approve: bool = Field(..., description="Требуется ли одобрение получателя")
     created_at: str = Field(..., description="Дата создания")
     escrow_address: Optional[str] = Field(None, description="Escrow address")
@@ -188,6 +193,7 @@ async def create_payment_request(
             receiver_did=deals_service.owner_did,  # Текущий пользователь - receiver
             arbiter_did=arbiter_did,
             label=request.label,
+            description=request.description,
             need_receiver_approve=True,  # Всегда true для заявок на оплату
             escrow_id=escrow_id
         )
@@ -198,6 +204,7 @@ async def create_payment_request(
             receiver_did=deal.receiver_did,
             arbiter_did=deal.arbiter_did,
             label=deal.label,
+            description=deal.description,
             need_receiver_approve=deal.need_receiver_approve,
             created_at=deal.created_at.isoformat(),
             escrow_address=escrow_address,
@@ -269,6 +276,26 @@ async def receiver_approve(
         # нужно обновить напрямую через сессию
         
         deal.need_receiver_approve = False
+
+        # Отправляем в чат сделки сервисное сообщение о подтверждении условий
+        approver = await deals_service.session.execute(
+            select(WalletUser).where(WalletUser.did == deals_service.owner_did)
+        )
+        approver_user = approver.scalar_one_or_none()
+        nickname = approver_user.nickname if approver_user else deals_service.owner_did
+        service_text = f"{nickname} {deals_service.owner_did} принял условия сделки"
+        chat_service = ChatService(deals_service.session, deals_service.owner_did)
+        service_message = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
+            message_type=MessageType.SERVICE,
+            sender_id=deals_service.owner_did,
+            receiver_id=deal.receiver_did,
+            deal_uid=deal.uid,
+            deal_label=deal.label,
+            text=service_text,
+        )
+        await chat_service.add_message(service_message, deal_uid=deal.uid)
+
         await deals_service.session.commit()
         await deals_service.session.refresh(deal)
         
@@ -435,7 +462,8 @@ class DealInfoResponse(BaseModel):
     sender_did: str = Field(..., description="DID отправителя")
     receiver_did: str = Field(..., description="DID получателя")
     arbiter_did: str = Field(..., description="DID арбитра")
-    label: str = Field(..., description="Заголовок/описание")
+    label: str = Field(..., description="Заголовок")
+    description: Optional[str] = Field(None, description="Описание сделки")
     need_receiver_approve: bool = Field(..., description="Требуется ли одобрение получателя")
     created_at: str = Field(..., description="Дата создания")
     updated_at: str = Field(..., description="Дата обновления")
@@ -499,6 +527,7 @@ async def get_deal_info(
             receiver_did=deal.receiver_did,
             arbiter_did=deal.arbiter_did,
             label=deal.label,
+            description=deal.description,
             need_receiver_approve=deal.need_receiver_approve,
             created_at=deal.created_at.isoformat() if deal.created_at else None,
             updated_at=deal.updated_at.isoformat() if deal.updated_at else None,
