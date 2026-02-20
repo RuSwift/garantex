@@ -343,6 +343,9 @@ class Deal(Base):
     # Description - дополнительное описание сделки (опционально)
     description = Column(Text, nullable=True, comment="Описание сделки (дополнительное описание, отдельно от label)")
     
+    # Amount - сумма сделки (для построения payout_txn)
+    amount = Column(Numeric(20, 8), nullable=True, comment="Сумма сделки")
+    
     # Current requisites (JSONB for flexibility) - текущие реквизиты сделки
     requisites = Column(JSONB, nullable=True, comment="Текущие реквизиты сделки (ФИО, назначение, валюта и др.)")
     

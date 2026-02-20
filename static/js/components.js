@@ -9710,6 +9710,7 @@ Vue.component('DealConversation', {
                 :wallet-address="walletAddress"
                 :is-authenticated="isAuthenticated"
                 :current-user-did="userDid || currentUserDid"
+                :get-auth-token="getAuthToken"
                 @close="close"
                 @on_send_text_message="handleSendTextMessage"
                 @on_send_documents="handleSendDocuments"
@@ -10769,7 +10770,8 @@ Vue.component('Deals', {
             currentEscrowId: null,
             escrowLogsRefreshTimer: null,
             escrowLogsCountdownInterval: null,
-            escrowLogsRefreshCountdown: 0
+            escrowLogsRefreshCountdown: 0,
+            refreshDealsInterval: null
         }
     },
     computed: {
@@ -10811,22 +10813,29 @@ Vue.component('Deals', {
         }
     },
     mounted() {
-        // Пытаемся загрузить сразу, если уже авторизован
         if (this.isAuthenticated && this.currentUserDid) {
             this.loadPaymentRequests();
+            this.startDealsRefreshInterval();
         }
+    },
+    beforeDestroy() {
+        this.stopDealsRefreshInterval();
     },
     watch: {
         isAuthenticated(newVal) {
-            // Загружаем сделки при авторизации
             if (newVal && this.currentUserDid) {
                 this.loadPaymentRequests();
+                this.startDealsRefreshInterval();
+            } else {
+                this.stopDealsRefreshInterval();
             }
         },
         currentUserDid(newVal) {
-            // Загружаем сделки когда DID становится доступным
             if (newVal && this.isAuthenticated) {
                 this.loadPaymentRequests();
+                this.startDealsRefreshInterval();
+            } else {
+                this.stopDealsRefreshInterval();
             }
         },
         showEscrowLogsModal(newVal) {
@@ -10899,6 +10908,7 @@ Vue.component('Deals', {
                     body: JSON.stringify({
                         payer_address: this.createForm.payerAddress.trim(),
                         label: label,
+                        amount: parseFloat(this.createForm.amount),
                         description: this.createForm.description && this.createForm.description.trim() ? this.createForm.description.trim() : null,
                         blockchain: this.createForm.blockchain
                     })
@@ -10999,23 +11009,36 @@ Vue.component('Deals', {
             }
             if (status === 'success') return 'Завершена';
             if (status === 'appeal') return 'Апелляция';
-            if (status === 'resolved_sender') return 'В пользу отправителя';
-            if (status === 'resolved_receiver') return 'В пользу получателя';
+            if (status === 'resolved_sender') return 'Аппеляция закончена: В пользу отправителя';
+            if (status === 'resolved_receiver') return 'Аппеляция закончена: В пользу получателя';
             if (request.need_receiver_approve) return 'Ожидает подтверждения';
             return 'Подтверждено';
         },
         getStatusClass(request) {
             const status = request.status;
-            if (status === 'processing') return request.need_receiver_approve ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700';
-            if (status === 'success') return 'bg-green-100 text-green-700';
-            if (status === 'appeal') return 'bg-orange-100 text-orange-700';
-            if (status === 'resolved_sender' || status === 'resolved_receiver') return 'bg-gray-100 text-gray-700';
-            if (request.need_receiver_approve) return 'bg-yellow-100 text-yellow-700';
+            if (status === 'processing') return request.need_receiver_approve ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-700';
+            if (status === 'success') return 'bg-green-100 text-green-800';
+            if (status === 'appeal') return 'bg-red-100 text-red-700';
+            if (status === 'resolved_sender' || status === 'resolved_receiver') return 'bg-yellow-100 text-yellow-800';
+            if (request.need_receiver_approve) return 'bg-yellow-100 text-yellow-800';
             return 'bg-green-100 text-green-700';
         },
         refresh() {
-            // Обновление списка заявок
             this.loadPaymentRequests();
+        },
+        startDealsRefreshInterval() {
+            this.stopDealsRefreshInterval();
+            this.refreshDealsInterval = setInterval(() => {
+                if (this.isAuthenticated && this.currentUserDid) {
+                    this.loadPaymentRequests();
+                }
+            }, 45000);
+        },
+        stopDealsRefreshInterval() {
+            if (this.refreshDealsInterval) {
+                clearInterval(this.refreshDealsInterval);
+                this.refreshDealsInterval = null;
+            }
         },
         openDealChat(dealUid) {
             // Отправляем событие родительскому компоненту для открытия чата сделки
@@ -11278,7 +11301,8 @@ Vue.component('Deals', {
                             </td>
                             <td class="px-4 py-4">
                                 <div class="flex flex-col gap-2">
-                                    <span :class="['px-3 py-1 rounded-full text-xs font-bold uppercase whitespace-nowrap inline-block', getStatusClass(request)]">
+                                    <span :class="['px-3 py-1 rounded-full text-xs font-bold uppercase whitespace-nowrap inline-flex items-center gap-2', getStatusClass(request)]">
+                                        <span v-if="request.status === 'processing'" class="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent flex-shrink-0"></span>
                                         [[ getStatusText(request) ]]
                                     </span>
                                     <!-- Escrow Status with Progress Circle if pending -->

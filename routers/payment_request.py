@@ -34,6 +34,7 @@ class CreatePaymentRequestRequest(BaseModel):
     """Request для создания заявки на оплату"""
     payer_address: str = Field(..., description="Tron адрес плательщика (того, кто должен оплатить)")
     label: str = Field(..., description="Заголовок заявки на оплату")
+    amount: float = Field(..., gt=0, description="Сумма сделки")
     description: Optional[str] = Field(None, description="Описание заявки на оплату (опционально)")
     blockchain: str = Field(default="tron", description="Blockchain name (tron, eth, etc.)")
 
@@ -60,6 +61,11 @@ class PayoutSignatureRequest(BaseModel):
     signer_address: str = Field(..., description="TRON-адрес подписавшего")
     signature: str = Field(..., description="Подпись в hex")
     signature_index: Optional[int] = Field(None, description="Индекс подписанта в multisig (опционально)")
+
+
+class DealStatusUpdateRequest(BaseModel):
+    """Request для смены статуса сделки"""
+    status: str = Field(..., description="Статус: success, appeal, resolved_sender, resolved_receiver")
 
 
 class ReceiverApproveRequest(BaseModel):
@@ -202,6 +208,7 @@ async def create_payment_request(
             receiver_did=deals_service.owner_did,  # Текущий пользователь - receiver
             arbiter_did=arbiter_did,
             label=request.label,
+            amount=request.amount,
             description=request.description,
             need_receiver_approve=True,  # Всегда true для заявок на оплату
             escrow_id=escrow_id
@@ -568,6 +575,48 @@ async def get_deal_info(
             status_code=500,
             detail=f"Error getting deal info: {str(e)}"
         )
+
+
+@router.patch("/{deal_uid}/status")
+async def update_deal_status(
+    deal_uid: str,
+    body: DealStatusUpdateRequest,
+    deals_service: DealsService = Depends(get_deals_service),
+    db: DbDepends = None,
+):
+    """
+    Сменить статус сделки. Правила: success — только receiver; appeal — sender или receiver;
+    resolved_sender / resolved_receiver — только arbiter.
+    """
+    ALLOWED = {"success", "appeal", "resolved_sender", "resolved_receiver"}
+    if body.status not in ALLOWED:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Allowed: {ALLOWED}")
+    deal = await deals_service.get_deal(deal_uid)
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+    if deal.need_receiver_approve:
+        raise HTTPException(status_code=403, detail="Deal not started: receiver approval required")
+    owner_did = deals_service.owner_did
+    if body.status == "success":
+        if owner_did != deal.receiver_did:
+            raise HTTPException(status_code=403, detail="Only receiver can set status to success")
+    elif body.status == "appeal":
+        if owner_did not in (deal.sender_did, deal.receiver_did):
+            raise HTTPException(status_code=403, detail="Only sender or receiver can file appeal")
+    elif body.status in ("resolved_sender", "resolved_receiver"):
+        if owner_did != deal.arbiter_did:
+            raise HTTPException(status_code=403, detail="Only arbiter can resolve appeal")
+    try:
+        updated = await deals_service.set_deal_status(deal_uid, body.status)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    if not updated:
+        raise HTTPException(status_code=500, detail="Failed to update status")
+    return {
+        "deal_uid": updated.uid,
+        "status": updated.status,
+        "updated_at": updated.updated_at.isoformat() if updated.updated_at else None,
+    }
 
 
 @router.post("/{deal_uid}/payout-signature")

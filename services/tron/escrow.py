@@ -575,21 +575,21 @@ class EscrowService:
         
         async with self._get_api_client(network) as api_client:
             # Create TRC20 transfer transaction
-            unsigned_tx = await api_client.trigger_smart_contract(
+            response = await api_client.trigger_smart_contract(
                 owner_address=from_address,
                 contract_address=token_contract,
                 function_selector="transfer(address,uint256)",
                 parameter=f"{to_address},{int(amount * 1e6)}",  # Assuming 6 decimals
                 permission_id=permission_id
             )
-            
-            if "txID" not in unsigned_tx:
+            # TRON API returns { "result": {...}, "transaction": {...} }; we need the transaction object
+            unsigned_tx = response.get("transaction") if isinstance(response.get("transaction"), dict) else response
+            if not unsigned_tx or "txID" not in unsigned_tx:
                 raise EscrowError(
                     "TRANSACTION_CREATION_FAILED",
-                    f"Failed to create TRC20 transaction: {unsigned_tx}",
-                    {"response": unsigned_tx}
+                    f"Failed to create TRC20 transaction: {response}",
+                    {"response": response}
                 )
-            
             return unsigned_tx
     
     async def update_arbiter(

@@ -16,6 +16,7 @@ from core.utils import generate_base58_uuid
 from core.exceptions import DealAccessDeniedError
 from services.chat.service import ChatService
 from services.tron.escrow import EscrowService
+from services.tron.constants import USDT_CONTRACT_MAINNET
 from ledgers.chat.schemas import ChatMessageCreate, MessageType, FileAttachment
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,8 @@ class DealsService:
         label: str,
         need_receiver_approve: bool = False,
         escrow_id: Optional[int] = None,
-        description: Optional[str] = None
+        description: Optional[str] = None,
+        amount: Optional[float] = None
     ) -> Deal:
         """
         Create a new deal
@@ -126,7 +128,8 @@ class DealsService:
             description=description,
             need_receiver_approve=need_receiver_approve,
             status='processing',
-            escrow_id=escrow_id
+            escrow_id=escrow_id,
+            amount=amount
         )
         
         self.session.add(deal)
@@ -287,10 +290,13 @@ class DealsService:
             await self.session.commit()
             return None
 
+        # amount: из колонки deal.amount или из deal.requisites["amount"]
+        amount = deal.amount
         requisites = deal.requisites or {}
-        amount = requisites.get("amount")
         if amount is None:
-            logger.info("get_or_build_deal_payout_txn: deal %s has no amount in requisites", deal_uid)
+            amount = requisites.get("amount")
+        if amount is None:
+            logger.info("get_or_build_deal_payout_txn: deal %s has no amount", deal_uid)
             deal.payout_txn = None
             deal.updated_at = datetime.now(timezone.utc)
             await self.session.commit()
@@ -303,7 +309,17 @@ class DealsService:
             await self.session.commit()
             return None
 
-        token_contract = requisites.get("token_contract")
+        token_contract = requisites.get("token_contract") or USDT_CONTRACT_MAINNET
+
+        # Reuse existing payload if it matches current status (to_address, amount, token) — no TronAPI call
+        existing = deal.payout_txn
+        if existing and isinstance(existing, dict):
+            if (
+                existing.get("to_address") == to_address
+                and float(existing.get("amount") or 0) == amount
+                and existing.get("token_contract") == token_contract
+            ):
+                return existing
 
         escrow_svc = EscrowService(self.session, deal.sender_did)
         try:
@@ -345,19 +361,28 @@ class DealsService:
 
     async def refresh_deal_payout_txn(self, deal_uid: str) -> Optional[Dict[str, Any]]:
         """
-        Rebuild and save payout_txn for the deal from current status.
-        Call after deal status changes.
+        Clear existing payout_txn and rebuild it once via create_payment_transaction.
+        Call after deal status changes so payload matches new to_address/amount/token.
         """
+        deal = await self.get_deal(deal_uid)
+        if not deal:
+            return None
+        deal.payout_txn = None
+        await self.session.commit()
+        await self.session.refresh(deal)
         return await self.get_or_build_deal_payout_txn(deal_uid)
 
     async def set_deal_status(self, deal_uid: str, status: str) -> Optional[Deal]:
         """
         Update deal status and refresh payout_txn to match.
         Call this whenever deal status is changed so payout_txn stays in sync.
+        If need_receiver_approve is True, the deal is not started and status updates are forbidden.
         """
         deal = await self.get_deal(deal_uid)
         if not deal:
             return None
+        if deal.need_receiver_approve:
+            raise ValueError("Deal not started: receiver approval required")
         deal.status = status
         deal.updated_at = datetime.now(timezone.utc)
         await self.session.commit()

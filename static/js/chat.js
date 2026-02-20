@@ -21,6 +21,10 @@ Vue.component('Chat', {
         pageSize: {
             type: Number,
             default: 20
+        },
+        getAuthToken: {
+            type: Function,
+            default: null
         }
     },
     data() {
@@ -55,6 +59,16 @@ Vue.component('Chat', {
             isFetchingHistory: false, // Track if history fetch is in progress
             hasMoreOldMessages: {}, // Track if there are more old messages per conversation: {conversationId: true/false}
             showDescriptionModal: false, // Show description modal for deals
+            dealInfo: null, // Deal data when selectedContact.deal_uid (status, sender_did, receiver_did, arbiter_did, payout_txn)
+            showDealErrorModal: false,
+            dealErrorTitle: '',
+            dealErrorMessage: '',
+            dealArbiterChoice: '', // '' | 'resolved_sender' | 'resolved_receiver'
+            showSignPayoutModal: false,
+            signPayoutAddress: '',
+            signPayoutSignature: '',
+            showAppealConfirmModal: false,
+            showPayloadModal: false,
             emojiCategories: {
                 'smileys': ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔'],
                 'gestures': ['👋', '🤚', '🖐', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝'],
@@ -87,6 +101,42 @@ Vue.component('Chat', {
         shouldShowChatArea() {
             if (!this.isMobileDevice) return true;
             return !this.showSidebarOnMobile && this.selectedContact;
+        },
+        dealStatusLabel() {
+            if (!this.dealInfo || !this.dealInfo.status) return '';
+            var s = this.dealInfo.status;
+            if (s === 'processing') return 'В работе';
+            if (s === 'success') return 'Завершена успешно';
+            if (s === 'appeal') return 'На апелляции';
+            if (s === 'resolved_sender') return 'Аппеляция закончена: В пользу отправителя';
+            if (s === 'resolved_receiver') return 'Аппеляция закончена: В пользу получателя';
+            return s;
+        },
+        dealStatusStyle() {
+            if (!this.dealInfo || !this.dealInfo.status) return {};
+            var s = this.dealInfo.status;
+            if (s === 'processing') return { color: '#1565c0', backgroundColor: '#e3f2fd', borderColor: '#1976d2', showProgress: true };
+            if (s === 'success') return { color: '#2e7d32', backgroundColor: '#e8f5e9', borderColor: '#43a047', showProgress: false };
+            if (s === 'appeal') return { color: '#b71c1c', backgroundColor: '#ffebee', borderColor: '#c62828', showProgress: false };
+            if (s === 'resolved_sender' || s === 'resolved_receiver') return { color: '#b45309', backgroundColor: '#fef3c7', borderColor: '#d97706', showProgress: false };
+            return {};
+        },
+        dealIsSender() {
+            return this.dealInfo && this.currentUserDid && this.dealInfo.sender_did === this.currentUserDid;
+        },
+        dealIsReceiver() {
+            return this.dealInfo && this.currentUserDid && this.dealInfo.receiver_did === this.currentUserDid;
+        },
+        dealIsArbiter() {
+            return this.dealInfo && this.currentUserDid && this.dealInfo.arbiter_did === this.currentUserDid;
+        },
+        payloadJson() {
+            if (!this.dealInfo || !this.dealInfo.payout_txn) return '';
+            try {
+                return JSON.stringify(this.dealInfo.payout_txn, null, 2);
+            } catch (e) {
+                return String(this.dealInfo.payout_txn);
+            }
         }
     },
     watch: {
@@ -687,6 +737,7 @@ Vue.component('Chat', {
         // Internal methods
         selectContact(contact) {
             this.selectedContactId = contact.id;
+            this.dealInfo = null;
             if (!this.messages[contact.id]) {
                 this.$set(this.messages, contact.id, []);
             }
@@ -697,12 +748,117 @@ Vue.component('Chat', {
             if (this.isMobileDevice) {
                 this.showSidebarOnMobile = false;
             }
-            this.$nextTick(this.scrollToBottom);
+            this.$nextTick(() => {
+                this.scrollToBottom();
+                if (contact.deal_uid && this.getAuthToken) this.loadDealInfo();
+            });
             
             // Start periodic history refresh for selected contact
             this.startHistoryRefresh();
             // Сразу запрашиваем историю, не ждём первого тика таймера (3 сек)
             this.refreshHistory();
+        },
+        async loadDealInfo() {
+            var contact = this.selectedContact;
+            if (!contact || !contact.deal_uid || !this.getAuthToken) return;
+            var token = this.getAuthToken();
+            if (!token) return;
+            try {
+                var r = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid), {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (!r.ok) { this.dealInfo = null; return; }
+                this.dealInfo = await r.json();
+            } catch (e) {
+                this.dealInfo = null;
+            }
+        },
+        showDealApiError(title, message) {
+            this.dealErrorTitle = title || 'Ошибка';
+            this.dealErrorMessage = message || '';
+            this.showDealErrorModal = true;
+        },
+        closeDealErrorModal() {
+            this.showDealErrorModal = false;
+        },
+        async setDealStatus(status) {
+            var contact = this.selectedContact;
+            if (!contact || !contact.deal_uid || !this.getAuthToken) return;
+            var token = this.getAuthToken();
+            if (!token) return;
+            try {
+                var r = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/status', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ status: status })
+                });
+                var data = await r.json().catch(function() { return {}; });
+                if (!r.ok) {
+                    this.showDealApiError('Ошибка смены статуса', data.detail || r.statusText || 'Ошибка');
+                    return;
+                }
+                if (this.dealInfo) this.dealInfo.status = data.status || status;
+                await this.loadDealInfo();
+            } catch (e) {
+                this.showDealApiError('Ошибка', e.message || 'Ошибка сети');
+            }
+        },
+        onArbiterResolutionChange() {
+            var v = this.dealArbiterChoice;
+            if (v === 'resolved_sender' || v === 'resolved_receiver') {
+                this.setDealStatus(v);
+                this.dealArbiterChoice = '';
+            }
+        },
+        openSignPayoutModal() {
+            this.signPayoutAddress = this.walletAddress || '';
+            this.signPayoutSignature = '';
+            this.showSignPayoutModal = true;
+        },
+        closeSignPayoutModal() {
+            this.showSignPayoutModal = false;
+        },
+        openPayloadModal() {
+            this.showPayloadModal = true;
+        },
+        closePayloadModal() {
+            this.showPayloadModal = false;
+        },
+        async submitPayoutSignature() {
+            var contact = this.selectedContact;
+            if (!contact || !contact.deal_uid || !this.getAuthToken) return;
+            var token = this.getAuthToken();
+            if (!token) return;
+            var addr = (this.signPayoutAddress || '').trim();
+            var sig = (this.signPayoutSignature || '').trim();
+            if (!addr || !sig) {
+                this.showDealApiError('Ошибка', 'Укажите адрес и подпись');
+                return;
+            }
+            try {
+                var r = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/payout-signature', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ signer_address: addr, signature: sig })
+                });
+                var data = await r.json().catch(function() { return {}; });
+                if (!r.ok) {
+                    this.showDealApiError('Ошибка подписи', data.detail || r.statusText || 'Ошибка');
+                    return;
+                }
+                if (data.payout_txn && this.dealInfo) this.dealInfo.payout_txn = data.payout_txn;
+                this.closeSignPayoutModal();
+                await this.loadDealInfo();
+            } catch (e) {
+                this.showDealApiError('Ошибка', e.message || 'Ошибка сети');
+            }
+        },
+        openAppealConfirmModal() {
+            this.showAppealConfirmModal = true;
+        },
+        confirmAppeal() {
+            this.showAppealConfirmModal = false;
+            this.setDealStatus('appeal');
         },
         
         // Start periodic history refresh
@@ -772,6 +928,7 @@ Vue.component('Chat', {
                 resolve: resolvePromise,
                 reject: rejectPromise
             });
+            if (this.selectedContact && this.selectedContact.deal_uid && this.getAuthToken) this.loadDealInfo();
             
             // Handle promise resolution/rejection
             refreshPromise
@@ -1556,6 +1713,16 @@ Vue.component('Chat', {
                                     </div>
                                     <span class="mt-2" style="font-size: 14px;">Загрузка истории...</span>
                                 </div>
+                                <!-- Splash: сделка ожидает подтверждения получателя (пустой чат) -->
+                                <div v-else-if="selectedContact && selectedContact.deal_uid && dealInfo && dealInfo.need_receiver_approve && (!currentMessages || currentMessages.length === 0)" class="d-flex flex-column align-items-center justify-content-center" style="min-height: 280px; padding: 24px; text-align: center;">
+                                    <div style="width: 80px; height: 80px; border-radius: 50%; background: #fef3c7; display: flex; align-items: center; justify-content: center; margin-bottom: 16px;">
+                                        <svg style="width: 40px; height: 40px; color: #d97706;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                        </svg>
+                                    </div>
+                                    <p style="font-size: 16px; font-weight: 600; color: #212121; margin: 0 0 8px;">Сделка ожидает подтверждения</p>
+                                    <p style="font-size: 14px; color: #6b7280; margin: 0; max-width: 320px;">Получатель ещё не подтвердил сделку. После подтверждения здесь появится переписка.</p>
+                                </div>
                                 <!-- Load More History Button or No More Messages Text -->
                                 <div v-if="currentMessages && currentMessages.length > 0" style="display: flex; justify-content: center; margin-bottom: 8px;">
                                     <!-- Button to load more -->
@@ -1852,6 +2019,29 @@ Vue.component('Chat', {
                                         <span>Создать сделку</span>
                                     </button>
                                 </div>
+                                <!-- Deal status and actions (when deal_uid and dealInfo) -->
+                                <div v-if="selectedContact && selectedContact.deal_uid && dealInfo && !dealInfo.need_receiver_approve" style="display: flex; flex-direction: column; align-items: center; margin-top: 16px; margin-bottom: 8px; padding: 12px; border: 1px solid #e5e5e5; border-radius: 12px; background: #fafafa;">
+                                    <div :style="{ fontSize: '14px', fontWeight: '700', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '6px 12px', borderRadius: '8px', border: '1px solid', color: dealStatusStyle.color || '#212121', backgroundColor: dealStatusStyle.backgroundColor || 'transparent', borderColor: dealStatusStyle.borderColor || '#e5e5e5' }">
+                                        <span v-if="dealStatusStyle.showProgress" style="display: inline-block; width: 16px; height: 16px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
+                                        <span>[[ dealStatusLabel ]]</span>
+                                        <a href="javascript:void(0)" @click.prevent="openPayloadModal" style="font-size: 12px; font-weight: 500; color: #4082bc; margin-left: 4px;">Payload транзакции</a>
+                                    </div>
+                                    <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;">
+                                        <template v-if="dealInfo.status === 'processing'">
+                                            <button v-if="dealIsSender" @click="() => {}" style="padding: 8px 16px; border: 1px solid #e5e5e5; border-radius: 20px; background: white; color: #4082bc; cursor: pointer; font-size: 13px; font-weight: 500;">Оплатил</button>
+                                            <button v-if="dealIsReceiver" @click="setDealStatus('success')" style="padding: 8px 16px; border: 1px solid #e5e5e5; border-radius: 20px; background: white; color: #4082bc; cursor: pointer; font-size: 13px; font-weight: 500;">Подтверждаю получение</button>
+                                            <button v-if="dealIsSender || dealIsReceiver" @click="openAppealConfirmModal" style="padding: 8px 16px; border: 1px solid #e57373; border-radius: 20px; background: #ffebee; color: #c62828; cursor: pointer; font-size: 13px; font-weight: 500;">Подать на апелляцию</button>
+                                        </template>
+                                        <template v-if="dealInfo.status === 'appeal' && dealIsArbiter">
+                                            <select v-model="dealArbiterChoice" @change="onArbiterResolutionChange" style="padding: 8px 12px; border: 1px solid #e5e5e5; border-radius: 8px; font-size: 13px;">
+                                                <option value="">В чью пользу принять апелляцию</option>
+                                                <option value="resolved_sender">В пользу отправителя</option>
+                                                <option value="resolved_receiver">В пользу получателя</option>
+                                            </select>
+                                        </template>
+                                        <button v-if="(dealInfo.status === 'resolved_receiver' && dealIsReceiver) || (dealInfo.status === 'resolved_sender' && dealIsSender)" @click="openSignPayoutModal" style="padding: 8px 16px; border: 1px solid #2e7d32; border-radius: 20px; background: #e8f5e9; color: #1b5e20; cursor: pointer; font-size: 13px; font-weight: 500;">Подписать перевод</button>
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- Chat Input - Telegram Style -->
@@ -2003,6 +2193,63 @@ Vue.component('Chat', {
                 </div>
             </template>
         </modal-window>
+        <modal-window v-if="showPayloadModal" :width="'90%'" :height="'80%'" @close="closePayloadModal">
+            <template #header>
+                <div class="d-flex justify-content-between align-items-center w-100" style="margin-bottom: 0;">
+                    <span style="font-weight: 600;">Payload транзакции</span>
+                    <button type="button" @click="closePayloadModal" title="Закрыть" style="background: none; border: none; padding: 4px; cursor: pointer; color: #707579; line-height: 1;">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width: 20px; height: 20px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+            </template>
+            <template #body>
+                <div style="padding: 16px; overflow: auto; height: 100%; box-sizing: border-box;">
+                    <pre v-if="payloadJson" style="margin: 0; font-size: 12px; white-space: pre-wrap; word-break: break-all; background: #f5f5f5; padding: 12px; border-radius: 8px; border: 1px solid #e5e5e5;">[[ payloadJson ]]</pre>
+                    <p v-else style="margin: 0; color: #707579;">Нет данных</p>
+                </div>
+            </template>
+        </modal-window>
+        <modal-window v-if="showDealErrorModal" :width="'400px'" @close="closeDealErrorModal">
+            <template #header>[[ dealErrorTitle ]]</template>
+            <div style="padding: 16px;">
+                <p style="white-space: pre-wrap; margin: 0;">[[ dealErrorMessage ]]</p>
+                <button @click="closeDealErrorModal" style="margin-top: 12px; padding: 8px 16px; cursor: pointer;">Закрыть</button>
+            </div>
+        </modal-window>
+        <modal-window v-if="showSignPayoutModal" :width="'480px'" @close="closeSignPayoutModal">
+            <template #header>Подписать перевод</template>
+            <div style="padding: 16px;">
+                <div style="margin-bottom: 12px;">
+                    <label style="display: block; margin-bottom: 4px; font-size: 13px;">Адрес подписанта (TRON)</label>
+                    <input v-model="signPayoutAddress" type="text" style="width: 100%; padding: 8px; box-sizing: border-box;" />
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label style="display: block; margin-bottom: 4px; font-size: 13px;">Подпись (hex)</label>
+                    <input v-model="signPayoutSignature" type="text" style="width: 100%; padding: 8px; box-sizing: border-box;" placeholder="0x..." />
+                </div>
+                <button @click="submitPayoutSignature" style="margin-right: 8px; padding: 8px 16px; cursor: pointer;">Отправить</button>
+                <button @click="closeSignPayoutModal" style="padding: 8px 16px; cursor: pointer;">Отмена</button>
+            </div>
+        </modal-window>
+        <div v-if="showAppealConfirmModal" style="position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10002;">
+            <modal-window :width="'440px'" :height="'auto'" @close="showAppealConfirmModal = false">
+                <template #header>Подать на апелляцию?</template>
+                <template #body>
+                <div style="padding: 12px 16px;">
+                    <div style="padding: 12px 14px; margin-bottom: 12px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; color: #856404;">
+                        <p style="margin: 0; font-size: 14px; line-height: 1.45;">Заявка будет передана на рассмотрение третьей стороне (арбитру). Решение по сделке примет арбитр.</p>
+                    </div>
+                    <p style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #212121;">Продолжить?</p>
+                    <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                        <button @click="showAppealConfirmModal = false" style="padding: 8px 16px; cursor: pointer; border: 1px solid #e5e5e5; border-radius: 8px; background: #f5f5f5;">Отмена</button>
+                        <button @click="confirmAppeal" style="padding: 8px 16px; cursor: pointer; border: 1px solid #c62828; border-radius: 8px; background: #ffebee; color: #c62828; font-weight: 500;">Подать на апелляцию</button>
+                    </div>
+                </div>
+            </template>
+            </modal-window>
+        </div>
         </div>
     `
 });
