@@ -665,8 +665,10 @@ class TestChatServiceGetLastSessions:
             assert "message_count" in session
             assert "last_message" in session
             if session["last_message"] is not None:
-                assert hasattr(session["last_message"], "text")
-                assert hasattr(session["last_message"], "sender_id")
+                # last_message — dict (без контента файлов, как в истории)
+                lm = session["last_message"]
+                assert "text" in lm or "attachments" in lm
+                assert "sender_id" in lm
         
         # Ожидаемые сессии должны присутствовать (могут быть и другие — сделки с 0 сообщений)
         assert "did:test:sender1" in conversation_ids  # General chat
@@ -789,7 +791,7 @@ class TestChatServiceGetLastSessions:
         
         # Find message1 UUID from general conversation session
         general_session = next(s for s in all_sessions if s["conversation_id"] == sender_id)
-        message1_uuid = general_session["last_message"].uuid
+        message1_uuid = general_session["last_message"]["uuid"]
         
         # Get sessions after message1
         result = await service.get_last_sessions(after_message_uid=message1_uuid)
@@ -797,5 +799,5 @@ class TestChatServiceGetLastSessions:
         # Should return only deal session (with last message id > message1.id)
         assert len(result) == 1
         assert result[0]["conversation_id"] == get_deal_did(deal_uid)
-        assert result[0]["last_message"].text == "Message 2"
+        assert result[0]["last_message"]["text"] == "Message 2"
 

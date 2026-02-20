@@ -129,6 +129,7 @@ class FileAttachment(BaseModel):
     size: int = Field(..., description="Размер файла в байтах")
     mime_type: str = Field(..., description="MIME тип файла (например, image/png, application/pdf)")
     data: Optional[str] = Field(None, description="Содержимое файла в base64 (может быть пустым при постраничной загрузке)")
+    download_url: Optional[str] = Field(None, description="URL для загрузки полного файла (когда data исключён)")
     thumbnail: Optional[str] = Field(None, description="Превью в base64 (для изображений/видео)")
     width: Optional[int] = Field(None, description="Ширина изображения/видео в пикселях")
     height: Optional[int] = Field(None, description="Высота изображения/видео в пикселях")
@@ -147,9 +148,9 @@ class FileAttachment(BaseModel):
     @field_validator('data')
     @classmethod
     def validate_base64(cls, v):
-        """Базовая проверка base64 формата"""
-        if not v:
-            raise ValueError("Base64 data cannot be empty")
+        """Базовая проверка base64 формата (при наличии data)"""
+        if v is None or v == "":
+            return v
         # Проверка что это base64 строка
         try:
             import base64

@@ -533,6 +533,8 @@ class ChatService:
                         )
                 
                 last_message = ChatMessage(**payload)
+                # Убираем контент файлов из last_message (как в истории — подгрузка по download_url)
+                last_message_dict = self._strip_file_data_from_message(last_message)
                 
                 conversation_id = storage.conversation_id
                 chat_conversation_ids.add(conversation_id)
@@ -548,7 +550,7 @@ class ChatService:
                     "conversation_id": conversation_id,
                     "last_message_time": storage.created_at,
                     "message_count": message_count,
-                    "last_message": last_message
+                    "last_message": last_message_dict
                 })
             except Exception as e:
                 # Skip invalid sessions
@@ -635,6 +637,8 @@ class ChatService:
                                 )
                         
                         last_message = ChatMessage(**payload)
+                        # Убираем контент файлов (как в истории — подгрузка по download_url)
+                        last_message = self._strip_file_data_from_message(last_message)
                         last_message_time = last_storage.created_at
                 
                 deal_sessions.append({

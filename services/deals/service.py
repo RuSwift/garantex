@@ -1,6 +1,7 @@
 """
 Service for managing deals
 """
+import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,11 +9,16 @@ from sqlalchemy import select, func, desc, or_
 from sqlalchemy.dialects.postgresql import JSONB
 import uuid
 
-from db.models import Deal
+from fastapi import HTTPException
+
+from db.models import Deal, EscrowModel
 from core.utils import generate_base58_uuid
 from core.exceptions import DealAccessDeniedError
 from services.chat.service import ChatService
+from services.tron.escrow import EscrowService
 from ledgers.chat.schemas import ChatMessageCreate, MessageType, FileAttachment
+
+logger = logging.getLogger(__name__)
 
 
 class DealsService:
@@ -119,6 +125,7 @@ class DealsService:
             label=label,
             description=description,
             need_receiver_approve=need_receiver_approve,
+            status='processing',
             escrow_id=escrow_id
         )
         
@@ -224,7 +231,191 @@ class DealsService:
             "page": page,
             "page_size": page_size
         }
-    
+
+    async def get_or_build_deal_payout_txn(self, deal_uid: str) -> Optional[Dict[str, Any]]:
+        """
+        Get or build the offline payout transaction for a deal based on its status.
+        For tron escrow: builds multisig payout (escrow -> receiver/sender per status).
+        Stores serializable payload in deal.payout_txn with signatures: [].
+        """
+        from routers.utils import get_wallet_address_by_did
+
+        deal = await self.get_deal(deal_uid)
+        if not deal:
+            return None
+
+        if not deal.escrow_id:
+            deal.payout_txn = None
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            return None
+
+        result = await self.session.execute(
+            select(EscrowModel).where(EscrowModel.id == deal.escrow_id)
+        )
+        escrow = result.scalar_one_or_none()
+        if not escrow or escrow.blockchain != "tron":
+            deal.payout_txn = None
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            return None
+
+        if deal.status == "appeal":
+            deal.payout_txn = None
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            return None
+
+        if deal.status in ("processing", "success"):
+            to_did = deal.receiver_did
+        elif deal.status == "resolved_sender":
+            to_did = deal.sender_did
+        elif deal.status == "resolved_receiver":
+            to_did = deal.receiver_did
+        else:
+            deal.payout_txn = None
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            return None
+
+        try:
+            to_address = await get_wallet_address_by_did(to_did, self.session)
+        except HTTPException as e:
+            logger.warning("get_or_build_deal_payout_txn: user not found for to_did=%s: %s", to_did, e.detail)
+            deal.payout_txn = None
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            return None
+
+        requisites = deal.requisites or {}
+        amount = requisites.get("amount")
+        if amount is None:
+            logger.info("get_or_build_deal_payout_txn: deal %s has no amount in requisites", deal_uid)
+            deal.payout_txn = None
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            return None
+        try:
+            amount = float(amount)
+        except (TypeError, ValueError):
+            deal.payout_txn = None
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            return None
+
+        token_contract = requisites.get("token_contract")
+
+        escrow_svc = EscrowService(self.session, deal.sender_did)
+        try:
+            create_result = await escrow_svc.create_payment_transaction(
+                deal.escrow_id, to_address, amount, token_contract
+            )
+        except Exception as e:
+            logger.warning("get_or_build_deal_payout_txn: create_payment_transaction failed for deal %s: %s", deal_uid, e)
+            deal.payout_txn = None
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            return None
+
+        unsigned_tx = create_result["unsigned_tx"]
+        contract_data = unsigned_tx.get("raw_data", {})
+        contract_type = "TriggerSmartContract" if token_contract else "TransferContract"
+
+        payload = {
+            "blockchain": escrow.blockchain,
+            "network": escrow.network,
+            "escrow_id": deal.escrow_id,
+            "to_address": to_address,
+            "amount": amount,
+            "token_contract": token_contract,
+            "unsigned_tx": unsigned_tx,
+            "contract_data": contract_data,
+            "required_signatures": create_result["required_signatures"],
+            "participants": create_result["participants"],
+            "arbiter": create_result["arbiter"],
+            "contract_type": contract_type,
+            "signatures": [],
+        }
+
+        deal.payout_txn = payload
+        deal.updated_at = datetime.now(timezone.utc)
+        await self.session.commit()
+        await self.session.refresh(deal)
+        return payload
+
+    async def refresh_deal_payout_txn(self, deal_uid: str) -> Optional[Dict[str, Any]]:
+        """
+        Rebuild and save payout_txn for the deal from current status.
+        Call after deal status changes.
+        """
+        return await self.get_or_build_deal_payout_txn(deal_uid)
+
+    async def set_deal_status(self, deal_uid: str, status: str) -> Optional[Deal]:
+        """
+        Update deal status and refresh payout_txn to match.
+        Call this whenever deal status is changed so payout_txn stays in sync.
+        """
+        deal = await self.get_deal(deal_uid)
+        if not deal:
+            return None
+        deal.status = status
+        deal.updated_at = datetime.now(timezone.utc)
+        await self.session.commit()
+        await self.session.refresh(deal)
+        await self.refresh_deal_payout_txn(deal_uid)
+        return await self.get_deal(deal_uid)
+
+    async def add_payout_signature(
+        self,
+        deal_uid: str,
+        signer_address: str,
+        signature: str,
+        signature_index: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Add an offline signature to the deal's payout transaction.
+        Caller must be a participant; signer_address must be one of participants or arbiter.
+
+        Args:
+            deal_uid: Deal UID
+            signer_address: TRON address of the signer
+            signature: Signature hex string
+            signature_index: Optional index of signer in multisig config (for combine_signatures order)
+
+        Returns:
+            Updated payout_txn dict or None if deal not found / no payout_txn
+        """
+        deal = await self.get_deal(deal_uid)
+        if not deal:
+            return None
+
+        payout = deal.payout_txn
+        if not payout or not isinstance(payout, dict):
+            return None
+
+        allowed = set(payout.get("participants") or [])
+        arbiter = payout.get("arbiter")
+        if arbiter:
+            allowed.add(arbiter)
+        if signer_address not in allowed:
+            logger.warning("add_payout_signature: signer_address %s not in participants/arbiter for deal %s", signer_address, deal_uid)
+            return None
+
+        signatures = list(payout.get("signatures") or [])
+        if any(s.get("signer_address") == signer_address for s in signatures):
+            return payout
+
+        entry = {"signer_address": signer_address, "signature": signature}
+        if signature_index is not None:
+            entry["signature_index"] = signature_index
+        signatures.append(entry)
+        payout = {**payout, "signatures": signatures}
+        deal.payout_txn = payout
+        deal.updated_at = datetime.now(timezone.utc)
+        await self.session.commit()
+        await self.session.refresh(deal)
+        return deal.payout_txn
+
     async def update_deal(
         self,
         deal_uid: str,

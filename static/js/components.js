@@ -10993,15 +10993,24 @@ Vue.component('Deals', {
             }
         },
         getStatusText(request) {
-            if (request.need_receiver_approve) {
-                return 'Ожидает подтверждения';
+            const status = request.status;
+            if (status === 'processing') {
+                return request.need_receiver_approve ? 'Ожидает подтверждения' : 'В работе';
             }
+            if (status === 'success') return 'Завершена';
+            if (status === 'appeal') return 'Апелляция';
+            if (status === 'resolved_sender') return 'В пользу отправителя';
+            if (status === 'resolved_receiver') return 'В пользу получателя';
+            if (request.need_receiver_approve) return 'Ожидает подтверждения';
             return 'Подтверждено';
         },
         getStatusClass(request) {
-            if (request.need_receiver_approve) {
-                return 'bg-yellow-100 text-yellow-700';
-            }
+            const status = request.status;
+            if (status === 'processing') return request.need_receiver_approve ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700';
+            if (status === 'success') return 'bg-green-100 text-green-700';
+            if (status === 'appeal') return 'bg-orange-100 text-orange-700';
+            if (status === 'resolved_sender' || status === 'resolved_receiver') return 'bg-gray-100 text-gray-700';
+            if (request.need_receiver_approve) return 'bg-yellow-100 text-yellow-700';
             return 'bg-green-100 text-green-700';
         },
         refresh() {

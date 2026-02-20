@@ -47,10 +47,19 @@ class PaymentRequestResponse(BaseModel):
     label: str = Field(..., description="Заголовок")
     description: Optional[str] = Field(None, description="Описание сделки")
     need_receiver_approve: bool = Field(..., description="Требуется ли одобрение получателя")
+    status: str = Field(..., description="Статус сделки: processing, success, appeal, resolved_sender, resolved_receiver")
     created_at: str = Field(..., description="Дата создания")
     escrow_address: Optional[str] = Field(None, description="Escrow address")
     escrow_status: Optional[str] = Field(None, description="Escrow status (pending, active, inactive)")
     escrow_id: Optional[int] = Field(None, description="Escrow ID")
+    payout_txn: Optional[dict] = Field(None, description="Оффлайн-транзакция выплаты по сделке")
+
+
+class PayoutSignatureRequest(BaseModel):
+    """Request для добавления оффлайн-подписи к выплате по сделке"""
+    signer_address: str = Field(..., description="TRON-адрес подписавшего")
+    signature: str = Field(..., description="Подпись в hex")
+    signature_index: Optional[int] = Field(None, description="Индекс подписанта в multisig (опционально)")
 
 
 class ReceiverApproveRequest(BaseModel):
@@ -206,10 +215,12 @@ async def create_payment_request(
             label=deal.label,
             description=deal.description,
             need_receiver_approve=deal.need_receiver_approve,
+            status=deal.status,
             created_at=deal.created_at.isoformat(),
             escrow_address=escrow_address,
             escrow_status=escrow_status,
-            escrow_id=escrow_id
+            escrow_id=escrow_id,
+            payout_txn=deal.payout_txn,
         )
         
     except ValueError as e:
@@ -373,12 +384,14 @@ async def list_payment_requests(
                 'arbiter_did': deal.arbiter_did,
                 'label': deal.label,
                 'need_receiver_approve': deal.need_receiver_approve,
+                'status': deal.status,
                 'created_at': deal.created_at.isoformat() if deal.created_at else None,
                 'requisites': deal.requisites,
                 'user_role': user_role,  # Добавляем роль пользователя
                 'escrow_status': escrow_status,  # Статус escrow
                 'escrow_address': escrow_address,  # Адрес escrow
-                'escrow_id': deal.escrow_id  # ID escrow
+                'escrow_id': deal.escrow_id,  # ID escrow
+                'payout_txn': deal.payout_txn,
             })
         
         return {
@@ -465,10 +478,12 @@ class DealInfoResponse(BaseModel):
     label: str = Field(..., description="Заголовок")
     description: Optional[str] = Field(None, description="Описание сделки")
     need_receiver_approve: bool = Field(..., description="Требуется ли одобрение получателя")
+    status: str = Field(..., description="Статус сделки: processing, success, appeal, resolved_sender, resolved_receiver")
     created_at: str = Field(..., description="Дата создания")
     updated_at: str = Field(..., description="Дата обновления")
     requisites: Optional[dict] = Field(None, description="Реквизиты сделки")
     attachments: Optional[list] = Field(None, description="Вложения")
+    payout_txn: Optional[dict] = Field(None, description="Оффлайн-транзакция выплаты по сделке")
 
 
 async def get_optional_user(
@@ -520,7 +535,16 @@ async def get_deal_info(
                 status_code=404,
                 detail="Deal not found"
             )
-        
+
+        payout_txn = deal.payout_txn
+        if user_info:
+            try:
+                payout_payload = await deals_service.get_or_build_deal_payout_txn(deal_uid)
+                if payout_payload is not None:
+                    payout_txn = payout_payload
+            except Exception:
+                pass
+
         return DealInfoResponse(
             deal_uid=deal.uid,
             sender_did=deal.sender_did,
@@ -529,10 +553,12 @@ async def get_deal_info(
             label=deal.label,
             description=deal.description,
             need_receiver_approve=deal.need_receiver_approve,
+            status=deal.status,
             created_at=deal.created_at.isoformat() if deal.created_at else None,
             updated_at=deal.updated_at.isoformat() if deal.updated_at else None,
             requisites=deal.requisites,
-            attachments=deal.attachments
+            attachments=deal.attachments,
+            payout_txn=payout_txn
         )
         
     except HTTPException:
@@ -542,4 +568,28 @@ async def get_deal_info(
             status_code=500,
             detail=f"Error getting deal info: {str(e)}"
         )
+
+
+@router.post("/{deal_uid}/payout-signature")
+async def add_payout_signature(
+    deal_uid: str,
+    body: PayoutSignatureRequest,
+    deals_service: DealsService = Depends(get_deals_service),
+):
+    """
+    Добавить оффлайн-подпись участника к транзакции выплаты по сделке.
+    Вызывающий должен быть участником сделки; signer_address должен быть из participants или arbiter.
+    """
+    result = await deals_service.add_payout_signature(
+        deal_uid=deal_uid,
+        signer_address=body.signer_address,
+        signature=body.signature,
+        signature_index=body.signature_index,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Deal not found, or no payout transaction, or signer not allowed",
+        )
+    return {"payout_txn": result}
 

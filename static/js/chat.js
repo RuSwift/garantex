@@ -374,7 +374,7 @@ Vue.component('Chat', {
             }
         },
         
-        // Public method to set chat history
+        // Public method to set chat history (merge with existing to preserve loaded attachment data)
         set_history(history) {
             if (!history || !Array.isArray(history)) {
                 console.warn('Chat.set_history: history must be an array');
@@ -384,14 +384,11 @@ Vue.component('Chat', {
             // Mark as initial history load
             this.isInitialHistoryLoad = true;
             
-            // Clear existing messages
-            this.messages = {};
-            
             // Reverse history array since backend returns messages in DESC order (newest first)
             // We need to process them in chronological order (oldest first) for proper display
             const reversedHistory = [...history].reverse();
             
-            // Group messages by conversationId
+            // Group messages by conversationId (incoming only)
             const messagesByContact = {};
             
             reversedHistory.forEach(msg => {
@@ -430,12 +427,24 @@ Vue.component('Chat', {
                 messagesByContact[conversationId].push(chatMessage);
             });
             
-            // Sort messages by timestamp and set them
+            // Merge with existing messages: keep existing message objects (with loaded attachment.data/url)
             Object.keys(messagesByContact).forEach(conversationId => {
-                messagesByContact[conversationId].sort((a, b) => a.timestamp - b.timestamp);
-                this.$set(this.messages, conversationId, messagesByContact[conversationId]);
-                // Initialize hasMoreOldMessages flag (assume there might be more if we got messages)
-                if (messagesByContact[conversationId].length > 0) {
+                const incomingList = messagesByContact[conversationId];
+                incomingList.sort((a, b) => a.timestamp - b.timestamp);
+                const existingMessages = this.messages[conversationId] || [];
+                const existingByUuid = new Map(existingMessages.map(m => [m.uuid, m]));
+                const mergedList = [];
+                incomingList.forEach(chatMessage => {
+                    const existing = existingByUuid.get(chatMessage.uuid);
+                    if (existing) {
+                        // Preserve existing message object so in-flight/loaded attachment data is kept
+                        mergedList.push(existing);
+                    } else {
+                        mergedList.push(chatMessage);
+                    }
+                });
+                this.$set(this.messages, conversationId, mergedList);
+                if (mergedList.length > 0) {
                     this.$set(this.hasMoreOldMessages, conversationId, true);
                 }
             });

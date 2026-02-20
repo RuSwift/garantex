@@ -352,6 +352,23 @@ class Deal(Base):
     # Need receiver approval flag
     need_receiver_approve = Column(Boolean, nullable=False, server_default='false', default=False, comment="Требуется ли одобрение получателя")
     
+    # Deal status: processing, success, appeal, resolved_sender, resolved_receiver
+    status = Column(
+        String(50),
+        nullable=False,
+        server_default='processing',
+        default='processing',
+        index=True,
+        comment="Статус сделки: processing, success, appeal, resolved_sender, resolved_receiver"
+    )
+    
+    # Offline payout transaction (JSONB): unsigned_tx, contract_data, signatures, etc.; null when appeal or no escrow
+    payout_txn = Column(
+        JSONB,
+        nullable=True,
+        comment="Оффлайн-транзакция выплаты по сделке (зависит от status); null при appeal или без эскроу"
+    )
+    
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="Last update timestamp (UTC)")
@@ -363,6 +380,7 @@ class Deal(Base):
         Index('ix_deal_receiver_did', 'receiver_did'),
         Index('ix_deal_arbiter_did', 'arbiter_did'),
         Index('ix_deal_escrow_id', 'escrow_id'),
+        Index('ix_deal_status', 'status'),
         # GIN indexes on requisites and attachments for efficient JSONB queries
         Index('ix_deal_requisites', 'requisites', postgresql_using='gin'),
         Index('ix_deal_attachments', 'attachments', postgresql_using='gin'),
