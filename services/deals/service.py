@@ -398,16 +398,19 @@ class DealsService:
         signer_address: str,
         signature: str,
         signature_index: Optional[int] = None,
+        unsigned_tx: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Add an offline signature to the deal's payout transaction.
         Caller must be a participant; signer_address must be one of participants or arbiter.
+        Если передан unsigned_tx и подписей ещё нет — подменяем им payout_txn.unsigned_tx (продление срока).
 
         Args:
             deal_uid: Deal UID
             signer_address: TRON address of the signer
             signature: Signature hex string
             signature_index: Optional index of signer in multisig config (for combine_signatures order)
+            unsigned_tx: Optional extended transaction (only applied when there are no signatures yet)
 
         Returns:
             Updated payout_txn dict or None if deal not found / no payout_txn
@@ -431,6 +434,18 @@ class DealsService:
         signatures = list(payout.get("signatures") or [])
         if any(s.get("signer_address") == signer_address for s in signatures):
             return payout
+
+        # Продлённая транзакция: подменяем только если подписей ещё не было
+        if unsigned_tx and isinstance(unsigned_tx, dict):
+            if len(signatures) > 0:
+                raise ValueError(
+                    "Нельзя заменить транзакцию: подписи уже есть. Подписывайте текущую транзакцию."
+                )
+            payout = {
+                **payout,
+                "unsigned_tx": unsigned_tx,
+                "contract_data": unsigned_tx.get("raw_data") or payout.get("contract_data"),
+            }
 
         entry = {"signer_address": signer_address, "signature": signature}
         if signature_index is not None:

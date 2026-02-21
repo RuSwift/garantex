@@ -9010,8 +9010,11 @@ Vue.component('TronSign', {
             this.isSigning = true;
             
             try {
-                // Подпись через TronLink
-                const signedTx = await window.tronWeb.trx.sign(transactionToSign);
+                // Мультиподпись: если в транзакции указан Permission_id — используем multiSign
+                const permissionId = transactionToSign.raw_data?.contract?.[0]?.Permission_id;
+                const signedTx = (permissionId != null && permissionId !== undefined)
+                    ? await window.tronWeb.trx.multiSign(transactionToSign, undefined, permissionId)
+                    : await window.tronWeb.trx.sign(transactionToSign);
                 
                 // Проверка подписи
                 if (!signedTx || !signedTx.signature) {

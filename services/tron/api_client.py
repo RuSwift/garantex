@@ -85,7 +85,8 @@ class TronAPIClient:
         from_address: str,
         to_address: str,
         amount_trx: float,
-        permission_id: int = None
+        permission_id: int = None,
+        expiration_ms: Optional[int] = None
     ) -> dict:
         """
         Create TRX transfer transaction
@@ -95,6 +96,7 @@ class TronAPIClient:
             to_address: Recipient address
             amount_trx: Amount in TRX
             permission_id: Permission ID to use (e.g., 2 for multisig active permission)
+            expiration_ms: Optional expiration timestamp (ms). If not set, node uses default.
         
         Returns unsigned transaction object
         """
@@ -110,6 +112,8 @@ class TronAPIClient:
         # Add permission_id if specified (for multisig accounts)
         if permission_id is not None:
             data["Permission_id"] = permission_id
+        if expiration_ms is not None:
+            data["expiration"] = expiration_ms
         
         return await self._post(
             "/wallet/createtransaction",
@@ -252,7 +256,8 @@ class TronAPIClient:
         contract_address: str,
         function_selector: str,
         parameter: str,
-        permission_id: Optional[int] = None
+        permission_id: Optional[int] = None,
+        expiration_ms: Optional[int] = None
     ) -> dict:
         """
         Trigger smart contract function
@@ -263,6 +268,7 @@ class TronAPIClient:
             function_selector: Function selector (e.g., "transfer(address,uint256)")
             parameter: Encoded parameters (hex string or comma-separated values)
             permission_id: Permission ID for multisig
+            expiration_ms: Optional expiration timestamp (ms). If not set, node uses default.
         
         Returns:
             Unsigned transaction object
@@ -299,6 +305,8 @@ class TronAPIClient:
         
         if permission_id is not None:
             data["Permission_id"] = permission_id
+        if expiration_ms is not None:
+            data["expiration"] = expiration_ms
         
         return await self._post(
             "/wallet/triggersmartcontract",

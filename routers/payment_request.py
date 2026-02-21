@@ -61,6 +61,7 @@ class PayoutSignatureRequest(BaseModel):
     signer_address: str = Field(..., description="TRON-адрес подписавшего")
     signature: str = Field(..., description="Подпись в hex")
     signature_index: Optional[int] = Field(None, description="Индекс подписанта в multisig (опционально)")
+    unsigned_tx: Optional[dict] = Field(None, description="Продлённая транзакция (только при первой подписи, иначе игнорируется)")
 
 
 class DealStatusUpdateRequest(BaseModel):
@@ -482,6 +483,8 @@ class DealInfoResponse(BaseModel):
     sender_did: str = Field(..., description="DID отправителя")
     receiver_did: str = Field(..., description="DID получателя")
     arbiter_did: str = Field(..., description="DID арбитра")
+    sender_address: Optional[str] = Field(None, description="Tron-адрес отправителя")
+    receiver_address: Optional[str] = Field(None, description="Tron-адрес получателя")
     label: str = Field(..., description="Заголовок")
     description: Optional[str] = Field(None, description="Описание сделки")
     need_receiver_approve: bool = Field(..., description="Требуется ли одобрение получателя")
@@ -561,11 +564,24 @@ async def get_deal_info(
             if escrow:
                 escrow_status = escrow.status
 
+        sender_address = None
+        receiver_address = None
+        try:
+            sender_address = await get_wallet_address_by_did(deal.sender_did, db)
+        except Exception:
+            pass
+        try:
+            receiver_address = await get_wallet_address_by_did(deal.receiver_did, db)
+        except Exception:
+            pass
+
         return DealInfoResponse(
             deal_uid=deal.uid,
             sender_did=deal.sender_did,
             receiver_did=deal.receiver_did,
             arbiter_did=deal.arbiter_did,
+            sender_address=sender_address,
+            receiver_address=receiver_address,
             label=deal.label,
             description=deal.description,
             need_receiver_approve=deal.need_receiver_approve,
@@ -639,12 +655,16 @@ async def add_payout_signature(
     Добавить оффлайн-подпись участника к транзакции выплаты по сделке.
     Вызывающий должен быть участником сделки; signer_address должен быть из participants или arbiter.
     """
-    result = await deals_service.add_payout_signature(
-        deal_uid=deal_uid,
-        signer_address=body.signer_address,
-        signature=body.signature,
-        signature_index=body.signature_index,
-    )
+    try:
+        result = await deals_service.add_payout_signature(
+            deal_uid=deal_uid,
+            signer_address=body.signer_address,
+            signature=body.signature,
+            signature_index=body.signature_index,
+            unsigned_tx=body.unsigned_tx,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if result is None:
         raise HTTPException(
             status_code=400,

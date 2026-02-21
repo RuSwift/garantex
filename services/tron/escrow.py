@@ -2,6 +2,7 @@
 TRON Escrow Service for managing multisig escrow operations
 Implements 2/3 multisig with 2 participants and 1 arbiter
 """
+import time
 from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
@@ -411,7 +412,8 @@ class EscrowService:
         escrow_id: int,
         to_address: str,
         amount: float,
-        token_contract: Optional[str] = None
+        token_contract: Optional[str] = None,
+        expiration_seconds: int = 12 * 3600,
     ) -> Dict[str, Any]:
         """
         Create unsigned payment transaction
@@ -421,6 +423,7 @@ class EscrowService:
             to_address: Recipient address
             amount: Amount to send
             token_contract: TRC20 token contract address (None for TRX)
+            expiration_seconds: Transaction validity in seconds (default 12 hours)
             
         Returns:
             Dict with unsigned transaction data
@@ -429,7 +432,8 @@ class EscrowService:
             EscrowError: If validation fails
         """
         escrow = await self.get_escrow_by_id(escrow_id)
-        
+        expiration_ms = (int(time.time()) + expiration_seconds) * 1000
+
         # Get multisig permission ID from blockchain using escrow's network
         async with self._get_api_client(escrow.network) as api_client:
             account_info = await api_client.get_account(escrow.escrow_address)
@@ -457,7 +461,8 @@ class EscrowService:
                     amount,
                     token_contract,
                     multisig_permission_id,
-                    escrow.network
+                    escrow.network,
+                    expiration_ms=expiration_ms,
                 )
             else:
                 # TRX transaction
@@ -466,7 +471,8 @@ class EscrowService:
                     to_address,
                     amount,
                     multisig_permission_id,
-                    escrow.network
+                    escrow.network,
+                    expiration_ms=expiration_ms,
                 )
         
         # Prepare for multisig signing
@@ -500,7 +506,8 @@ class EscrowService:
         to_address: str,
         amount: float,
         permission_id: Optional[int],
-        network: str
+        network: str,
+        expiration_ms: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Create TRX transaction
@@ -511,6 +518,7 @@ class EscrowService:
             amount: Amount in TRX
             permission_id: Permission ID for multisig
             network: Network name
+            expiration_ms: Optional expiration timestamp (ms)
             
         Returns:
             Unsigned transaction
@@ -530,7 +538,8 @@ class EscrowService:
                 from_address=from_address,
                 to_address=to_address,
                 amount_trx=amount,
-                permission_id=permission_id
+                permission_id=permission_id,
+                expiration_ms=expiration_ms,
             )
             
             if "txID" not in unsigned_tx:
@@ -549,7 +558,8 @@ class EscrowService:
         amount: float,
         token_contract: str,
         permission_id: Optional[int],
-        network: str
+        network: str,
+        expiration_ms: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Create TRC20 transaction
@@ -561,6 +571,7 @@ class EscrowService:
             token_contract: TRC20 contract address
             permission_id: Permission ID for multisig
             network: Network name
+            expiration_ms: Optional expiration timestamp (ms)
             
         Returns:
             Unsigned transaction
@@ -580,7 +591,8 @@ class EscrowService:
                 contract_address=token_contract,
                 function_selector="transfer(address,uint256)",
                 parameter=f"{to_address},{int(amount * 1e6)}",  # Assuming 6 decimals
-                permission_id=permission_id
+                permission_id=permission_id,
+                expiration_ms=expiration_ms,
             )
             # TRON API returns { "result": {...}, "transaction": {...} }; we need the transaction object
             unsigned_tx = response.get("transaction") if isinstance(response.get("transaction"), dict) else response

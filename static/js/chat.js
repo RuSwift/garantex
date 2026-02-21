@@ -70,6 +70,7 @@ Vue.component('Chat', {
             showAppealConfirmModal: false,
             showPayloadModal: false,
             confirmReceiptSigning: false,
+            payoutSignersExpanded: false,
             emojiCategories: {
                 'smileys': ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔'],
                 'gestures': ['👋', '🤚', '🖐', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝'],
@@ -152,6 +153,45 @@ Vue.component('Chat', {
             } catch (e) {
                 return String(this.dealInfo.payout_txn);
             }
+        },
+        payoutExpirationText() {
+            if (!this.dealInfo || !this.dealInfo.payout_txn || !this.dealInfo.payout_txn.unsigned_tx) return '';
+            var raw = this.dealInfo.payout_txn.unsigned_tx.raw_data;
+            if (!raw || raw.expiration == null) return '';
+            var d = new Date(raw.expiration);
+            if (isNaN(d.getTime())) return '';
+            return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        },
+        payoutSignersList() {
+            if (!this.dealInfo || !this.dealInfo.payout_txn || !Array.isArray(this.dealInfo.payout_txn.signatures)) return [];
+            return this.dealInfo.payout_txn.signatures.map(function(s) { return s.signer_address || s; });
+        },
+        payoutSignersText() {
+            var list = this.payoutSignersList;
+            if (!list.length) return '';
+            return list.map(function(addr) {
+                return addr.length > 12 ? addr.slice(0, 8) + '\u2026' + addr.slice(-4) : addr;
+            }).join(', ');
+        },
+        payoutSignersWithLabels() {
+            var list = this.payoutSignersList;
+            if (!list.length) return [];
+            var info = this.dealInfo;
+            var pld = info && info.payout_txn;
+            var arbiter = (pld && pld.arbiter) ? pld.arbiter : '';
+            var senderAddr = (info && info.sender_address) ? info.sender_address : '';
+            var receiverAddr = (info && info.receiver_address) ? info.receiver_address : '';
+            var participants = (pld && pld.participants) ? pld.participants : [];
+            return list.map(function(addr) {
+                var label = '';
+                if (arbiter && addr === arbiter) label = 'Арбитр';
+                else if (senderAddr && addr === senderAddr) label = 'Отправитель';
+                else if (receiverAddr && addr === receiverAddr) label = 'Получатель';
+                else if (participants[0] && addr === participants[0]) label = 'Участник 1';
+                else if (participants[1] && addr === participants[1]) label = 'Участник 2';
+                var shortAddr = addr.length > 12 ? addr.slice(0, 8) + '\u2026' + addr.slice(-4) : addr;
+                return { address: addr, label: label, shortAddr: shortAddr };
+            });
         }
     },
     watch: {
@@ -760,6 +800,7 @@ Vue.component('Chat', {
         selectContact(contact) {
             this.selectedContactId = contact.id;
             this.dealInfo = null;
+            this.payoutSignersExpanded = false;
             if (!this.messages[contact.id]) {
                 this.$set(this.messages, contact.id, []);
             }
@@ -875,8 +916,17 @@ Vue.component('Chat', {
                 if (!unsignedTx.visible) {
                     unsignedTx = Object.assign({}, unsignedTx, { visible: true });
                 }
-                console.log('[confirmReceiptAndSign] unsigned_tx passed to signTransaction:', unsignedTx);
-                console.log('[confirmReceiptAndSign] unsigned_tx JSON:', JSON.stringify(unsignedTx, null, 2));
+                var signaturesSoFar = this.dealInfo.payout_txn.signatures || [];
+                var noSignaturesYet = signaturesSoFar.length === 0;
+                var extendedTx = null;
+                if (noSignaturesYet && typeof window.tronWeb !== 'undefined' && window.tronWeb.transactionBuilder && typeof window.tronWeb.transactionBuilder.extendExpiration === 'function') {
+                    try {
+                        extendedTx = await window.tronWeb.transactionBuilder.extendExpiration(unsignedTx, 12 * 3600);
+                        if (extendedTx && extendedTx.txID) unsignedTx = extendedTx;
+                    } catch (extErr) {
+                        console.warn('[confirmReceiptAndSign] extendExpiration failed, using original tx:', extErr);
+                    }
+                }
                 var signedTx = await signRef.signTransaction(unsignedTx);
                 var sig = signedTx && signedTx.signature;
                 var cleanSignature;
@@ -896,10 +946,12 @@ Vue.component('Chat', {
                     this.showDealApiError('Ошибка', 'Не удалось получить адрес или подпись');
                     return;
                 }
+                var bodyPayload = { signer_address: signerAddress, signature: cleanSignature };
+                if (noSignaturesYet && extendedTx && extendedTx.txID) bodyPayload.unsigned_tx = extendedTx;
                 var r = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/payout-signature', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                    body: JSON.stringify({ signer_address: signerAddress, signature: cleanSignature })
+                    body: JSON.stringify(bodyPayload)
                 });
                 var data = await r.json().catch(function() { return {}; });
                 if (!r.ok) {
@@ -2123,6 +2175,20 @@ Vue.component('Chat', {
                                         <span v-if="dealStatusStyle.showProgress" style="display: inline-block; width: 16px; height: 16px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
                                         <span>[[ dealStatusLabel ]]</span>
                                         <a href="javascript:void(0)" @click.prevent="openPayloadModal" style="font-size: 12px; font-weight: 500; color: #4082bc; margin-left: 4px;">Payload транзакции</a>
+                                    </div>
+                                    <div v-if="dealInfo.payout_txn && (payoutExpirationText || payoutSignersList.length)" style="font-size: 12px; color: #5f6368; margin-bottom: 10px; text-align: center;">
+                                        <span v-if="payoutSignersList.length && payoutExpirationText" style="display: block; margin-bottom: 4px;">Срок действия транзакции до: [[ payoutExpirationText ]]</span>
+                                        <div v-if="payoutSignersList.length" style="margin-top: 4px;">
+                                            <a href="javascript:void(0)" @click.prevent="payoutSignersExpanded = !payoutSignersExpanded" style="color: #5f6368; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                                                <span>Подписали: [[ payoutSignersList.length ]]</span>
+                                                <span style="font-size: 10px;">[[ payoutSignersExpanded ? '▼' : '▶' ]]</span>
+                                            </a>
+                                            <div v-if="payoutSignersExpanded" style="text-align: left; margin-top: 6px; padding-left: 8px;">
+                                                <div v-for="(item, idx) in payoutSignersWithLabels" :key="idx" style="margin-bottom: 2px;">
+                                                    <span v-if="item.label" style="font-weight: 500; color: #212121;">[[ item.label ]]</span><span v-if="item.label">: </span><span>[[ item.shortAddr ]]</span>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                     <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;">
                                         <template v-if="dealInfo.status === 'processing'">
