@@ -9232,13 +9232,24 @@ Vue.component('DealConversation', {
                                         continue;
                                     }
                                     
-                                    // Try to load deal info for better display
+                                    // Try to load deal info for better display (после await — перепроверяем дубли)
                                     try {
                                         const dealResponse = await fetch(`/api/payment-request/${dealUid}`, {
                                             headers: {
                                                 'Authorization': `Bearer ${token}`
                                             }
                                         });
+                                        
+                                        const existingByDealNow = this.$refs.chatComponent.contacts.find(
+                                            c => c.deal_uid === dealUid
+                                        );
+                                        if (existingByDealNow) {
+                                            existingByDealNow.id = conversationId;
+                                            existingByDealNow.did = conversationId;
+                                            if (lastMessage) existingByDealNow.lastMessage = lastMessage.text || '';
+                                            if (lastMessageTime) existingByDealNow.lastMessageTime = lastMessageTime;
+                                            continue;
+                                        }
                                         
                                         if (dealResponse.ok) {
                                             const dealInfo = await dealResponse.json();
@@ -9257,7 +9268,6 @@ Vue.component('DealConversation', {
                                                 isTyping: false
                                             });
                                         } else {
-                                            // Fallback if deal info not available
                                             this.$refs.chatComponent.contacts.push({
                                                 id: conversationId,
                                                 name: `Сделка ${dealUid.substring(0, 10)}...`,
@@ -9273,19 +9283,28 @@ Vue.component('DealConversation', {
                                         }
                                     } catch (error) {
                                         console.error(`Error loading deal info for ${dealUid}:`, error);
-                                        // Fallback contact creation
-                                        this.$refs.chatComponent.contacts.push({
-                                            id: conversationId,
-                                            name: `Сделка ${dealUid.substring(0, 10)}...`,
-                                            description: null,
-                                            avatar: `https://api.dicebear.com/7.x/icons/svg?seed=${dealUid}`,
-                                            status: 'online',
-                                            lastMessage: lastMessage ? (lastMessage.text || '') : '',
-                                            lastMessageTime: lastMessageTime || null,
-                                            did: conversationId,
-                                            deal_uid: dealUid,
-                                            isTyping: false
-                                        });
+                                        const existingByDealCatch = this.$refs.chatComponent.contacts.find(
+                                            c => c.deal_uid === dealUid
+                                        );
+                                        if (existingByDealCatch) {
+                                            existingByDealCatch.id = conversationId;
+                                            existingByDealCatch.did = conversationId;
+                                            if (lastMessage) existingByDealCatch.lastMessage = lastMessage.text || '';
+                                            if (lastMessageTime) existingByDealCatch.lastMessageTime = lastMessageTime;
+                                        } else {
+                                            this.$refs.chatComponent.contacts.push({
+                                                id: conversationId,
+                                                name: `Сделка ${dealUid.substring(0, 10)}...`,
+                                                description: null,
+                                                avatar: `https://api.dicebear.com/7.x/icons/svg?seed=${dealUid}`,
+                                                status: 'online',
+                                                lastMessage: lastMessage ? (lastMessage.text || '') : '',
+                                                lastMessageTime: lastMessageTime || null,
+                                                did: conversationId,
+                                                deal_uid: dealUid,
+                                                isTyping: false
+                                            });
+                                        }
                                     }
                                 } else if (lastMessage) {
                                     // Regular chat session (not a deal)

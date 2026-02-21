@@ -85,9 +85,19 @@ Vue.component('Chat', {
     computed: {
         filteredContacts() {
             const q = this.chatSearchQuery.toLowerCase();
-            return this.contacts.filter(c =>
+            const bySearch = this.contacts.filter(c =>
                 c.name.toLowerCase().includes(q)
             );
+            // Дедупликация по id и по deal_uid (Vue :key="c.id" не допускает дублей)
+            const seenIds = new Set();
+            const seenDealUids = new Set();
+            return bySearch.filter(c => {
+                if (c.id && seenIds.has(c.id)) return false;
+                if (c.deal_uid && seenDealUids.has(c.deal_uid)) return false;
+                if (c.id) seenIds.add(c.id);
+                if (c.deal_uid) seenDealUids.add(c.deal_uid);
+                return true;
+            });
         },
         selectedContact() {
             return this.contacts.find(c => c.id === this.selectedContactId);
