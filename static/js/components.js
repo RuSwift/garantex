@@ -10814,7 +10814,9 @@ Vue.component('Deals', {
             escrowLogsRefreshTimer: null,
             escrowLogsCountdownInterval: null,
             escrowLogsRefreshCountdown: 0,
-            refreshDealsInterval: null
+            refreshDealsInterval: null,
+            payoutCountdownNow: 0,
+            payoutCountdownInterval: null
         }
     },
     computed: {
@@ -10860,9 +10862,15 @@ Vue.component('Deals', {
             this.loadPaymentRequests();
             this.startDealsRefreshInterval();
         }
+        this.payoutCountdownNow = Date.now();
+        this.payoutCountdownInterval = setInterval(() => { this.payoutCountdownNow = Date.now(); }, 1000);
     },
     beforeDestroy() {
         this.stopDealsRefreshInterval();
+        if (this.payoutCountdownInterval) {
+            clearInterval(this.payoutCountdownInterval);
+            this.payoutCountdownInterval = null;
+        }
     },
     watch: {
         isAuthenticated(newVal) {
@@ -11047,6 +11055,7 @@ Vue.component('Deals', {
         },
         getStatusText(request) {
             const status = request.status;
+            if (status === 'wait_deposit' && !request.need_receiver_approve) return 'Ожидается депозит';
             if (status === 'processing') {
                 return request.need_receiver_approve ? 'Ожидает подтверждения' : 'В работе';
             }
@@ -11059,12 +11068,29 @@ Vue.component('Deals', {
         },
         getStatusClass(request) {
             const status = request.status;
+            if (status === 'wait_deposit' && !request.need_receiver_approve) return 'bg-blue-100 text-blue-700';
             if (status === 'processing') return request.need_receiver_approve ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-700';
             if (status === 'success') return 'bg-green-100 text-green-800';
             if (status === 'appeal') return 'bg-red-100 text-red-700';
             if (status === 'resolved_sender' || status === 'resolved_receiver') return 'bg-yellow-100 text-yellow-800';
             if (request.need_receiver_approve) return 'bg-yellow-100 text-yellow-800';
             return 'bg-green-100 text-green-700';
+        },
+        /** Обратный отсчёт до истечения payout_txn в формате чч:мм:сс; null если таймер не нужен */
+        getPayoutCountdown(request) {
+            var pld = request && request.payout_txn;
+            if (!pld || !Array.isArray(pld.signatures) || pld.signatures.length < 1) return null;
+            var raw = pld.unsigned_tx && pld.unsigned_tx.raw_data;
+            if (!raw || raw.expiration == null) return null;
+            var exp = raw.expiration;
+            if (exp < 1e12) exp *= 1000;
+            var now = this.payoutCountdownNow || Date.now();
+            var left = Math.max(0, Math.floor((exp - now) / 1000));
+            var h = Math.floor(left / 3600);
+            var m = Math.floor((left % 3600) / 60);
+            var s = left % 60;
+            var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+            return pad(h) + ':' + pad(m) + ':' + pad(s);
         },
         refresh() {
             this.loadPaymentRequests();
@@ -11303,20 +11329,35 @@ Vue.component('Deals', {
                     <tbody class="bg-white divide-y divide-gray-200">
                         <tr v-for="request in filteredPaymentRequests" :key="request.deal_uid" class="hover:bg-gray-50">
                             <td class="px-4 py-4">
-                                <div class="flex items-start gap-2">
-                                    <a 
-                                        :href="'/deal/' + request.deal_uid"
-                                        target="_blank"
-                                        class="text-blue-600 hover:text-blue-800 transition-colors flex-shrink-0"
-                                        title="Открыть страницу сделки"
-                                    >
-                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
-                                        </svg>
-                                    </a>
-                                    <div class="flex-1">
-                                        <div class="text-sm font-medium text-gray-900 break-words">[[ request.label ]]</div>
-                                        <div class="text-xs text-gray-500 mt-1">[[ formatDate(request.created_at) ]]</div>
+                                <div class="flex flex-col gap-2">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <button 
+                                            @click="openDealChat(request.deal_uid)"
+                                            class="self-start px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-200 transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                                            title="Открыть чат сделки"
+                                        >
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                                            </svg>
+                                            Чат
+                                        </button>
+                                        <span v-if="getPayoutCountdown(request)" class="text-xs font-mono font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded" title="Осталось до истечения срока подписи выплаты">[[ getPayoutCountdown(request) ]]</span>
+                                    </div>
+                                    <div class="flex items-start gap-2">
+                                        <a 
+                                            :href="'/deal/' + request.deal_uid"
+                                            target="_blank"
+                                            class="text-blue-600 hover:text-blue-800 transition-colors flex-shrink-0"
+                                            title="Открыть страницу сделки"
+                                        >
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                            </svg>
+                                        </a>
+                                        <div class="flex-1">
+                                            <div class="text-sm font-medium text-gray-900 break-words">[[ request.label ]]</div>
+                                            <div class="text-xs text-gray-500 mt-1">[[ formatDate(request.created_at) ]]</div>
+                                        </div>
                                     </div>
                                 </div>
                             </td>
@@ -11345,7 +11386,7 @@ Vue.component('Deals', {
                             <td class="px-4 py-4">
                                 <div class="flex flex-col gap-2">
                                     <span :class="['px-3 py-1 rounded-full text-xs font-bold uppercase whitespace-nowrap inline-flex items-center gap-2', getStatusClass(request)]">
-                                        <span v-if="request.status === 'processing'" class="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent flex-shrink-0"></span>
+                                        <span v-if="request.status === 'processing' || (request.status === 'wait_deposit' && !request.need_receiver_approve) || request.need_receiver_approve" class="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent flex-shrink-0"></span>
                                         [[ getStatusText(request) ]]
                                     </span>
                                     <!-- Escrow Status with Progress Circle if pending -->
@@ -11378,16 +11419,6 @@ Vue.component('Deals', {
                                             </svg>
                                         </a>
                                     </div>
-                                    <button 
-                                        @click="openDealChat(request.deal_uid)"
-                                        class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-200 transition-colors flex items-center gap-1.5 whitespace-nowrap"
-                                        title="Открыть чат сделки"
-                                    >
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
-                                        </svg>
-                                        Чат
-                                    </button>
                                 </div>
                             </td>
                         </tr>

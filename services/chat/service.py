@@ -78,7 +78,8 @@ class ChatService:
             signature=message.signature,
             timestamp=datetime.now(timezone.utc),
             status="sent",
-            metadata=message.metadata
+            metadata=message.metadata,
+            txn_hash=getattr(message, "txn_hash", None),
         )
         
         # Convert message to dict for storage

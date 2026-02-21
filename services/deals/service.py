@@ -2,7 +2,8 @@
 Service for managing deals
 """
 import logging
-from typing import Optional, List, Dict, Any
+import time
+from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_
@@ -11,7 +12,11 @@ import uuid
 
 from fastapi import HTTPException
 
-from db.models import Deal, EscrowModel
+from db.models import Deal, EscrowModel, WalletUser
+
+# Кеш проверки депозита: deal_uid -> (timestamp, confirmed). TTL 10 сек.
+_deposit_check_cache: Dict[str, Tuple[float, bool]] = {}
+DEPOSIT_CHECK_TTL_SEC = 10
 from core.utils import generate_base58_uuid
 from core.exceptions import DealAccessDeniedError
 from services.chat.service import ChatService
@@ -127,7 +132,7 @@ class DealsService:
             label=label,
             description=description,
             need_receiver_approve=need_receiver_approve,
-            status='processing',
+            status='wait_deposit',
             escrow_id=escrow_id,
             amount=amount
         )
@@ -263,6 +268,42 @@ class DealsService:
             await self.session.commit()
             return None
 
+        if deal.status == "wait_deposit":
+            if not deal.deposit_txn_hash:
+                deal.payout_txn = None
+                deal.updated_at = datetime.now(timezone.utc)
+                await self.session.commit()
+                return None
+            confirmed = await self._is_deposit_tx_confirmed(deal_uid, deal.deposit_txn_hash, escrow.network)
+            if not confirmed:
+                return None
+            deal.status = "processing"
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            await self.session.refresh(deal)
+            # Сервисное сообщение в чат сделки о внесённом депозите со ссылкой на транзакцию
+            try:
+                sender_user = (
+                    await self.session.execute(select(WalletUser).where(WalletUser.did == deal.sender_did))
+                ).scalar_one_or_none()
+                nickname = sender_user.nickname if sender_user else deal.sender_did
+                service_text = f"{nickname} внёс депозит в эскроу."
+                chat_svc = ChatService(self.session, deal.sender_did)
+                deposit_message = ChatMessageCreate(
+                    uuid=str(uuid.uuid4()),
+                    message_type=MessageType.SERVICE,
+                    sender_id=deal.sender_did,
+                    receiver_id=deal.receiver_did,
+                    deal_uid=deal.uid,
+                    deal_label=deal.label,
+                    text=service_text,
+                    txn_hash=deal.deposit_txn_hash,
+                )
+                await chat_svc.add_message(deposit_message, deal_uid=deal.uid)
+                await self.session.commit()
+            except Exception as e:
+                logger.warning("get_or_build_deal_payout_txn: failed to add deposit service message for deal %s: %s", deal_uid, e)
+
         if deal.status == "appeal":
             deal.payout_txn = None
             deal.updated_at = datetime.now(timezone.utc)
@@ -392,6 +433,40 @@ class DealsService:
         await self.refresh_deal_payout_txn(deal_uid)
         return await self.get_deal(deal_uid)
 
+    async def set_deposit_txn_hash(self, deal_uid: str, tx_hash: str) -> Optional[Deal]:
+        """Сохранить хеш транзакции депозита. Вызывать только при status=wait_deposit и только отправителем."""
+        deal = await self.get_deal(deal_uid)
+        if not deal or deal.status != "wait_deposit":
+            return None
+        deal.deposit_txn_hash = tx_hash
+        deal.updated_at = datetime.now(timezone.utc)
+        await self.session.commit()
+        await self.session.refresh(deal)
+        return deal
+
+    async def _is_deposit_tx_confirmed(self, deal_uid: str, tx_hash: str, network: str) -> bool:
+        """Проверить подтверждение транзакции депозита в сети. Кеш 10 сек."""
+        now = time.time()
+        if deal_uid in _deposit_check_cache:
+            ts, confirmed = _deposit_check_cache[deal_uid]
+            if now - ts < DEPOSIT_CHECK_TTL_SEC:
+                return confirmed
+        from services.tron.api_client import TronAPIClient
+        try:
+            async with TronAPIClient(network=network) as client:
+                info = await client.get_transaction_info(tx_hash)
+        except Exception as e:
+            logger.warning("deposit tx check failed for deal %s: %s", deal_uid, e)
+            _deposit_check_cache[deal_uid] = (now, False)
+            return False
+        receipt = info.get("receipt") or {}
+        # Успех: result не FAILED; транзакция в блоке (есть blockNumber или blockTimeStamp)
+        result = receipt.get("result")
+        block_ok = (info.get("blockNumber") or info.get("block_timestamp") or info.get("blockTimeStamp") or 0) != 0
+        confirmed = result != "FAILED" and block_ok
+        _deposit_check_cache[deal_uid] = (now, confirmed)
+        return confirmed
+
     async def add_payout_signature(
         self,
         deal_uid: str,
@@ -456,6 +531,30 @@ class DealsService:
         deal.updated_at = datetime.now(timezone.utc)
         await self.session.commit()
         await self.session.refresh(deal)
+
+        # Если подписант — получатель, отправляем сервисное сообщение в чат
+        receiver_user = (
+            await self.session.execute(select(WalletUser).where(WalletUser.did == deal.receiver_did))
+        ).scalar_one_or_none()
+        if receiver_user and (receiver_user.wallet_address or "").strip().lower() == (signer_address or "").strip().lower():
+            try:
+                nickname = receiver_user.nickname
+                service_text = f"{nickname} {deal.receiver_did} сообщил о выполнении условий сделки"
+                chat_svc = ChatService(self.session, deal.receiver_did)
+                service_message = ChatMessageCreate(
+                    uuid=str(uuid.uuid4()),
+                    message_type=MessageType.SERVICE,
+                    sender_id=deal.receiver_did,
+                    receiver_id=deal.sender_did,
+                    deal_uid=deal.uid,
+                    deal_label=deal.label,
+                    text=service_text,
+                )
+                await chat_svc.add_message(service_message, deal_uid=deal.uid)
+                await self.session.commit()
+            except Exception as e:
+                logger.warning("add_payout_signature: failed to add receiver completion service message for deal %s: %s", deal_uid, e)
+
         return deal.payout_txn
 
     async def update_deal(

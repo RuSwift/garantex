@@ -69,6 +69,11 @@ class DealStatusUpdateRequest(BaseModel):
     status: str = Field(..., description="Статус: success, appeal, resolved_sender, resolved_receiver")
 
 
+class DepositTxnRequest(BaseModel):
+    """Request для сохранения хеша транзакции депозита в эскроу"""
+    tx_hash: str = Field(..., description="Хеш транзакции депозита (txID)")
+
+
 class ReceiverApproveRequest(BaseModel):
     """Request для одобрения получателем"""
     deal_uid: str = Field(..., description="UID сделки для одобрения")
@@ -495,6 +500,9 @@ class DealInfoResponse(BaseModel):
     attachments: Optional[list] = Field(None, description="Вложения")
     payout_txn: Optional[dict] = Field(None, description="Оффлайн-транзакция выплаты по сделке")
     escrow_status: Optional[str] = Field(None, description="Статус эскроу: pending, active, inactive")
+    escrow_address: Optional[str] = Field(None, description="Адрес эскроу-счёта")
+    deposit_txn_hash: Optional[str] = Field(None, description="Хеш транзакции депозита в эскроу")
+    amount: Optional[float] = Field(None, description="Сумма сделки (для депозита в эскроу)")
 
 
 async def get_optional_user(
@@ -553,16 +561,20 @@ async def get_deal_info(
                 payout_payload = await deals_service.get_or_build_deal_payout_txn(deal_uid)
                 if payout_payload is not None:
                     payout_txn = payout_payload
+                # Перезагружаем сделку: get_or_build_deal_payout_txn мог перевести wait_deposit -> processing
+                deal = await deals_service.get_deal(deal_uid) or deal
             except Exception:
                 pass
 
         escrow_status = None
+        escrow_address = None
         if deal.escrow_id:
             escrow_stmt = select(EscrowModel).where(EscrowModel.id == deal.escrow_id)
             escrow_result = await db.execute(escrow_stmt)
             escrow = escrow_result.scalar_one_or_none()
             if escrow:
                 escrow_status = escrow.status
+                escrow_address = escrow.escrow_address
 
         sender_address = None
         receiver_address = None
@@ -591,7 +603,10 @@ async def get_deal_info(
             requisites=deal.requisites,
             attachments=deal.attachments,
             payout_txn=payout_txn,
-            escrow_status=escrow_status
+            escrow_status=escrow_status,
+            escrow_address=escrow_address,
+            deposit_txn_hash=deal.deposit_txn_hash,
+            amount=float(deal.amount) if deal.amount is not None else None
         )
         
     except HTTPException:
@@ -671,4 +686,30 @@ async def add_payout_signature(
             detail="Deal not found, or no payout transaction, or signer not allowed",
         )
     return {"payout_txn": result}
+
+
+@router.post("/{deal_uid}/deposit-txn")
+async def set_deposit_txn(
+    deal_uid: str,
+    body: DepositTxnRequest,
+    deals_service: DealsService = Depends(get_deals_service),
+):
+    """
+    Сохранить хеш транзакции депозита в эскроу. Только отправитель, только при статусе wait_deposit.
+    """
+    deal = await deals_service.get_deal(deal_uid)
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+    if deal.status != "wait_deposit":
+        raise HTTPException(status_code=400, detail="Deposit tx can be set only when deal status is wait_deposit")
+    if deals_service.owner_did != deal.sender_did:
+        raise HTTPException(status_code=403, detail="Only sender can set deposit transaction hash")
+    updated = await deals_service.set_deposit_txn_hash(deal_uid, body.tx_hash.strip())
+    if not updated:
+        raise HTTPException(status_code=500, detail="Failed to update deposit_txn_hash")
+    return {
+        "deal_uid": updated.uid,
+        "deposit_txn_hash": updated.deposit_txn_hash,
+        "status": updated.status,
+    }
 

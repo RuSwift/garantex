@@ -413,7 +413,7 @@ class EscrowService:
         to_address: str,
         amount: float,
         token_contract: Optional[str] = None,
-        expiration_seconds: int = 12 * 3600,
+        expiration_seconds: int = 24 * 3600,
     ) -> Dict[str, Any]:
         """
         Create unsigned payment transaction
@@ -423,7 +423,7 @@ class EscrowService:
             to_address: Recipient address
             amount: Amount to send
             token_contract: TRC20 token contract address (None for TRX)
-            expiration_seconds: Transaction validity in seconds (default 12 hours)
+            expiration_seconds: Transaction validity in seconds (default 24 hours)
             
         Returns:
             Dict with unsigned transaction data

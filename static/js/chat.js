@@ -70,6 +70,7 @@ Vue.component('Chat', {
             showAppealConfirmModal: false,
             showPayloadModal: false,
             confirmReceiptSigning: false,
+            fundDepositLoading: false,
             payoutSignersExpanded: false,
             emojiCategories: {
                 'smileys': ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔'],
@@ -117,6 +118,7 @@ Vue.component('Chat', {
         dealStatusLabel() {
             if (!this.dealInfo || !this.dealInfo.status) return '';
             var s = this.dealInfo.status;
+            if (s === 'wait_deposit' && !this.dealInfo.need_receiver_approve) return 'Ожидается депозит';
             if (s === 'processing') return 'В работе';
             if (s === 'success') return 'Завершена успешно';
             if (s === 'appeal') return 'На апелляции';
@@ -127,6 +129,7 @@ Vue.component('Chat', {
         dealStatusStyle() {
             if (!this.dealInfo || !this.dealInfo.status) return {};
             var s = this.dealInfo.status;
+            if (s === 'wait_deposit' && !this.dealInfo.need_receiver_approve) return { color: '#1565c0', backgroundColor: '#e3f2fd', borderColor: '#1976d2', showProgress: true };
             if (s === 'processing') return { color: '#1565c0', backgroundColor: '#e3f2fd', borderColor: '#1976d2', showProgress: true };
             if (s === 'success') return { color: '#2e7d32', backgroundColor: '#e8f5e9', borderColor: '#43a047', showProgress: false };
             if (s === 'appeal') return { color: '#b71c1c', backgroundColor: '#ffebee', borderColor: '#c62828', showProgress: false };
@@ -165,6 +168,12 @@ Vue.component('Chat', {
         payoutSignersList() {
             if (!this.dealInfo || !this.dealInfo.payout_txn || !Array.isArray(this.dealInfo.payout_txn.signatures)) return [];
             return this.dealInfo.payout_txn.signatures.map(function(s) { return s.signer_address || s; });
+        },
+        /** Получатель уже поставил подпись в payout_txn (текущий пользователь — получатель и его адрес в signatures) */
+        receiverAlreadySigned() {
+            if (!this.dealIsReceiver || !this.walletAddress) return false;
+            var myAddr = (this.walletAddress || '').trim().toLowerCase();
+            return this.payoutSignersList.some(function(addr) { return (addr || '').trim().toLowerCase() === myAddr; });
         },
         payoutSignersText() {
             var list = this.payoutSignersList;
@@ -526,7 +535,8 @@ Vue.component('Chat', {
                     status: msg.status || 'sent',
                     signature: msg.signature ? msg.signature.signature : null,
                     type: msg.message_type || msg.type || 'text',
-                    attachments: msg.attachments || undefined
+                    attachments: msg.attachments || undefined,
+                    txn_hash: msg.txn_hash || undefined
                 };
                 
                 messagesByContact[conversationId].push(chatMessage);
@@ -832,6 +842,7 @@ Vue.component('Chat', {
                 });
                 if (!r.ok) { this.dealInfo = null; return; }
                 this.dealInfo = await r.json();
+                this.$nextTick(() => { this.scrollToBottom(); });
             } catch (e) {
                 this.dealInfo = null;
             }
@@ -921,7 +932,7 @@ Vue.component('Chat', {
                 var extendedTx = null;
                 if (noSignaturesYet && typeof window.tronWeb !== 'undefined' && window.tronWeb.transactionBuilder && typeof window.tronWeb.transactionBuilder.extendExpiration === 'function') {
                     try {
-                        extendedTx = await window.tronWeb.transactionBuilder.extendExpiration(unsignedTx, 12 * 3600);
+                        extendedTx = await window.tronWeb.transactionBuilder.extendExpiration(unsignedTx, 24 * 3600);
                         if (extendedTx && extendedTx.txID) unsignedTx = extendedTx;
                     } catch (extErr) {
                         console.warn('[confirmReceiptAndSign] extendExpiration failed, using original tx:', extErr);
@@ -965,6 +976,87 @@ Vue.component('Chat', {
                 this.showDealApiError('Ошибка', e.message || 'Ошибка сети');
             } finally {
                 this.confirmReceiptSigning = false;
+            }
+        },
+        async fundDeposit() {
+            var contact = this.selectedContact;
+            if (!contact || !contact.deal_uid || !this.getAuthToken) return;
+            var token = this.getAuthToken();
+            if (!token) return;
+            if (!this.dealInfo || !this.dealInfo.escrow_address || this.dealInfo.amount == null) {
+                this.showDealApiError('Ошибка', 'Нет адреса эскроу или суммы. Обновите страницу.');
+                return;
+            }
+            var signRef = this.$refs.chatTronSign;
+            if (!signRef) {
+                this.showDealApiError('Ошибка', 'Компонент подписи недоступен');
+                return;
+            }
+            this.fundDepositLoading = true;
+            try {
+                if (!signRef.isConnected) await signRef.connectWallet();
+                var senderAddress = signRef.walletAddress;
+                if (!senderAddress) {
+                    this.showDealApiError('Ошибка', 'Подключите кошелёк');
+                    return;
+                }
+                var amount = Number(this.dealInfo.amount);
+                if (isNaN(amount) || amount <= 0) {
+                    this.showDealApiError('Ошибка', 'Некорректная сумма сделки');
+                    return;
+                }
+                var amountSun = Math.floor(amount * 1e6);
+                var USDT_MAINNET = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+                var tw = window.tronWeb;
+                if (!tw || !tw.transactionBuilder || !tw.transactionBuilder.triggerSmartContract) {
+                    this.showDealApiError('Ошибка', 'TronWeb недоступен. Установите TronLink.');
+                    return;
+                }
+                var parameter = [
+                    { type: 'address', value: this.dealInfo.escrow_address },
+                    { type: 'uint256', value: amountSun }
+                ];
+                var options = { feeLimit: 100000000, callValue: 0 };
+                var txResult = await tw.transactionBuilder.triggerSmartContract(
+                    USDT_MAINNET,
+                    'transfer(address,uint256)',
+                    options,
+                    parameter,
+                    senderAddress
+                );
+                if (!txResult || !txResult.transaction) {
+                    this.showDealApiError('Ошибка', 'Не удалось построить транзакцию');
+                    return;
+                }
+                var unsignedTx = txResult.transaction;
+                var signedTx = await signRef.signTransaction(unsignedTx);
+                if (!signedTx || !signedTx.txID) {
+                    this.showDealApiError('Ошибка', 'Подпись не получена');
+                    return;
+                }
+                if (tw.trx && typeof tw.trx.sendRawTransaction === 'function') {
+                    await tw.trx.sendRawTransaction(signedTx);
+                }
+                var txId = signedTx.txID;
+                var r = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/deposit-txn', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ tx_hash: txId })
+                });
+                var data = await r.json().catch(function() { return {}; });
+                if (!r.ok) {
+                    this.showDealApiError('Депозит', data.detail || r.statusText || 'Ошибка сохранения хеша');
+                    return;
+                }
+                if (this.dealInfo) {
+                    this.dealInfo.deposit_txn_hash = data.deposit_txn_hash || txId;
+                    if (data.status) this.dealInfo.status = data.status;
+                }
+                await this.loadDealInfo();
+            } catch (e) {
+                this.showDealApiError('Депозит', e.message || 'Ошибка');
+            } finally {
+                this.fundDepositLoading = false;
             }
         },
         async submitPayoutSignature() {
@@ -1130,7 +1222,8 @@ Vue.component('Chat', {
                             status: msg.status || 'sent',
                             signature: msg.signature ? msg.signature.signature : null,
                             type: msg.message_type || msg.type || 'text',
-                            attachments: msg.attachments || undefined
+                            attachments: msg.attachments || undefined,
+                            txn_hash: msg.txn_hash || undefined
                         };
                         
                         existingMessages.push(chatMessage);
@@ -1261,7 +1354,8 @@ Vue.component('Chat', {
                             status: msg.status || 'sent',
                             signature: msg.signature ? msg.signature.signature : null,
                             type: msg.message_type || msg.type || 'text',
-                            attachments: msg.attachments || undefined
+                            attachments: msg.attachments || undefined,
+                            txn_hash: msg.txn_hash || undefined
                         };
                         
                         newChatMessages.push(chatMessage);
@@ -2090,6 +2184,9 @@ Vue.component('Chat', {
                                                     fontWeight: m.type === 'service' ? '500' : 'normal',
                                                     textAlign: m.type === 'service' ? 'center' : 'left'
                                                 }">[[ m.text ]]</p>
+                                                <p v-if="m.type === 'service' && m.txn_hash" style="margin: 6px 0 0; text-align: center;">
+                                                    <a :href="'https://tronscan.org/#/transaction/' + m.txn_hash" target="_blank" rel="noopener noreferrer" style="font-size: 13px; color: #1565c0; font-weight: 500;">Транзакция в TronScan</a>
+                                                </p>
                                                 
                                                 <!-- Signature (hidden for service messages) -->
                                                 <div v-if="m.type !== 'service' && m.signature && m.signature.startsWith('0x')" 
@@ -2163,8 +2260,22 @@ Vue.component('Chat', {
                                         <span>Создать сделку</span>
                                     </button>
                                 </div>
+                                <!-- Ожидается депозит: только отправителю, need_receiver_approve = false, status = wait_deposit -->
+                                <div v-if="selectedContact && selectedContact.deal_uid && dealInfo && !dealInfo.need_receiver_approve && dealInfo.status === 'wait_deposit' && dealIsSender" style="display: flex; flex-direction: column; align-items: center; margin-top: 16px; margin-bottom: 8px; padding: 20px; border: 1px solid #bbdefb; border-radius: 12px; background: #e3f2fd;">
+                                    <div style="width: 48px; height: 48px; margin-bottom: 12px; border: 3px solid #bbdefb; border-top-color: #1976d2; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+                                    <p style="font-size: 14px; font-weight: 600; color: #1565c0; margin: 0 0 4px;">Ожидается депозит</p>
+                                    <p style="font-size: 12px; color: #5f6368; margin: 0 0 12px;">Внесите средства в эскроу-счёт. После поступления депозита статус обновится.</p>
+                                    <button 
+                                        @click="fundDeposit" 
+                                        :disabled="fundDepositLoading || !dealInfo.escrow_address || !dealInfo.amount" 
+                                        :title="(!dealInfo.escrow_address || !dealInfo.amount) ? 'Дождитесь загрузки адреса эскроу и суммы' : ''"
+                                        :style="{ padding: '8px 16px', border: '1px solid #1976d2', borderRadius: '20px', background: '#1976d2', color: 'white', cursor: (fundDepositLoading || !dealInfo.escrow_address || !dealInfo.amount) ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: '500', opacity: (fundDepositLoading || !dealInfo.escrow_address || !dealInfo.amount) ? 0.7 : 1 }"
+                                    >
+                                        [[ fundDepositLoading ? 'Подпись и отправка…' : 'Пополнить баланс Эскроу' ]]
+                                    </button>
+                                </div>
                                 <!-- Escrow не активен (pending/inactive): splash + progress-circle, без панели статуса и кнопок -->
-                                <div v-if="selectedContact && selectedContact.deal_uid && dealInfo && !dealInfo.need_receiver_approve && !escrowIsActive" style="display: flex; flex-direction: column; align-items: center; margin-top: 16px; margin-bottom: 8px; padding: 20px; border: 1px solid #e5e5e5; border-radius: 12px; background: #fafafa;">
+                                <div v-else-if="selectedContact && selectedContact.deal_uid && dealInfo && !dealInfo.need_receiver_approve && !escrowIsActive" style="display: flex; flex-direction: column; align-items: center; margin-top: 16px; margin-bottom: 8px; padding: 20px; border: 1px solid #e5e5e5; border-radius: 12px; background: #fafafa;">
                                     <div style="width: 48px; height: 48px; margin-bottom: 12px; border: 3px solid #e5e5e5; border-top-color: #4082bc; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
                                     <p style="font-size: 14px; font-weight: 600; color: #212121; margin: 0 0 4px;">Подготовка эскроу-счёта</p>
                                     <p style="font-size: 12px; color: #6b7280; margin: 0;">Счёт инициализируется в сети. Статус и кнопки появятся после активации.</p>
@@ -2193,7 +2304,7 @@ Vue.component('Chat', {
                                     <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;">
                                         <template v-if="dealInfo.status === 'processing'">
                                             <button v-if="dealIsSender" @click="() => {}" style="padding: 8px 16px; border: 1px solid #e5e5e5; border-radius: 20px; background: white; color: #4082bc; cursor: pointer; font-size: 13px; font-weight: 500;">Оплатил</button>
-                                            <button v-if="dealIsReceiver" @click="confirmReceiptAndSign" :disabled="confirmReceiptSigning" style="padding: 8px 16px; border: 1px solid #e5e5e5; border-radius: 20px; background: white; color: #4082bc; cursor: pointer; font-size: 13px; font-weight: 500;">[[ confirmReceiptSigning ? 'Ожидание подписи…' : 'Подтверждаю получение' ]]</button>
+                                            <button v-if="dealIsReceiver" @click="confirmReceiptAndSign" :disabled="confirmReceiptSigning || receiverAlreadySigned" style="padding: 8px 16px; border: 1px solid #e5e5e5; border-radius: 20px; background: white; color: #4082bc; cursor: pointer; font-size: 13px; font-weight: 500;">[[ receiverAlreadySigned ? 'Вы поставили подпись, ожидаем контрагента' : (confirmReceiptSigning ? 'Ожидание подписи…' : 'Условия сделки выполнил') ]]</button>
                                             <button v-if="dealIsSender || dealIsReceiver" @click="openAppealConfirmModal" style="padding: 8px 16px; border: 1px solid #e57373; border-radius: 20px; background: #ffebee; color: #c62828; cursor: pointer; font-size: 13px; font-weight: 500;">Подать на апелляцию</button>
                                         </template>
                                         <template v-if="dealInfo.status === 'appeal' && dealIsArbiter">

@@ -355,14 +355,14 @@ class Deal(Base):
     # Need receiver approval flag
     need_receiver_approve = Column(Boolean, nullable=False, server_default='false', default=False, comment="Требуется ли одобрение получателя")
     
-    # Deal status: processing, success, appeal, resolved_sender, resolved_receiver
+    # Deal status: wait_deposit, processing, success, appeal, resolved_sender, resolved_receiver
     status = Column(
         String(50),
         nullable=False,
-        server_default='processing',
-        default='processing',
+        server_default='wait_deposit',
+        default='wait_deposit',
         index=True,
-        comment="Статус сделки: processing, success, appeal, resolved_sender, resolved_receiver"
+        comment="Статус сделки: wait_deposit, processing, success, appeal, resolved_sender, resolved_receiver"
     )
     
     # Offline payout transaction (JSONB): unsigned_tx, contract_data, signatures, etc.; null when appeal or no escrow
@@ -371,6 +371,9 @@ class Deal(Base):
         nullable=True,
         comment="Оффлайн-транзакция выплаты по сделке (зависит от status); null при appeal или без эскроу"
     )
+    
+    # Hash транзакции депозита в эскроу (для отслеживания)
+    deposit_txn_hash = Column(String(66), nullable=True, index=True, comment="Hash транзакции депозита в эскроу")
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")

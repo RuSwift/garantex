@@ -190,7 +190,10 @@ class ChatMessage(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Время отправки сообщения")
     status: Literal["sent", "delivered", "read", "failed"] = Field("sent", description="Статус доставки")
     edited_at: Optional[datetime] = Field(None, description="Время последнего редактирования")
-    
+
+    # Ссылка на хеш транзакции (для служебных/сделочных сообщений)
+    txn_hash: Optional[str] = Field(None, description="Hash транзакции (если сообщение связано с txn)")
+
     # Дополнительные данные
     metadata: Optional[dict] = Field(None, description="Дополнительные метаданные (JSON)")
     
@@ -321,7 +324,8 @@ class ChatMessageCreate(BaseModel):
     attachments: Optional[List[FileAttachment]] = None
     reply_to_message_uuid: Optional[str] = Field(None, description="UUID сообщения, на которое ссылается ответ")
     metadata: Optional[dict] = None
-    
+    txn_hash: Optional[str] = Field(None, description="Hash транзакции (для служебных сообщений со ссылкой на TronScan)")
+
     # Подпись будет добавлена после создания сообщения
     signature: Optional[MessageSignature] = None
     
