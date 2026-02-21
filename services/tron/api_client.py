@@ -257,7 +257,8 @@ class TronAPIClient:
         function_selector: str,
         parameter: str,
         permission_id: Optional[int] = None,
-        expiration_ms: Optional[int] = None
+        expiration_ms: Optional[int] = None,
+        fee_limit: int = 30_000_000,
     ) -> dict:
         """
         Trigger smart contract function
@@ -269,6 +270,7 @@ class TronAPIClient:
             parameter: Encoded parameters (hex string or comma-separated values)
             permission_id: Permission ID for multisig
             expiration_ms: Optional expiration timestamp (ms). If not set, node uses default.
+            fee_limit: Max TRX to spend on fees in SUN (default 30 TRX). Prevents OUT_OF_ENERGY.
         
         Returns:
             Unsigned transaction object
@@ -277,6 +279,8 @@ class TronAPIClient:
             "owner_address": owner_address,
             "contract_address": contract_address,
             "function_selector": function_selector,
+            "fee_limit": fee_limit,
+            "call_value": 0,
             "visible": True
         }
         
@@ -307,7 +311,7 @@ class TronAPIClient:
             data["Permission_id"] = permission_id
         if expiration_ms is not None:
             data["expiration"] = expiration_ms
-        
+
         return await self._post(
             "/wallet/triggersmartcontract",
             data

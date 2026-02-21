@@ -6,7 +6,8 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import db
-from db.models import EscrowModel, EscrowTxnModel
+from db.models import Deal, EscrowModel, EscrowTxnModel
+from services.deals.service import DealsService
 from services.tron.escrow import EscrowService, EscrowError
 from services.tron.api_client import TronAPIClient
 from services.tron.multisig import TronMultisig, MultisigConfig
@@ -52,6 +53,27 @@ async def process_escrow_batch(
     escrows = result.scalars().all()
     
     return list(escrows)
+
+
+async def process_processing_deals_batch(
+    session: AsyncSession,
+    page: int = 0,
+    page_size: int = 20
+) -> List[Deal]:
+    """
+    Получить батч сделок в статусе processing с escrow_id (SELECT FOR UPDATE SKIP LOCKED).
+    Для последующего вызова get_or_build_deal_payout_txn — проверка успеха выплаты в сети и переход в success.
+    """
+    stmt = (
+        select(Deal)
+        .where(Deal.status == "processing", Deal.escrow_id.isnot(None))
+        .order_by(Deal.updated_at)
+        .offset(page * page_size)
+        .limit(page_size)
+        .with_for_update(skip_locked=True)
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
 
 
 async def _get_or_create_escrow_txn(
@@ -756,9 +778,26 @@ async def cron_task():
             
             if total_processed > 0:
                 logger.info(f"Processed {total_processed} escrow records")
-                
+
         except Exception as e:
             logger.error(f"Error in cron_task: {str(e)}")
             await session.rollback()  # Блокировки освобождаются здесь при ошибке
             raise
+
+    # Отдельная сессия для сделок в processing — транзакции не пересекаются с эскроу
+    async with db.SessionLocal() as deals_session:
+        try:
+            deals = await process_processing_deals_batch(deals_session, 0, 20)
+            for deal in deals:
+                try:
+                    deals_svc = DealsService(deals_session, deal.sender_did)
+                    await deals_svc.get_or_build_deal_payout_txn(deal.uid)
+                except Exception as e:
+                    logger.error("Failed to process deal %s: %s", deal.uid, e)
+                    continue
+            if deals:
+                await deals_session.commit()
+        except Exception as e:
+            logger.error("Error in cron_task (processing deals): %s", e)
+            await deals_session.rollback()
 

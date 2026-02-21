@@ -1,6 +1,7 @@
 """
 Service for managing deals
 """
+import asyncio
 import logging
 import time
 from typing import Optional, List, Dict, Any, Tuple
@@ -360,6 +361,48 @@ class DealsService:
                 and float(existing.get("amount") or 0) == amount
                 and existing.get("token_contract") == token_contract
             ):
+                # Для processing при двух подписях и наличии txID — перезапросить статус в сети; при success закрыть сделку
+                if deal.status == "processing":
+                    sigs = existing.get("signatures") or []
+                    required = existing.get("required_signatures") or len(existing.get("participants") or [])
+                    if len(sigs) >= required:
+                        unsigned = existing.get("unsigned_tx")
+                        tx_hash = (unsigned.get("txID") or "").strip() if isinstance(unsigned, dict) else None
+                        if tx_hash and escrow:
+                            try:
+                                if await self._is_payout_tx_success(tx_hash, escrow.network):
+                                    try:
+                                        sender_user = (
+                                            await self.session.execute(
+                                                select(WalletUser).where(WalletUser.did == deal.sender_did)
+                                            )
+                                        ).scalar_one_or_none()
+                                        nickname = sender_user.nickname if sender_user else deal.sender_did
+                                        service_text = f"{nickname} {deal.sender_did} подтвердил и претензий не имеет"
+                                        chat_svc = ChatService(self.session, deal.sender_did)
+                                        service_message = ChatMessageCreate(
+                                            uuid=str(uuid.uuid4()),
+                                            message_type=MessageType.SERVICE,
+                                            sender_id=deal.sender_did,
+                                            receiver_id=deal.receiver_did,
+                                            deal_uid=deal.uid,
+                                            deal_label=deal.label,
+                                            text=service_text,
+                                            txn_hash=tx_hash,
+                                        )
+                                        await chat_svc.add_message(service_message, deal_uid=deal.uid)
+                                    except Exception as e:
+                                        logger.warning(
+                                            "get_or_build_deal_payout_txn: failed to add completion service message for deal %s: %s",
+                                            deal_uid,
+                                            e,
+                                        )
+                                    deal.status = "success"
+                                    deal.updated_at = datetime.now(timezone.utc)
+                                    await self.session.commit()
+                                    await self.session.refresh(deal)
+                            except ValueError:
+                                pass  # tx в сети ещё pending или failed
                 return existing
 
         escrow_svc = EscrowService(self.session, deal.sender_did)
@@ -414,6 +457,59 @@ class DealsService:
         await self.session.commit()
         await self.session.refresh(deal)
         return await self.get_or_build_deal_payout_txn(deal_uid)
+
+    async def refresh_payout_txn_for_retry(
+        self,
+        deal_uid: str,
+        failed_tx_hash: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Пересборка транзакции выплаты для повторной попытки (например после Out of Energy).
+        Только отправитель, только при status=processing. Обнуляет подписи, создаёт новый unsigned_tx.
+        Отправляет в чат сервисное сообщение о проблеме и пересборке.
+        """
+        deal = await self.get_deal(deal_uid)
+        if not deal or self.owner_did != deal.sender_did:
+            return None
+        if deal.status != "processing":
+            return None
+        if deal.need_receiver_approve:
+            return None
+        new_payload = await self.refresh_deal_payout_txn(deal_uid)
+        if not new_payload:
+            return None
+        reason_text = (reason or "").strip() or "транзакция не прошла в сети"
+        failed_hash = (failed_tx_hash or "").strip() or None
+        try:
+            sender_user = (
+                await self.session.execute(select(WalletUser).where(WalletUser.did == deal.sender_did))
+            ).scalar_one_or_none()
+            nickname = sender_user.nickname if sender_user else deal.sender_did
+            parts = [
+                f"{nickname} инициировал пересборку транзакции выплаты.",
+                f"Причина: {reason_text}.",
+                "Требуется повторная подпись получателя и отправителя.",
+            ]
+            if failed_hash:
+                parts.insert(1, f"Проблемная транзакция: https://tronscan.org/#/transaction/{failed_hash}")
+            service_text = " ".join(parts)
+            chat_svc = ChatService(self.session, deal.sender_did)
+            service_message = ChatMessageCreate(
+                uuid=str(uuid.uuid4()),
+                message_type=MessageType.SERVICE,
+                sender_id=deal.sender_did,
+                receiver_id=deal.receiver_did,
+                deal_uid=deal.uid,
+                deal_label=deal.label,
+                text=service_text,
+                txn_hash=failed_hash,
+            )
+            await chat_svc.add_message(service_message, deal_uid=deal.uid)
+            await self.session.commit()
+        except Exception as e:
+            logger.warning("refresh_payout_txn_for_retry: failed to add service message for deal %s: %s", deal_uid, e)
+        return new_payload
 
     async def set_deal_status(self, deal_uid: str, status: str) -> Optional[Deal]:
         """
@@ -556,6 +652,129 @@ class DealsService:
                 logger.warning("add_payout_signature: failed to add receiver completion service message for deal %s: %s", deal_uid, e)
 
         return deal.payout_txn
+
+    def get_payout_signed_tx(self, deal: Deal) -> Optional[Dict[str, Any]]:
+        """
+        Собрать подписанную транзакцию выплаты для broadcast, если набрано достаточно подписей.
+        Порядок подписей — по participants. Возвращает dict для TronWeb broadcast (raw_data + signature[]).
+        """
+        payout = deal.payout_txn if deal else None
+        if not payout or not isinstance(payout, dict):
+            return None
+        participants = payout.get("participants") or []
+        required = payout.get("required_signatures") or len(participants)
+        sigs = payout.get("signatures") or []
+        if len(sigs) < required:
+            return None
+        unsigned = payout.get("unsigned_tx")
+        if not unsigned or not isinstance(unsigned, dict):
+            return None
+        by_addr = {str(s.get("signer_address") or "").strip().lower(): (s.get("signature") or "").strip() for s in sigs}
+        ordered = []
+        for addr in participants:
+            key = str(addr or "").strip().lower()
+            hex_sig = by_addr.get(key)
+            if not hex_sig:
+                return None
+            if hex_sig.startswith("0x"):
+                hex_sig = hex_sig[2:]
+            ordered.append(hex_sig)
+        return {
+            **unsigned,
+            "signature": ordered,
+        }
+
+    async def _is_payout_tx_success(self, tx_hash: str, network: str) -> bool:
+        """
+        Проверить, что транзакция выплаты в сети имеет статус success (подтверждена).
+        При PENDING — повторные запросы до PAYOUT_TX_PENDING_TIMEOUT_SEC (например 10 сек).
+        При result != SUCCESS (после ожидания) выбрасывает ValueError с текстом ошибки из сети.
+        """
+        from services.tron.api_client import TronAPIClient
+
+        PAYOUT_TX_PENDING_TIMEOUT_SEC = 10
+        PAYOUT_TX_CHECK_INTERVAL_SEC = 2.5
+        max_attempts = max(1, int(PAYOUT_TX_PENDING_TIMEOUT_SEC / PAYOUT_TX_CHECK_INTERVAL_SEC) + 1)
+
+        last_error = None
+        for attempt in range(max_attempts):
+            if attempt > 0:
+                await asyncio.sleep(PAYOUT_TX_CHECK_INTERVAL_SEC)
+            try:
+                async with TronAPIClient(network=network) as client:
+                    info = await client.get_transaction_info(tx_hash)
+            except Exception as e:
+                logger.warning("payout tx check failed for %s (attempt %s): %s", tx_hash, attempt + 1, e)
+                last_error = e
+                continue
+            receipt = info.get("receipt") or {}
+            result = receipt.get("result")
+            block_ok = (info.get("blockNumber") or info.get("block_timestamp") or info.get("blockTimeStamp") or 0) != 0
+            if result == "SUCCESS":
+                return block_ok
+            if result == "FAILED" or (result is not None and str(result).upper() not in ("PENDING", "SUCCESS", "")):
+                error_msg = receipt.get("result_message") or "Transaction failed"
+                contract_result = receipt.get("contractResult") or []
+                if contract_result and isinstance(contract_result, list) and len(contract_result) > 0:
+                    try:
+                        error_msg = contract_result[0].decode("utf-8", errors="replace") if isinstance(contract_result[0], bytes) else str(contract_result[0])
+                    except Exception:
+                        error_msg = receipt.get("result_message") or str(contract_result[:1])
+                raise ValueError(error_msg)
+            # PENDING или пустой result — ждём и повторяем
+        if last_error:
+            logger.warning("payout tx check failed for %s after %s attempts: %s", tx_hash, max_attempts, last_error)
+            return False
+        raise ValueError("Transaction still pending or not found")
+
+    async def sender_confirm_complete(self, deal_uid: str, payout_tx_hash: Optional[str] = None) -> Optional[Deal]:
+        """
+        Подтверждение отправителя: сделка закрывается (status=success), в чат отправляется
+        сервисное сообщение «{nickname} {did} подтвердил и претензий не имеет» (и txn_hash при передаче).
+        Вызывать только от sender_did после успешного broadcast выплаты.
+        Если передан payout_tx_hash, перед закрытием проверяется, что транзакция в сети имеет статус success.
+        """
+        deal = await self.get_deal(deal_uid)
+        if not deal or self.owner_did != deal.sender_did:
+            return None
+        if deal.need_receiver_approve:
+            return None
+        tx_hash = (payout_tx_hash or "").strip() or None
+        if tx_hash and deal.escrow_id:
+            result = await self.session.execute(
+                select(EscrowModel).where(EscrowModel.id == deal.escrow_id)
+            )
+            escrow = result.scalar_one_or_none()
+            if escrow and escrow.blockchain == "tron":
+                if not await self._is_payout_tx_success(tx_hash, escrow.network):
+                    logger.warning("sender_confirm_complete: payout tx %s not confirmed/success for deal %s", tx_hash, deal_uid)
+                    return None
+        try:
+            sender_user = (
+                await self.session.execute(select(WalletUser).where(WalletUser.did == deal.sender_did))
+            ).scalar_one_or_none()
+            nickname = sender_user.nickname if sender_user else deal.sender_did
+            service_text = f"{nickname} {deal.sender_did} подтвердил и претензий не имеет"
+            chat_svc = ChatService(self.session, deal.sender_did)
+            service_message = ChatMessageCreate(
+                uuid=str(uuid.uuid4()),
+                message_type=MessageType.SERVICE,
+                sender_id=deal.sender_did,
+                receiver_id=deal.receiver_did,
+                deal_uid=deal.uid,
+                deal_label=deal.label,
+                text=service_text,
+                txn_hash=(payout_tx_hash or "").strip() or None,
+            )
+            await chat_svc.add_message(service_message, deal_uid=deal.uid)
+        except Exception as e:
+            logger.warning("sender_confirm_complete: failed to add service message for deal %s: %s", deal_uid, e)
+        deal.status = "success"
+        deal.updated_at = datetime.now(timezone.utc)
+        await self.session.commit()
+        await self.session.refresh(deal)
+        # Не вызываем refresh_deal_payout_txn — сохраняем payout_txn с обеими подписями
+        return await self.get_deal(deal_uid)
 
     async def update_deal(
         self,

@@ -3,7 +3,7 @@ Router for Payment Request API
 """
 import uuid
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body
 from pydantic import BaseModel, Field
 
 from routers.auth import get_current_tron_user, UserInfo
@@ -72,6 +72,17 @@ class DealStatusUpdateRequest(BaseModel):
 class DepositTxnRequest(BaseModel):
     """Request для сохранения хеша транзакции депозита в эскроу"""
     tx_hash: str = Field(..., description="Хеш транзакции депозита (txID)")
+
+
+class SenderConfirmCompleteRequest(BaseModel):
+    """Request для подтверждения отправителем после broadcast выплаты"""
+    tx_hash: Optional[str] = Field(None, description="Хеш транзакции выплаты (txID) для сервисного сообщения")
+
+
+class RefreshPayoutTxnRequest(BaseModel):
+    """Request для пересборки транзакции выплаты (после Failed / Out of Energy)"""
+    failed_tx_hash: Optional[str] = Field(None, description="Хеш неудавшейся транзакции для сервисного сообщения")
+    reason: Optional[str] = Field(None, description="Причина (например Out of Energy)")
 
 
 class ReceiverApproveRequest(BaseModel):
@@ -686,6 +697,79 @@ async def add_payout_signature(
             detail="Deal not found, or no payout transaction, or signer not allowed",
         )
     return {"payout_txn": result}
+
+
+@router.get("/{deal_uid}/payout-signed-tx")
+async def get_payout_signed_tx(
+    deal_uid: str,
+    deals_service: DealsService = Depends(get_deals_service),
+):
+    """
+    Получить собранную подписанную транзакцию выплаты для broadcast (когда набрано достаточно подписей).
+    Участник сделки может вызвать для отправки транзакции в сеть с веб-кошелька.
+    """
+    deal = await deals_service.get_deal(deal_uid)
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+    if not deals_service._is_participant(deal):
+        raise HTTPException(status_code=403, detail="Not a participant")
+    signed_tx = deals_service.get_payout_signed_tx(deal)
+    if not signed_tx:
+        raise HTTPException(
+            status_code=400,
+            detail="Not enough signatures or no payout transaction",
+        )
+    return {"signed_tx": signed_tx}
+
+
+@router.post("/{deal_uid}/refresh-payout-txn")
+async def refresh_payout_txn(
+    deal_uid: str,
+    body: Optional[RefreshPayoutTxnRequest] = Body(None),
+    deals_service: DealsService = Depends(get_deals_service),
+):
+    """
+    Пересборка транзакции выплаты для повторной попытки (например после Failed / Out of Energy).
+    Только отправитель, только при status=processing. В чат отправляется сервисное сообщение.
+    """
+    failed_tx_hash = (body and body.failed_tx_hash and body.failed_tx_hash.strip()) or None
+    reason = (body and body.reason and body.reason.strip()) or None
+    result = await deals_service.refresh_payout_txn_for_retry(
+        deal_uid, failed_tx_hash=failed_tx_hash, reason=reason
+    )
+    if not result:
+        raise HTTPException(
+            status_code=403,
+            detail="Deal not found, or only sender can refresh, or status is not processing",
+        )
+    return {"payout_txn": result}
+
+
+@router.post("/{deal_uid}/sender-confirm-complete")
+async def sender_confirm_complete(
+    deal_uid: str,
+    body: Optional[SenderConfirmCompleteRequest] = Body(None),
+    deals_service: DealsService = Depends(get_deals_service),
+):
+    """
+    Подтверждение отправителя после broadcast выплаты: статус сделки — success,
+    в чат отправляется сервисное сообщение (с хешем транзакции при передаче tx_hash). Только отправитель.
+    """
+    tx_hash = (body and body.tx_hash and body.tx_hash.strip()) or None
+    try:
+        updated = await deals_service.sender_confirm_complete(deal_uid, payout_tx_hash=tx_hash)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not updated:
+        raise HTTPException(
+            status_code=403,
+            detail="Deal not found or only sender can confirm complete",
+        )
+    return {
+        "deal_uid": updated.uid,
+        "status": updated.status,
+        "updated_at": updated.updated_at.isoformat() if updated.updated_at else None,
+    }
 
 
 @router.post("/{deal_uid}/deposit-txn")

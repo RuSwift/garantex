@@ -63,13 +63,17 @@ Vue.component('Chat', {
             showDealErrorModal: false,
             dealErrorTitle: '',
             dealErrorMessage: '',
+            dealErrorTxHash: '',
+            refreshPayoutLoading: false,
             dealArbiterChoice: '', // '' | 'resolved_sender' | 'resolved_receiver'
             showSignPayoutModal: false,
             signPayoutAddress: '',
             signPayoutSignature: '',
             showAppealConfirmModal: false,
+            showSenderConfirmModal: false,
             showPayloadModal: false,
             confirmReceiptSigning: false,
+            senderConfirmSigning: false,
             fundDepositLoading: false,
             payoutSignersExpanded: false,
             emojiCategories: {
@@ -175,6 +179,18 @@ Vue.component('Chat', {
             var myAddr = (this.walletAddress || '').trim().toLowerCase();
             return this.payoutSignersList.some(function(addr) { return (addr || '').trim().toLowerCase() === myAddr; });
         },
+        /** Подпись получателя есть в payout_txn (по адресу из dealInfo) */
+        receiverHasSigned() {
+            var info = this.dealInfo;
+            if (!info || !info.receiver_address) return false;
+            var recv = (info.receiver_address || '').trim().toLowerCase();
+            return this.payoutSignersList.some(function(addr) { return (addr || '').trim().toLowerCase() === recv; });
+        },
+        /** Отправитель ждёт подписи получателя: processing, есть payout_txn, получатель ещё не подписал */
+        senderWaitingForReceiver() {
+            return this.dealIsSender && this.dealInfo && this.dealInfo.status === 'processing' &&
+                this.dealInfo.payout_txn && !this.receiverHasSigned;
+        },
         payoutSignersText() {
             var list = this.payoutSignersList;
             if (!list.length) return '';
@@ -230,6 +246,7 @@ Vue.component('Chat', {
         }
     },
     methods: {
+        noop() {},
         close() {
             // Stop history refresh
             this.stopHistoryRefresh();
@@ -842,18 +859,49 @@ Vue.component('Chat', {
                 });
                 if (!r.ok) { this.dealInfo = null; return; }
                 this.dealInfo = await r.json();
-                this.$nextTick(() => { this.scrollToBottom(); });
+                this.$nextTick(() => { this.scrollToBottomIfNeeded(); });
             } catch (e) {
                 this.dealInfo = null;
             }
         },
-        showDealApiError(title, message) {
+        showDealApiError(title, message, txHash) {
             this.dealErrorTitle = title || 'Ошибка';
             this.dealErrorMessage = message || '';
+            this.dealErrorTxHash = (txHash && String(txHash).trim()) || '';
             this.showDealErrorModal = true;
         },
         closeDealErrorModal() {
             this.showDealErrorModal = false;
+            this.dealErrorTxHash = '';
+        },
+        async refreshPayoutTxn() {
+            var contact = this.selectedContact;
+            if (!contact || !contact.deal_uid || !this.dealErrorTxHash || !this.getAuthToken) return;
+            var token = this.getAuthToken();
+            if (!token) return;
+            this.refreshPayoutLoading = true;
+            try {
+                var r = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/refresh-payout-txn', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({
+                        failed_tx_hash: this.dealErrorTxHash,
+                        reason: this.dealErrorMessage || 'Out of Energy'
+                    })
+                });
+                var data = await r.json().catch(function() { return {}; });
+                if (r.ok) {
+                    this.closeDealErrorModal();
+                    if (data.payout_txn && this.dealInfo) this.dealInfo.payout_txn = data.payout_txn;
+                    await this.loadDealInfo();
+                } else {
+                    this.showDealApiError(this.dealErrorTitle, data.detail || r.statusText || 'Ошибка пересборки', this.dealErrorTxHash);
+                }
+            } catch (e) {
+                this.showDealApiError(this.dealErrorTitle, e.message || 'Ошибка сети', this.dealErrorTxHash);
+            } finally {
+                this.refreshPayoutLoading = false;
+            }
         },
         async setDealStatus(status) {
             var contact = this.selectedContact;
@@ -1088,6 +1136,84 @@ Vue.component('Chat', {
                 this.showDealApiError('Ошибка', e.message || 'Ошибка сети');
             }
         },
+        openSenderConfirmModal() {
+            this.showSenderConfirmModal = true;
+        },
+        closeSenderConfirmModal() {
+            if (!this.senderConfirmSigning) this.showSenderConfirmModal = false;
+        },
+        async confirmSenderConfirm() {
+            var contact = this.selectedContact;
+            if (!contact || !contact.deal_uid || !this.getAuthToken) return;
+            var token = this.getAuthToken();
+            if (!token) return;
+            if (!this.dealInfo || !this.dealInfo.payout_txn || !this.dealInfo.payout_txn.unsigned_tx) {
+                this.showDealApiError('Ошибка', 'Нет данных транзакции. Перезагрузите сделку.');
+                return;
+            }
+            var signRef = this.$refs.chatTronSign;
+            if (!signRef) {
+                this.showDealApiError('Ошибка', 'Компонент подписи недоступен');
+                return;
+            }
+            this.showSenderConfirmModal = false;
+            this.senderConfirmSigning = true;
+            try {
+                if (!signRef.isConnected) await signRef.connectWallet();
+                var unsignedTx = this.dealInfo.payout_txn.unsigned_tx;
+                if (!unsignedTx.visible) unsignedTx = Object.assign({}, unsignedTx, { visible: true });
+                var signedTx = await signRef.signTransaction(unsignedTx);
+                var sig = signedTx && signedTx.signature;
+                var cleanSignature = (Array.isArray(sig) && sig.length > 0) ? sig[0] : (typeof sig === 'string' ? sig : '');
+                if (cleanSignature && cleanSignature.indexOf('0x') === 0) cleanSignature = cleanSignature.substring(2);
+                var signerAddress = signRef.walletAddress;
+                if (!signerAddress || !cleanSignature) {
+                    this.showDealApiError('Ошибка', 'Не удалось получить адрес или подпись');
+                    return;
+                }
+                var r = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/payout-signature', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ signer_address: signerAddress, signature: cleanSignature })
+                });
+                var data = await r.json().catch(function() { return {}; });
+                if (!r.ok) {
+                    this.showDealApiError('Ошибка подписи', data.detail || r.statusText || 'Ошибка');
+                    return;
+                }
+                if (data.payout_txn && this.dealInfo) this.dealInfo.payout_txn = data.payout_txn;
+                var getSigned = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/payout-signed-tx', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (getSigned.ok) {
+                    var signedPayload = await getSigned.json().catch(function() { return {}; });
+                    var combined = signedPayload.signed_tx;
+                    if (combined && window.tronWeb && window.tronWeb.trx && typeof window.tronWeb.trx.sendRawTransaction === 'function') {
+                        await window.tronWeb.trx.sendRawTransaction(combined);
+                        var payoutTxId = combined.txID || combined.txId || null;
+                        var completeRes = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/sender-confirm-complete', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                            body: JSON.stringify(payoutTxId ? { tx_hash: payoutTxId } : {})
+                        });
+                        if (completeRes.ok) {
+                            await this.loadDealInfo();
+                        } else {
+                            var errData = await completeRes.json().catch(function() { return {}; });
+                            this.showDealApiError('Подтверждение', errData.detail || 'Не удалось закрыть сделку', payoutTxId);
+                        }
+                    } else {
+                        this.showDealApiError('Ошибка', 'Транзакция не отправлена в сеть');
+                    }
+                } else {
+                    this.showDealApiError('Подтверждение', 'Получатель ещё не подписал. Дождитесь подписи получателя, затем нажмите «Подтверждаю» снова.');
+                }
+            } catch (e) {
+                this.showDealApiError('Ошибка', e.message || 'Ошибка сети');
+            } finally {
+                this.senderConfirmSigning = false;
+            }
+        },
         openAppealConfirmModal() {
             this.showAppealConfirmModal = true;
         },
@@ -1233,13 +1359,23 @@ Vue.component('Chat', {
                     // Sort messages by timestamp
                     existingMessages.sort((a, b) => a.timestamp - b.timestamp);
                     
+                    // Save scroll position before update (so viewing history isn't reset)
+                    const messageList = this.$refs.messageList;
+                    const scrollHeight = messageList ? messageList.scrollHeight : 0;
+                    const scrollTop = messageList ? messageList.scrollTop : 0;
+                    
                     // Update messages array
                     this.$set(this.messages, targetConversationId, existingMessages);
                     
-                    // Auto-load attachments for new messages
+                    // Restore scroll position after update, then auto-load attachments
                     this.$nextTick(() => {
+                        if (messageList) {
+                            const newScrollHeight = messageList.scrollHeight;
+                            const heightDiff = newScrollHeight - scrollHeight;
+                            messageList.scrollTop = scrollTop + heightDiff;
+                        }
                         this.autoLoadAttachments();
-                        // Scroll to bottom only if this conversation is still selected
+                        // Scroll to bottom only if this conversation is still selected and user was at bottom
                         if (this.selectedContactId === targetConversationId && this.isUserAtBottom) {
                             this.scrollToBottomIfNeeded();
                         }
@@ -2303,7 +2439,7 @@ Vue.component('Chat', {
                                     </div>
                                     <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;">
                                         <template v-if="dealInfo.status === 'processing'">
-                                            <button v-if="dealIsSender" @click="() => {}" style="padding: 8px 16px; border: 1px solid #e5e5e5; border-radius: 20px; background: white; color: #4082bc; cursor: pointer; font-size: 13px; font-weight: 500;">Оплатил</button>
+                                            <button v-if="dealIsSender" @click="openSenderConfirmModal" :disabled="senderConfirmSigning || senderWaitingForReceiver" style="padding: 8px 16px; border: 1px solid #e5e5e5; border-radius: 20px; background: white; color: #4082bc; cursor: pointer; font-size: 13px; font-weight: 500;">[[ senderWaitingForReceiver ? 'Ожидаем контрагента' : (senderConfirmSigning ? 'Подпись и отправка…' : 'Подтверждаю') ]]</button>
                                             <button v-if="dealIsReceiver" @click="confirmReceiptAndSign" :disabled="confirmReceiptSigning || receiverAlreadySigned" style="padding: 8px 16px; border: 1px solid #e5e5e5; border-radius: 20px; background: white; color: #4082bc; cursor: pointer; font-size: 13px; font-weight: 500;">[[ receiverAlreadySigned ? 'Вы поставили подпись, ожидаем контрагента' : (confirmReceiptSigning ? 'Ожидание подписи…' : 'Условия сделки выполнил') ]]</button>
                                             <button v-if="dealIsSender || dealIsReceiver" @click="openAppealConfirmModal" style="padding: 8px 16px; border: 1px solid #e57373; border-radius: 20px; background: #ffebee; color: #c62828; cursor: pointer; font-size: 13px; font-weight: 500;">Подать на апелляцию</button>
                                         </template>
@@ -2416,7 +2552,7 @@ Vue.component('Chat', {
                                                      ref="emojiPicker"
                                                      style="position: absolute; bottom: calc(100% + 8px); right: 0; background: white; border: 1px solid #e5e5e5; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); width: 320px; max-height: 300px; overflow-y: auto; z-index: 1000; padding: 12px;"
                                                      class="telegram-scrollbar"
-                                                     @click.stop
+                                                     @click.stop="noop"
                                                 >
                                                 <div v-for="(emojis, category) in emojiCategories" :key="category" style="margin-bottom: 12px;">
                                                     <div style="font-size: 11px; font-weight: 600; color: #707579; margin-bottom: 8px; text-transform: uppercase;">[[ category ]]</div>
@@ -2493,7 +2629,11 @@ Vue.component('Chat', {
             <template #body>
                 <div style="padding: 16px;">
                     <p style="white-space: pre-wrap; margin: 0; padding: 12px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; color: #721c24; font-size: 14px;">[[ dealErrorMessage ]]</p>
-                    <button @click="closeDealErrorModal" style="margin-top: 14px; padding: 10px 20px; cursor: pointer; background: #dc3545; color: white; border: none; border-radius: 8px; font-weight: 500;">Закрыть</button>
+                    <p v-if="dealErrorTxHash" style="margin: 12px 0 0; font-size: 13px; color: #212121;">Транзакция: <a :href="'https://tronscan.org/#/transaction/' + dealErrorTxHash" target="_blank" rel="noopener noreferrer" style="color: #1565c0; word-break: break-all;">[[ dealErrorTxHash ]]</a></p>
+                    <div style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button v-if="dealErrorTxHash && selectedContact && selectedContact.deal_uid && dealIsSender" @click="refreshPayoutTxn" :disabled="refreshPayoutLoading" style="padding: 10px 20px; cursor: pointer; background: #1976d2; color: white; border: none; border-radius: 8px; font-weight: 500;">[[ refreshPayoutLoading ? 'Пересборка…' : 'Пересобрать транзакцию' ]]</button>
+                        <button @click="closeDealErrorModal" style="padding: 10px 20px; cursor: pointer; background: #dc3545; color: white; border: none; border-radius: 8px; font-weight: 500;">Закрыть</button>
+                    </div>
                 </div>
             </template>
         </modal-window>
@@ -2524,6 +2664,23 @@ Vue.component('Chat', {
                     <div style="display: flex; gap: 8px; justify-content: flex-end;">
                         <button @click="showAppealConfirmModal = false" style="padding: 8px 16px; cursor: pointer; border: 1px solid #e5e5e5; border-radius: 8px; background: #f5f5f5;">Отмена</button>
                         <button @click="confirmAppeal" style="padding: 8px 16px; cursor: pointer; border: 1px solid #c62828; border-radius: 8px; background: #ffebee; color: #c62828; font-weight: 500;">Подать на апелляцию</button>
+                    </div>
+                </div>
+            </template>
+            </modal-window>
+        </div>
+        <div v-if="showSenderConfirmModal" style="position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10002;">
+            <modal-window :width="'440px'" :height="'auto'" @close="closeSenderConfirmModal">
+                <template #header>Подтверждаю</template>
+                <template #body>
+                <div style="padding: 12px 16px;">
+                    <div style="padding: 12px 14px; margin-bottom: 12px; background: #e3f2fd; border: 1px solid #1976d2; border-radius: 8px; color: #0d47a1;">
+                        <p style="margin: 0; font-size: 14px; line-height: 1.45;">Если вы подпишете транзакцию, средства с эскроу-счёта будут переведены получателю. Претензий не имею.</p>
+                    </div>
+                    <p style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #212121;">Подписать и отправить транзакцию в сеть?</p>
+                    <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                        <button @click="closeSenderConfirmModal" :disabled="senderConfirmSigning" style="padding: 8px 16px; cursor: pointer; border: 1px solid #e5e5e5; border-radius: 8px; background: #f5f5f5;">Отмена</button>
+                        <button @click="confirmSenderConfirm" :disabled="senderConfirmSigning" style="padding: 8px 16px; cursor: pointer; border: 1px solid #1976d2; border-radius: 8px; background: #e3f2fd; color: #1565c0; font-weight: 500;">[[ senderConfirmSigning ? 'Подпись…' : 'Подписать и отправить' ]]</button>
                     </div>
                 </div>
             </template>

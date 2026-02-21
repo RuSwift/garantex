@@ -585,7 +585,7 @@ class EscrowService:
             )
         
         async with self._get_api_client(network) as api_client:
-            # Create TRC20 transfer transaction
+            # Create TRC20 transfer transaction (fee_limit 30 TRX to avoid OUT_OF_ENERGY)
             response = await api_client.trigger_smart_contract(
                 owner_address=from_address,
                 contract_address=token_contract,
@@ -593,6 +593,7 @@ class EscrowService:
                 parameter=f"{to_address},{int(amount * 1e6)}",  # Assuming 6 decimals
                 permission_id=permission_id,
                 expiration_ms=expiration_ms,
+                fee_limit=30_000_000,
             )
             # TRON API returns { "result": {...}, "transaction": {...} }; we need the transaction object
             unsigned_tx = response.get("transaction") if isinstance(response.get("transaction"), dict) else response
