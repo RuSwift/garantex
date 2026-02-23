@@ -410,6 +410,8 @@ class DealsService:
                                             e,
                                         )
                                     deal.status = "success"
+                                    if not deal.payout_txn_hash:
+                                        deal.payout_txn_hash = tx_hash
                                     deal.updated_at = datetime.now(timezone.utc)
                                     await self.session.commit()
                                     await self.session.refresh(deal)
@@ -945,6 +947,8 @@ class DealsService:
             except Exception as e:
                 logger.warning("sender_confirm_complete: failed to add service message for deal %s: %s", deal_uid, e)
             deal.status = "success"
+            if tx_hash and not deal.payout_txn_hash:
+                deal.payout_txn_hash = tx_hash
             deal.updated_at = datetime.now(timezone.utc)
             await self.session.commit()
             await self.session.refresh(deal)
@@ -984,6 +988,8 @@ class DealsService:
             except Exception as e:
                 logger.warning("sender_confirm_complete: failed to add service message for deal %s: %s", deal_uid, e)
             deal.status = "resolved_sender"
+            if tx_hash and not deal.payout_txn_hash:
+                deal.payout_txn_hash = tx_hash
             deal.updated_at = datetime.now(timezone.utc)
             await self.session.commit()
             await self.session.refresh(deal)
@@ -1023,6 +1029,8 @@ class DealsService:
             except Exception as e:
                 logger.warning("sender_confirm_complete: failed to add service message for deal %s: %s", deal_uid, e)
             deal.status = "resolved_receiver"
+            if tx_hash and not deal.payout_txn_hash:
+                deal.payout_txn_hash = tx_hash
             deal.updated_at = datetime.now(timezone.utc)
             await self.session.commit()
             await self.session.refresh(deal)

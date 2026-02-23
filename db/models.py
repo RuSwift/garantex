@@ -374,7 +374,10 @@ class Deal(Base):
     
     # Hash транзакции депозита в эскроу (для отслеживания)
     deposit_txn_hash = Column(String(66), nullable=True, index=True, comment="Hash транзакции депозита в эскроу")
-    
+
+    # Hash подтверждённой транзакции выплаты (заполняется при success/resolved_sender/resolved_receiver)
+    payout_txn_hash = Column(String(66), nullable=True, index=True, comment="Hash подтверждённой транзакции выплаты")
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="Last update timestamp (UTC)")

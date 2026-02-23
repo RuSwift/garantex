@@ -416,6 +416,7 @@ async def list_payment_requests(
                 'escrow_address': escrow_address,  # Адрес escrow
                 'escrow_id': deal.escrow_id,  # ID escrow
                 'payout_txn': deal.payout_txn,
+                'payout_txn_hash': deal.payout_txn_hash,
             })
         
         return {
@@ -513,6 +514,7 @@ class DealInfoResponse(BaseModel):
     escrow_status: Optional[str] = Field(None, description="Статус эскроу: pending, active, inactive")
     escrow_address: Optional[str] = Field(None, description="Адрес эскроу-счёта")
     deposit_txn_hash: Optional[str] = Field(None, description="Хеш транзакции депозита в эскроу")
+    payout_txn_hash: Optional[str] = Field(None, description="Хеш подтверждённой транзакции выплаты (только при success/resolved_*)")
     amount: Optional[float] = Field(None, description="Сумма сделки (для депозита в эскроу)")
 
 
@@ -617,6 +619,7 @@ async def get_deal_info(
             escrow_status=escrow_status,
             escrow_address=escrow_address,
             deposit_txn_hash=deal.deposit_txn_hash,
+            payout_txn_hash=deal.payout_txn_hash,
             amount=float(deal.amount) if deal.amount is not None else None
         )
         

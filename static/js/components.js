@@ -11139,6 +11139,12 @@ Vue.component('Deals', {
             if (!p || !p.unsigned_tx) return null;
             return p.unsigned_tx.txID || p.unsigned_tx.tx_id || null;
         },
+        /** txID для ссылки «Выплата» — только при финальном статусе и сохранённом payout_txn_hash (реальная выплата в сети) */
+        getPayoutTxIdForLink(request) {
+            if (!request || !this.isDealStatusFinal(request)) return null;
+            var hash = request.payout_txn_hash;
+            return (hash && hash.trim()) ? hash : null;
+        },
         getTronScanPermissionsUrl(address) {
             // Генерирует URL для TronScan permissions по адресу
             if (!address) return '#';
@@ -11436,17 +11442,17 @@ Vue.component('Deals', {
                                             </svg>
                                         </a>
                                     </div>
-                                    <!-- Payout transaction (TronScan) -->
-                                    <div v-if="getPayoutTxId(request)" class="px-3 py-1 bg-gray-50 rounded-lg">
+                                    <!-- Payout transaction (TronScan), только при финальном статусе и сохранённом payout_txn_hash -->
+                                    <div v-if="getPayoutTxIdForLink(request)" class="px-3 py-1 bg-gray-50 rounded-lg">
                                         <span class="text-xs text-gray-600 font-semibold mr-1">Выплата:</span>
                                         <a 
-                                            :href="'https://tronscan.org/#/transaction/' + getPayoutTxId(request)"
+                                            :href="'https://tronscan.org/#/transaction/' + getPayoutTxIdForLink(request)"
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             class="text-xs font-mono text-blue-600 hover:text-blue-800 underline flex items-center gap-1 inline-flex"
-                                            :title="getPayoutTxId(request)"
+                                            :title="getPayoutTxIdForLink(request)"
                                         >
-                                            [[ getPayoutTxId(request).substring(0, 8) + '...' + getPayoutTxId(request).substring(getPayoutTxId(request).length - 6) ]]
+                                            [[ getPayoutTxIdForLink(request).substring(0, 8) + '...' + getPayoutTxIdForLink(request).substring(getPayoutTxIdForLink(request).length - 6) ]]
                                             <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
                                             </svg>
