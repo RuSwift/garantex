@@ -14,6 +14,7 @@ from routers.billing import router as billing_router
 from routers.chat import router as chat_router
 from routers.payment_request import router as payment_request_router
 from routers.escrow import router as escrow_router
+from routers import health
 from dependencies import UserDepends
 from settings import Settings
 from db import init_db
@@ -120,6 +121,7 @@ app.include_router(billing_router)
 app.include_router(chat_router)
 app.include_router(payment_request_router)
 app.include_router(escrow_router)
+app.include_router(health.router)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -273,12 +275,6 @@ async def deal_page(
             "deal_uid": deal_uid
         }
     )
-
-
-@app.get("/health")
-async def health_check():
-    """Проверка здоровья приложения"""
-    return {"status": "ok"}
 
 
 if __name__ == "__main__":
