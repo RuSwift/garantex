@@ -122,17 +122,7 @@ Vue.component('Chat', {
         },
         dealStatusLabel() {
             if (!this.dealInfo || !this.dealInfo.status) return '';
-            var s = this.dealInfo.status;
-            if (s === 'wait_deposit' && !this.dealInfo.need_receiver_approve) return 'Ожидается депозит';
-            if (s === 'processing') return 'В работе';
-            if (s === 'success') return 'Завершена успешно';
-            if (s === 'appeal' || s === 'wait_arbiter') return s === 'wait_arbiter' ? 'Ожидание решения арбитра' : 'На апелляции';
-            if (s === 'recline_appeal') return 'Арбитр отправил заявку на пересмотр';
-            if (s === 'resolving_sender') return 'Апелляция: в пользу отправителя (ожидание подписей)';
-            if (s === 'resolving_receiver') return 'Апелляция: в пользу получателя (ожидание подписей)';
-            if (s === 'resolved_sender') return 'Аппеляция закончена: В пользу отправителя';
-            if (s === 'resolved_receiver') return 'Аппеляция закончена: В пользу получателя';
-            return s;
+            return this.getDealStatusText(this.dealInfo.status, this.dealInfo.need_receiver_approve);
         },
         dealStatusStyle() {
             if (!this.dealInfo || !this.dealInfo.status) return {};
@@ -264,6 +254,21 @@ Vue.component('Chat', {
         }
     },
     methods: {
+        /** Текст статуса сделки по коду (для списка контактов и т.п.) */
+        getDealStatusText(status, needReceiverApprove) {
+            if (!status) return '';
+            var s = status;
+            if (s === 'wait_deposit' && !needReceiverApprove) return 'Ожидается депозит';
+            if (s === 'processing') return 'В работе';
+            if (s === 'success') return 'Завершена успешно';
+            if (s === 'appeal' || s === 'wait_arbiter') return s === 'wait_arbiter' ? 'Ожидание решения арбитра' : 'На апелляции';
+            if (s === 'recline_appeal') return 'Арбитр отправил заявку на пересмотр';
+            if (s === 'resolving_sender') return 'Апелляция: в пользу отправителя (ожидание подписей)';
+            if (s === 'resolving_receiver') return 'Апелляция: в пользу получателя (ожидание подписей)';
+            if (s === 'resolved_sender') return 'Аппеляция закончена: В пользу отправителя';
+            if (s === 'resolved_receiver') return 'Аппеляция закончена: В пользу получателя';
+            return s;
+        },
         noop() {},
         close() {
             // Stop history refresh
@@ -632,6 +637,8 @@ Vue.component('Chat', {
                 }
             });
             
+            this.loadDealStatusesForContacts();
+            
             // Auto-select first contact if none selected and history exists
             this.$nextTick(() => {
                 const conversationIds = Object.keys(messagesByContact);
@@ -866,6 +873,26 @@ Vue.component('Chat', {
             // Сразу запрашиваем историю, не ждём первого тика таймера (3 сек)
             this.refreshHistory();
         },
+        async loadDealStatusesForContacts() {
+            if (!this.getAuthToken || !this.contacts.length) return;
+            var token = this.getAuthToken();
+            if (!token) return;
+            try {
+                var r = await fetch('/api/payment-request/list?page=1&page_size=200', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (!r.ok) return;
+                var data = await r.json();
+                var list = (data.payment_requests || data.deals) || [];
+                list.forEach(function (deal) {
+                    var uid = deal.deal_uid || deal.uid;
+                    if (!uid) return;
+                    var c = this.contacts.find(function (x) { return x.deal_uid === uid || (x.id === 'did:deal:' + uid); });
+                    if (c) {
+                        this.$set(c, 'deal_status', deal.status);
+                        this.$set(c, 'need_receiver_approve', deal.need_receiver_approve);
+                    }
+                }.bind(this));
+            } catch (e) { /* ignore */ }
+        },
         async loadDealInfo() {
             var contact = this.selectedContact;
             if (!contact || !contact.deal_uid || !this.getAuthToken) return;
@@ -877,6 +904,8 @@ Vue.component('Chat', {
                 });
                 if (!r.ok) { this.dealInfo = null; return; }
                 this.dealInfo = await r.json();
+                this.$set(contact, 'deal_status', this.dealInfo.status);
+                this.$set(contact, 'need_receiver_approve', this.dealInfo.need_receiver_approve);
                 this.$nextTick(() => { this.scrollToBottomIfNeeded(); });
             } catch (e) {
                 this.dealInfo = null;
@@ -1633,6 +1662,22 @@ Vue.component('Chat', {
                 minute: '2-digit'
             });
         },
+        isNewDay(prevTs, ts) {
+            if (!prevTs || !ts) return false;
+            var d0 = new Date(prevTs);
+            var d1 = new Date(ts);
+            return d0.getFullYear() !== d1.getFullYear() || d0.getMonth() !== d1.getMonth() || d0.getDate() !== d1.getDate();
+        },
+        formatMessageDate(ts) {
+            if (!ts) return '';
+            var d = new Date(ts);
+            var today = new Date();
+            if (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate()) return 'Сегодня';
+            var yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            if (d.getFullYear() === yesterday.getFullYear() && d.getMonth() === yesterday.getMonth() && d.getDate() === yesterday.getDate()) return 'Вчера';
+            return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
+        },
         formatFileSize(bytes) {
             if (!bytes) return '0 B';
             const k = 1024;
@@ -2043,7 +2088,7 @@ Vue.component('Chat', {
                                             <span :style="{ fontSize: '12px', color: selectedContactId === c.id ? 'rgba(255,255,255,0.7)' : '#9ca3af', flexShrink: 0 }">[[ c.lastMessageTime ? formatTime(new Date(c.lastMessageTime).getTime()) : '' ]]</span>
                                         </div>
                                         <p class="mb-0 text-truncate" :style="{ fontSize: '13px', color: selectedContactId === c.id ? 'rgba(255,255,255,0.8)' : '#707579' }">
-                                            [[ c.isTyping ? 'печатает...' : (c.lastMessage || 'No messages yet') ]]
+                                            [[ c.isTyping ? 'печатает...' : (c.deal_uid && c.deal_status ? getDealStatusText(c.deal_status, c.need_receiver_approve) : (c.lastMessage || 'No messages yet')) ]]
                                         </p>
                                     </div>
                                 </div>
@@ -2216,21 +2261,28 @@ Vue.component('Chat', {
                                     </div>
                                 </div>
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <div 
-                                        v-for="(m, idx) in currentMessages"
-                                        :key="m.uuid"
-                                        :style="{ 
-                                            display: 'flex', 
-                                            width: '100%', 
-                                            justifyContent: m.type === 'service' ? 'center' : (m.sender === 'mine' ? 'flex-end' : 'flex-start'),
-                                            marginTop: (idx > 0 && currentMessages[idx-1].sender === m.sender) ? '2px' : '4px'
-                                        }"
-                                    >
+                                    <div v-for="(m, idx) in currentMessages" :key="m.uuid" style="display: flex; flex-direction: column;">
+                                        <div 
+                                            v-if="idx > 0 && isNewDay(currentMessages[idx-1].timestamp, m.timestamp)"
+                                            style="display: flex; align-items: center; justify-content: center; width: 100%; margin: 12px 0 8px; gap: 12px;"
+                                        >
+                                            <span style="flex: 1; height: 1px; background: #e5e5e5;"></span>
+                                            <span style="font-size: 12px; color: #9ca3af; font-weight: 500; white-space: nowrap;">[[ formatMessageDate(m.timestamp) ]]</span>
+                                            <span style="flex: 1; height: 1px; background: #e5e5e5;"></span>
+                                        </div>
+                                        <div 
+                                            :style="{ 
+                                                display: 'flex', 
+                                                width: '100%', 
+                                                justifyContent: m.type === 'service' ? 'center' : (m.sender === 'mine' ? 'flex-end' : 'flex-start'),
+                                                marginTop: (idx > 0 && !isNewDay(currentMessages[idx-1].timestamp, m.timestamp) && currentMessages[idx-1].sender === m.sender) ? '2px' : '4px'
+                                            }"
+                                        >
                                         <div 
                                             :style="{
-                                                maxWidth: m.type === 'service' ? '70%' : ((m.attachments && m.attachments.length > 0) ? '50%' : '92%'),
-                                                borderRadius: '12px',
-                                                padding: '6px',
+                                                maxWidth: m.type === 'service' ? '88%' : ((m.attachments && m.attachments.length > 0) ? '50%' : '92%'),
+                                                borderRadius: m.type === 'service' ? '8px' : '12px',
+                                                padding: m.type === 'service' ? '2px 10px' : '6px',
                                                 boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
                                                 position: 'relative',
                                                 overflow: 'hidden',
@@ -2239,8 +2291,8 @@ Vue.component('Chat', {
                                                     : (m.sender === 'mine' 
                                                         ? '#effdde' 
                                                         : (m.attachments && m.attachments.length > 0 ? '#e8e8e8' : 'white')),
-                                                borderTopRightRadius: m.type === 'service' ? '12px' : (m.sender === 'mine' ? '4px' : '12px'),
-                                                borderTopLeftRadius: m.type === 'service' ? '12px' : (m.sender === 'mine' ? '12px' : '4px'),
+                                                borderTopRightRadius: m.type === 'service' ? '8px' : (m.sender === 'mine' ? '4px' : '12px'),
+                                                borderTopLeftRadius: m.type === 'service' ? '8px' : (m.sender === 'mine' ? '12px' : '4px'),
                                                 color: m.type === 'service' ? '#92400e' : 'inherit',
                                                 border: m.type === 'service' ? '1px solid #fbbf24' : 'none'
                                             }"
@@ -2388,20 +2440,21 @@ Vue.component('Chat', {
                                             </div>
                                             
                                             <!-- Text and Meta -->
-                                            <div style="padding: 4px 8px; padding-bottom: 20px; position: relative; min-width: 100px;">
+                                            <div :style="{ padding: m.type === 'service' ? '2px 4px 4px' : '4px 8px', paddingBottom: m.type === 'service' ? '4px' : '20px', position: 'relative', minWidth: '100px' }">
                                                 <p v-if="m.text" :style="{
-                                                    fontSize: '15px',
+                                                    fontSize: m.type === 'service' ? '13px' : '15px',
                                                     whiteSpace: 'pre-wrap',
-                                                    lineHeight: '1.4',
+                                                    lineHeight: m.type === 'service' ? '1.35' : '1.4',
                                                     margin: 0,
                                                     paddingRight: m.type === 'service' ? '0' : '50px',
                                                     color: m.type === 'service' ? '#92400e' : '#212121',
                                                     fontWeight: m.type === 'service' ? '500' : 'normal',
                                                     textAlign: m.type === 'service' ? 'center' : 'left'
                                                 }">[[ m.text ]]</p>
-                                                <p v-if="m.type === 'service' && m.txn_hash" style="margin: 6px 0 0; text-align: center;">
-                                                    <a :href="'https://tronscan.org/#/transaction/' + m.txn_hash" target="_blank" rel="noopener noreferrer" style="font-size: 13px; color: #1565c0; font-weight: 500;">Транзакция в TronScan</a>
+                                                <p v-if="m.type === 'service' && m.txn_hash" style="margin: 2px 0 0; text-align: center;">
+                                                    <a :href="'https://tronscan.org/#/transaction/' + m.txn_hash" target="_blank" rel="noopener noreferrer" style="font-size: 12px; color: #1565c0; font-weight: 500;">Транзакция в TronScan</a>
                                                 </p>
+                                                <p v-if="m.type === 'service' && m.timestamp" style="margin: 2px 0 0; text-align: center; font-size: 10px; color: #92400e; opacity: 0.85;">[[ formatTime(m.timestamp) ]]</p>
                                                 
                                                 <!-- Signature (hidden for service messages) -->
                                                 <div v-if="m.type !== 'service' && m.signature && m.signature.startsWith('0x')" 
@@ -2442,6 +2495,7 @@ Vue.component('Chat', {
                                                     </span>
                                                 </div>
                                             </div>
+                                        </div>
                                         </div>
                                     </div>
                                 </div>
@@ -2538,6 +2592,11 @@ Vue.component('Chat', {
                                         <template v-if="(dealInfo.status === 'resolving_sender' || dealInfo.status === 'resolving_receiver') && dealIsArbiter">
                                             <button v-if="!arbiterHasSignedInPayout" @click="openSenderConfirmModal" style="padding: 8px 16px; border: 1px solid #2e7d32; border-radius: 20px; background: #e8f5e9; color: #1b5e20; cursor: pointer; font-size: 13px; font-weight: 500;">Подписать решение</button>
                                             <button @click="setDealStatus('recline_appeal')" style="padding: 8px 16px; border: 1px solid #e57373; border-radius: 20px; background: #ffebee; color: #c62828; cursor: pointer; font-size: 13px; font-weight: 500;">Отправить на пересмотр</button>
+                                            <button @click="setDealStatus('processing')" style="padding: 8px 16px; border: 1px solid #1976d2; border-radius: 20px; background: #e3f2fd; color: #1565c0; cursor: pointer; font-size: 13px; font-weight: 500;">Вернуть в работу</button>
+                                        </template>
+                                        <!-- Арбитр: из финальных статусов (апелляция закончена / успех) — вернуть в апелляцию -->
+                                        <template v-if="(dealInfo.status === 'resolved_sender' || dealInfo.status === 'resolved_receiver' || dealInfo.status === 'success') && dealIsArbiter">
+                                            <button @click="setDealStatus('appeal')" style="padding: 8px 16px; border: 1px solid #b71c1c; border-radius: 20px; background: #ffebee; color: #c62828; cursor: pointer; font-size: 13px; font-weight: 500;">Вернуть в апелляцию</button>
                                         </template>
                                         <button v-if="(dealInfo.status === 'resolving_receiver' && dealIsReceiver) || (dealInfo.status === 'resolving_sender' && dealIsSender)" @click="openSenderConfirmModal" style="padding: 8px 16px; border: 1px solid #2e7d32; border-radius: 20px; background: #e8f5e9; color: #1b5e20; cursor: pointer; font-size: 13px; font-weight: 500;">Подписать и отправить</button>
                                     </div>

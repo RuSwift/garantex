@@ -1247,6 +1247,21 @@
             </main>
         </div>
 
+        <!-- Mobile warning modal -->
+        <div v-if="showMobileWarningModal" class="fixed inset-0 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.6); z-index: 9999;" @click.self="showMobileWarningModal = false">
+            <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl text-center">
+                <p class="text-base text-gray-800 leading-relaxed mb-6">
+                    Текущая версия сервиса пока не подготовлена для мобильных экранов, но мы готовим обновление.
+                </p>
+                <button
+                    @click="showMobileWarningModal = false"
+                    class="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors"
+                >
+                    Понятно
+                </button>
+            </div>
+        </div>
+
         <!-- Deal Conversation Modal -->
         <deal-conversation 
             ref="dealConversation"
@@ -2073,6 +2088,8 @@
                 // DIDDoc Modal
                 showDidDocModal: false,
                 didDocData: null,
+                // Mobile warning (show on mobile viewport)
+                showMobileWarningModal: false,
                 isLoadingDidDoc: false,
                 didDocError: null,
                 didDocOwnerInfo: null,
@@ -2080,6 +2097,9 @@
                 openEscrowTooltip: null
             },
             mounted() {
+                if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
+                    this.showMobileWarningModal = true;
+                }
                 // Проверяем авторизацию при загрузке
                 this.checkAuth();
                 // Загружаем профиль если авторизован

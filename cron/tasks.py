@@ -61,12 +61,15 @@ async def process_processing_deals_batch(
     page_size: int = 20
 ) -> List[Deal]:
     """
-    Получить батч сделок в статусе processing с escrow_id (SELECT FOR UPDATE SKIP LOCKED).
+    Получить батч сделок в статусе processing, resolving_sender или resolving_receiver с escrow_id (SELECT FOR UPDATE SKIP LOCKED).
     Для последующего вызова get_or_build_deal_payout_txn — проверка успеха выплаты в сети и переход в success.
     """
     stmt = (
         select(Deal)
-        .where(Deal.status == "processing", Deal.escrow_id.isnot(None))
+        .where(
+            Deal.status.in_(["processing", "resolving_sender", "resolving_receiver"]),
+            Deal.escrow_id.isnot(None)
+        )
         .order_by(Deal.updated_at)
         .offset(page * page_size)
         .limit(page_size)
