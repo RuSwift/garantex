@@ -13,7 +13,7 @@ import uuid
 
 from fastapi import HTTPException
 
-from db.models import Deal, EscrowModel, WalletUser
+from db.models import Deal, EscrowModel, Storage, WalletUser
 
 # Кеш проверки депозита: deal_uid -> (timestamp, confirmed). TTL 10 сек.
 _deposit_check_cache: Dict[str, Tuple[float, bool]] = {}
@@ -282,30 +282,42 @@ class DealsService:
             deal.updated_at = datetime.now(timezone.utc)
             await self.session.commit()
             await self.session.refresh(deal)
-            # Сервисное сообщение в чат сделки о внесённом депозите со ссылкой на транзакцию
+            # Сервисное сообщение о депозите — только если такого ещё нет (один раз на txn_hash)
             try:
-                sender_user = (
-                    await self.session.execute(select(WalletUser).where(WalletUser.did == deal.sender_did))
-                ).scalar_one_or_none()
-                nickname = sender_user.nickname if sender_user else deal.sender_did
-                service_text = f"{nickname} внёс депозит в эскроу."
-                chat_svc = ChatService(self.session, deal.sender_did)
-                deposit_message = ChatMessageCreate(
-                    uuid=str(uuid.uuid4()),
-                    message_type=MessageType.SERVICE,
-                    sender_id=deal.sender_did,
-                    receiver_id=deal.receiver_did,
-                    deal_uid=deal.uid,
-                    deal_label=deal.label,
-                    text=service_text,
-                    txn_hash=deal.deposit_txn_hash,
+                existing = await self.session.execute(
+                    select(1)
+                    .select_from(Storage)
+                    .where(
+                        Storage.space == "chat",
+                        Storage.deal_uid == deal_uid,
+                        Storage.payload["message_type"].astext == "service",
+                        Storage.payload["txn_hash"].astext == (deal.deposit_txn_hash or ""),
+                    )
+                    .limit(1)
                 )
-                await chat_svc.add_message(deposit_message, deal_uid=deal.uid)
-                await self.session.commit()
+                if existing.scalar() is None:
+                    sender_user = (
+                        await self.session.execute(select(WalletUser).where(WalletUser.did == deal.sender_did))
+                    ).scalar_one_or_none()
+                    nickname = sender_user.nickname if sender_user else deal.sender_did
+                    service_text = f"{nickname} внёс депозит в эскроу."
+                    chat_svc = ChatService(self.session, deal.sender_did)
+                    deposit_message = ChatMessageCreate(
+                        uuid=str(uuid.uuid4()),
+                        message_type=MessageType.SERVICE,
+                        sender_id=deal.sender_did,
+                        receiver_id=deal.receiver_did,
+                        deal_uid=deal.uid,
+                        deal_label=deal.label,
+                        text=service_text,
+                        txn_hash=deal.deposit_txn_hash,
+                    )
+                    await chat_svc.add_message(deposit_message, deal_uid=deal.uid)
+                    await self.session.commit()
             except Exception as e:
                 logger.warning("get_or_build_deal_payout_txn: failed to add deposit service message for deal %s: %s", deal_uid, e)
 
-        if deal.status == "appeal":
+        if deal.status in ("appeal", "wait_arbiter", "recline_appeal"):
             deal.payout_txn = None
             deal.updated_at = datetime.now(timezone.utc)
             await self.session.commit()
@@ -313,9 +325,9 @@ class DealsService:
 
         if deal.status in ("processing", "success"):
             to_did = deal.receiver_did
-        elif deal.status == "resolved_sender":
+        elif deal.status in ("resolving_sender", "resolved_sender"):
             to_did = deal.sender_did
-        elif deal.status == "resolved_receiver":
+        elif deal.status in ("resolving_receiver", "resolved_receiver"):
             to_did = deal.receiver_did
         else:
             deal.payout_txn = None
@@ -438,6 +450,8 @@ class DealsService:
             "contract_type": contract_type,
             "signatures": [],
         }
+        if create_result.get("owner_addresses"):
+            payload["owner_addresses"] = create_result["owner_addresses"]
 
         deal.payout_txn = payload
         deal.updated_at = datetime.now(timezone.utc)
@@ -514,20 +528,141 @@ class DealsService:
     async def set_deal_status(self, deal_uid: str, status: str) -> Optional[Deal]:
         """
         Update deal status and refresh payout_txn to match.
-        Call this whenever deal status is changed so payout_txn stays in sync.
-        If need_receiver_approve is True, the deal is not started and status updates are forbidden.
+        Appeal states and final states: only arbiter can change. Appeal from processing: sender/receiver.
         """
         deal = await self.get_deal(deal_uid)
         if not deal:
             return None
         if deal.need_receiver_approve:
             raise ValueError("Deal not started: receiver approval required")
-        deal.status = status
-        deal.updated_at = datetime.now(timezone.utc)
-        await self.session.commit()
-        await self.session.refresh(deal)
-        await self.refresh_deal_payout_txn(deal_uid)
-        return await self.get_deal(deal_uid)
+        appeal_statuses = ("wait_arbiter", "appeal", "recline_appeal", "resolving_sender", "resolving_receiver")
+        final_statuses = ("success", "resolved_sender", "resolved_receiver")
+        if deal.status in appeal_statuses or deal.status in final_statuses:
+            if self.owner_did != deal.arbiter_did:
+                raise ValueError("В состоянии апелляции или из финального статуса статус может менять только арбитр")
+
+        if status == "appeal":
+            if self.owner_did in (deal.sender_did, deal.receiver_did):
+                if deal.status != "processing":
+                    raise ValueError("Апелляция возможна только при статусе «В работе»")
+                deal.status = "wait_arbiter"
+                deal.payout_txn = None
+                deal.updated_at = datetime.now(timezone.utc)
+                await self.session.commit()
+                try:
+                    filer_user = (
+                        await self.session.execute(select(WalletUser).where(WalletUser.did == self.owner_did))
+                    ).scalar_one_or_none()
+                    nickname = filer_user.nickname if filer_user else self.owner_did
+                    service_text = f"{nickname} подал(а) на апелляцию"
+                    other_did = deal.receiver_did if self.owner_did == deal.sender_did else deal.sender_did
+                    chat_svc = ChatService(self.session, self.owner_did)
+                    service_message = ChatMessageCreate(
+                        uuid=str(uuid.uuid4()),
+                        message_type=MessageType.SERVICE,
+                        sender_id=self.owner_did,
+                        receiver_id=other_did,
+                        deal_uid=deal.uid,
+                        deal_label=deal.label,
+                        text=service_text,
+                    )
+                    await chat_svc.add_message(service_message, deal_uid=deal.uid)
+                    await self.session.commit()
+                except Exception as e:
+                    logger.warning("set_deal_status appeal: failed to add service message for deal %s: %s", deal_uid, e)
+                await self.refresh_deal_payout_txn(deal_uid)
+                return await self.get_deal(deal_uid)
+            elif self.owner_did == deal.arbiter_did:
+                if deal.status not in final_statuses:
+                    raise ValueError("Арбитр может вернуть в appeal только из финального статуса")
+                deal.status = "wait_arbiter"
+                deal.payout_txn = None
+                deal.updated_at = datetime.now(timezone.utc)
+                await self.session.commit()
+                try:
+                    chat_svc = ChatService(self.session, deal.arbiter_did)
+                    service_message = ChatMessageCreate(
+                        uuid=str(uuid.uuid4()),
+                        message_type=MessageType.SERVICE,
+                        sender_id=deal.arbiter_did,
+                        receiver_id=deal.receiver_did,
+                        deal_uid=deal.uid,
+                        deal_label=deal.label,
+                        text="Арбитр вернул сделку на пересмотр",
+                    )
+                    await chat_svc.add_message(service_message, deal_uid=deal.uid)
+                    await self.session.commit()
+                except Exception as e:
+                    logger.warning("set_deal_status appeal arbiter: failed to add service message for deal %s: %s", deal_uid, e)
+                await self.refresh_deal_payout_txn(deal_uid)
+                return await self.get_deal(deal_uid)
+            else:
+                raise ValueError("Only sender, receiver or arbiter can set appeal")
+        elif status in ("resolving_sender", "resolving_receiver"):
+            if deal.status not in ("wait_arbiter", "appeal", "recline_appeal"):
+                raise ValueError("Resolving only from wait_arbiter, appeal or recline_appeal")
+            deal.status = status
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            await self.session.refresh(deal)
+            await self.refresh_deal_payout_txn(deal_uid)
+            return await self.get_deal(deal_uid)
+        elif status == "recline_appeal":
+            if deal.status not in ("resolving_sender", "resolving_receiver"):
+                raise ValueError("Recline only from resolving_sender or resolving_receiver")
+            deal.status = "recline_appeal"
+            deal.payout_txn = None
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            try:
+                chat_svc = ChatService(self.session, deal.arbiter_did)
+                service_message = ChatMessageCreate(
+                    uuid=str(uuid.uuid4()),
+                    message_type=MessageType.SERVICE,
+                    sender_id=deal.arbiter_did,
+                    receiver_id=deal.receiver_did,
+                    deal_uid=deal.uid,
+                    deal_label=deal.label,
+                    text="Арбитр отправил заявку на пересмотр",
+                )
+                await chat_svc.add_message(service_message, deal_uid=deal.uid)
+                await self.session.commit()
+            except Exception as e:
+                logger.warning("set_deal_status recline_appeal: failed to add service message for deal %s: %s", deal_uid, e)
+            await self.refresh_deal_payout_txn(deal_uid)
+            return await self.get_deal(deal_uid)
+        elif status == "processing":
+            if self.owner_did != deal.arbiter_did:
+                raise ValueError("Only arbiter can return deal to processing")
+            if deal.status in appeal_statuses or deal.status in final_statuses:
+                deal.payout_txn = None
+            deal.status = "processing"
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            try:
+                chat_svc = ChatService(self.session, deal.arbiter_did)
+                service_message = ChatMessageCreate(
+                    uuid=str(uuid.uuid4()),
+                    message_type=MessageType.SERVICE,
+                    sender_id=deal.arbiter_did,
+                    receiver_id=deal.receiver_did,
+                    deal_uid=deal.uid,
+                    deal_label=deal.label,
+                    text="Арбитр вернул сделку в работу",
+                )
+                await chat_svc.add_message(service_message, deal_uid=deal.uid)
+                await self.session.commit()
+            except Exception as e:
+                logger.warning("set_deal_status processing: failed to add service message for deal %s: %s", deal_uid, e)
+            await self.refresh_deal_payout_txn(deal_uid)
+            return await self.get_deal(deal_uid)
+        else:
+            deal.status = status
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            await self.session.refresh(deal)
+            await self.refresh_deal_payout_txn(deal_uid)
+            return await self.get_deal(deal_uid)
 
     async def set_deposit_txn_hash(self, deal_uid: str, tx_hash: str) -> Optional[Deal]:
         """Сохранить хеш транзакции депозита. Вызывать только при status=wait_deposit и только отправителем."""
@@ -556,10 +691,10 @@ class DealsService:
             _deposit_check_cache[deal_uid] = (now, False)
             return False
         receipt = info.get("receipt") or {}
-        # Успех: result не FAILED; транзакция в блоке (есть blockNumber или blockTimeStamp)
+        # Успех только при явном result == SUCCESS и транзакции в блоке
         result = receipt.get("result")
         block_ok = (info.get("blockNumber") or info.get("block_timestamp") or info.get("blockTimeStamp") or 0) != 0
-        confirmed = result != "FAILED" and block_ok
+        confirmed = result == "SUCCESS" and block_ok
         _deposit_check_cache[deal_uid] = (now, confirmed)
         return confirmed
 
@@ -594,10 +729,13 @@ class DealsService:
         if not payout or not isinstance(payout, dict):
             return None
 
-        allowed = set(payout.get("participants") or [])
-        arbiter = payout.get("arbiter")
-        if arbiter:
-            allowed.add(arbiter)
+        if payout.get("owner_addresses"):
+            allowed = set(payout["owner_addresses"])
+        else:
+            allowed = set(payout.get("participants") or [])
+            arbiter = payout.get("arbiter")
+            if arbiter:
+                allowed.add(arbiter)
         if signer_address not in allowed:
             logger.warning("add_payout_signature: signer_address %s not in participants/arbiter for deal %s", signer_address, deal_uid)
             return None
@@ -656,29 +794,64 @@ class DealsService:
     def get_payout_signed_tx(self, deal: Deal) -> Optional[Dict[str, Any]]:
         """
         Собрать подписанную транзакцию выплаты для broadcast, если набрано достаточно подписей.
-        Порядок подписей — по participants. Возвращает dict для TronWeb broadcast (raw_data + signature[]).
+        Если есть owner_addresses (2-of-3): нужны любые required подписей из владельцев, порядок по индексу.
+        Иначе (2-of-2): нужны подписи всех participants.
         """
         payout = deal.payout_txn if deal else None
         if not payout or not isinstance(payout, dict):
             return None
-        participants = payout.get("participants") or []
-        required = payout.get("required_signatures") or len(participants)
         sigs = payout.get("signatures") or []
-        if len(sigs) < required:
-            return None
         unsigned = payout.get("unsigned_tx")
         if not unsigned or not isinstance(unsigned, dict):
             return None
         by_addr = {str(s.get("signer_address") or "").strip().lower(): (s.get("signature") or "").strip() for s in sigs}
-        ordered = []
-        for addr in participants:
-            key = str(addr or "").strip().lower()
-            hex_sig = by_addr.get(key)
-            if not hex_sig:
+
+        def norm(hex_sig: str) -> str:
+            s = (hex_sig or "").strip()
+            return s[2:] if s.startswith("0x") else s
+
+        owners = payout.get("owner_addresses")
+        required = payout.get("required_signatures") or 2
+        if owners:
+            # Мультиподпись N-of-M: любые required подписей из owner_addresses, порядок по индексу
+            indexed = []
+            for i, addr in enumerate(owners):
+                key = str(addr or "").strip().lower()
+                hex_sig = by_addr.get(key)
+                if hex_sig:
+                    indexed.append((i, norm(hex_sig)))
+            if len(indexed) < required:
                 return None
-            if hex_sig.startswith("0x"):
-                hex_sig = hex_sig[2:]
-            ordered.append(hex_sig)
+            indexed.sort(key=lambda x: x[0])
+            ordered = [sig for _, sig in indexed][:required]
+        else:
+            # Нет owner_addresses: кворум по конфигу — required из (participants + arbiter) или все participants
+            participants = payout.get("participants") or []
+            arbiter = payout.get("arbiter")
+            if arbiter:
+                owners = list(participants) + [arbiter]
+                required = payout.get("required_signatures") or 2
+                indexed = []
+                for i, addr in enumerate(owners):
+                    key = str(addr or "").strip().lower()
+                    hex_sig = by_addr.get(key)
+                    if hex_sig:
+                        indexed.append((i, norm(hex_sig)))
+                if len(indexed) < required:
+                    return None
+                indexed.sort(key=lambda x: x[0])
+                ordered = [sig for _, sig in indexed][:required]
+            else:
+                required = required if payout.get("required_signatures") is not None else len(participants)
+                if len(sigs) < required:
+                    return None
+                ordered = []
+                for addr in participants:
+                    key = str(addr or "").strip().lower()
+                    hex_sig = by_addr.get(key)
+                    if not hex_sig:
+                        return None
+                    ordered.append(norm(hex_sig))
         return {
             **unsigned,
             "signature": ordered,
@@ -729,52 +902,132 @@ class DealsService:
 
     async def sender_confirm_complete(self, deal_uid: str, payout_tx_hash: Optional[str] = None) -> Optional[Deal]:
         """
-        Подтверждение отправителя: сделка закрывается (status=success), в чат отправляется
-        сервисное сообщение «{nickname} {did} подтвердил и претензий не имеет» (и txn_hash при передаче).
-        Вызывать только от sender_did после успешного broadcast выплаты.
-        Если передан payout_tx_hash, перед закрытием проверяется, что транзакция в сети имеет статус success.
+        Подтверждение после успешного broadcast выплаты. resolved_sender/resolved_receiver выставляются
+        только после проверки финализации tx в сети (_is_payout_tx_success).
+        processing + sender -> success; resolving_sender + sender -> resolved_sender; resolving_receiver + receiver -> resolved_receiver.
         """
         deal = await self.get_deal(deal_uid)
-        if not deal or self.owner_did != deal.sender_did:
+        if not deal:
             return None
         if deal.need_receiver_approve:
             return None
         tx_hash = (payout_tx_hash or "").strip() or None
-        if tx_hash and deal.escrow_id:
+        if deal.status == "processing":
+            if self.owner_did != deal.sender_did:
+                return None
+            if tx_hash and deal.escrow_id:
+                result = await self.session.execute(
+                    select(EscrowModel).where(EscrowModel.id == deal.escrow_id)
+                )
+                escrow = result.scalar_one_or_none()
+                if escrow and escrow.blockchain == "tron":
+                    if not await self._is_payout_tx_success(tx_hash, escrow.network):
+                        logger.warning("sender_confirm_complete: payout tx %s not confirmed for deal %s", tx_hash, deal_uid)
+                        return None
+            try:
+                sender_user = (
+                    await self.session.execute(select(WalletUser).where(WalletUser.did == deal.sender_did))
+                ).scalar_one_or_none()
+                nickname = sender_user.nickname if sender_user else deal.sender_did
+                service_text = f"{nickname} {deal.sender_did} подтвердил и претензий не имеет"
+                chat_svc = ChatService(self.session, deal.sender_did)
+                service_message = ChatMessageCreate(
+                    uuid=str(uuid.uuid4()),
+                    message_type=MessageType.SERVICE,
+                    sender_id=deal.sender_did,
+                    receiver_id=deal.receiver_did,
+                    deal_uid=deal.uid,
+                    deal_label=deal.label,
+                    text=service_text,
+                    txn_hash=tx_hash,
+                )
+                await chat_svc.add_message(service_message, deal_uid=deal.uid)
+            except Exception as e:
+                logger.warning("sender_confirm_complete: failed to add service message for deal %s: %s", deal_uid, e)
+            deal.status = "success"
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            await self.session.refresh(deal)
+            return await self.get_deal(deal_uid)
+        if deal.status == "resolving_sender":
+            if self.owner_did != deal.sender_did:
+                return None
+            if not tx_hash or not deal.escrow_id:
+                return None
             result = await self.session.execute(
                 select(EscrowModel).where(EscrowModel.id == deal.escrow_id)
             )
             escrow = result.scalar_one_or_none()
-            if escrow and escrow.blockchain == "tron":
-                if not await self._is_payout_tx_success(tx_hash, escrow.network):
-                    logger.warning("sender_confirm_complete: payout tx %s not confirmed/success for deal %s", tx_hash, deal_uid)
-                    return None
-        try:
-            sender_user = (
-                await self.session.execute(select(WalletUser).where(WalletUser.did == deal.sender_did))
-            ).scalar_one_or_none()
-            nickname = sender_user.nickname if sender_user else deal.sender_did
-            service_text = f"{nickname} {deal.sender_did} подтвердил и претензий не имеет"
-            chat_svc = ChatService(self.session, deal.sender_did)
-            service_message = ChatMessageCreate(
-                uuid=str(uuid.uuid4()),
-                message_type=MessageType.SERVICE,
-                sender_id=deal.sender_did,
-                receiver_id=deal.receiver_did,
-                deal_uid=deal.uid,
-                deal_label=deal.label,
-                text=service_text,
-                txn_hash=(payout_tx_hash or "").strip() or None,
+            if not escrow or escrow.blockchain != "tron":
+                return None
+            if not await self._is_payout_tx_success(tx_hash, escrow.network):
+                logger.warning("sender_confirm_complete: payout tx %s not confirmed for deal %s", tx_hash, deal_uid)
+                return None
+            try:
+                sender_user = (
+                    await self.session.execute(select(WalletUser).where(WalletUser.did == deal.sender_did))
+                ).scalar_one_or_none()
+                nickname = sender_user.nickname if sender_user else deal.sender_did
+                service_text = f"{nickname} {deal.sender_did} подтвердил и претензий не имеет"
+                chat_svc = ChatService(self.session, deal.sender_did)
+                service_message = ChatMessageCreate(
+                    uuid=str(uuid.uuid4()),
+                    message_type=MessageType.SERVICE,
+                    sender_id=deal.sender_did,
+                    receiver_id=deal.receiver_did,
+                    deal_uid=deal.uid,
+                    deal_label=deal.label,
+                    text=service_text,
+                    txn_hash=tx_hash,
+                )
+                await chat_svc.add_message(service_message, deal_uid=deal.uid)
+            except Exception as e:
+                logger.warning("sender_confirm_complete: failed to add service message for deal %s: %s", deal_uid, e)
+            deal.status = "resolved_sender"
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            await self.session.refresh(deal)
+            return await self.get_deal(deal_uid)
+        if deal.status == "resolving_receiver":
+            if self.owner_did != deal.receiver_did:
+                return None
+            if not tx_hash or not deal.escrow_id:
+                return None
+            result = await self.session.execute(
+                select(EscrowModel).where(EscrowModel.id == deal.escrow_id)
             )
-            await chat_svc.add_message(service_message, deal_uid=deal.uid)
-        except Exception as e:
-            logger.warning("sender_confirm_complete: failed to add service message for deal %s: %s", deal_uid, e)
-        deal.status = "success"
-        deal.updated_at = datetime.now(timezone.utc)
-        await self.session.commit()
-        await self.session.refresh(deal)
-        # Не вызываем refresh_deal_payout_txn — сохраняем payout_txn с обеими подписями
-        return await self.get_deal(deal_uid)
+            escrow = result.scalar_one_or_none()
+            if not escrow or escrow.blockchain != "tron":
+                return None
+            if not await self._is_payout_tx_success(tx_hash, escrow.network):
+                logger.warning("sender_confirm_complete: payout tx %s not confirmed for deal %s", tx_hash, deal_uid)
+                return None
+            try:
+                receiver_user = (
+                    await self.session.execute(select(WalletUser).where(WalletUser.did == deal.receiver_did))
+                ).scalar_one_or_none()
+                nickname = receiver_user.nickname if receiver_user else deal.receiver_did
+                service_text = f"{nickname} {deal.receiver_did} подтвердил получение"
+                chat_svc = ChatService(self.session, deal.receiver_did)
+                service_message = ChatMessageCreate(
+                    uuid=str(uuid.uuid4()),
+                    message_type=MessageType.SERVICE,
+                    sender_id=deal.receiver_did,
+                    receiver_id=deal.sender_did,
+                    deal_uid=deal.uid,
+                    deal_label=deal.label,
+                    text=service_text,
+                    txn_hash=tx_hash,
+                )
+                await chat_svc.add_message(service_message, deal_uid=deal.uid)
+            except Exception as e:
+                logger.warning("sender_confirm_complete: failed to add service message for deal %s: %s", deal_uid, e)
+            deal.status = "resolved_receiver"
+            deal.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            await self.session.refresh(deal)
+            return await self.get_deal(deal_uid)
+        return None
 
     async def update_deal(
         self,

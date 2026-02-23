@@ -493,6 +493,7 @@ class EscrowService:
             "transaction": transaction,
             "unsigned_tx": unsigned_tx,
             "required_signatures": config.required_signatures,
+            "owner_addresses": list(config.owner_addresses),
             "participants": [
                 addr for addr, role in escrow.address_roles.items()
                 if role == "participant"

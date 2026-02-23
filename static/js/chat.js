@@ -65,7 +65,8 @@ Vue.component('Chat', {
             dealErrorMessage: '',
             dealErrorTxHash: '',
             refreshPayoutLoading: false,
-            dealArbiterChoice: '', // '' | 'resolved_sender' | 'resolved_receiver'
+            dealArbiterChoice: '', // '' | 'resolving_sender' | 'resolving_receiver' | 'processing'
+            arbiterApplying: false,
             showSignPayoutModal: false,
             signPayoutAddress: '',
             signPayoutSignature: '',
@@ -125,7 +126,10 @@ Vue.component('Chat', {
             if (s === 'wait_deposit' && !this.dealInfo.need_receiver_approve) return 'Ожидается депозит';
             if (s === 'processing') return 'В работе';
             if (s === 'success') return 'Завершена успешно';
-            if (s === 'appeal') return 'На апелляции';
+            if (s === 'appeal' || s === 'wait_arbiter') return s === 'wait_arbiter' ? 'Ожидание решения арбитра' : 'На апелляции';
+            if (s === 'recline_appeal') return 'Арбитр отправил заявку на пересмотр';
+            if (s === 'resolving_sender') return 'Апелляция: в пользу отправителя (ожидание подписей)';
+            if (s === 'resolving_receiver') return 'Апелляция: в пользу получателя (ожидание подписей)';
             if (s === 'resolved_sender') return 'Аппеляция закончена: В пользу отправителя';
             if (s === 'resolved_receiver') return 'Аппеляция закончена: В пользу получателя';
             return s;
@@ -133,11 +137,14 @@ Vue.component('Chat', {
         dealStatusStyle() {
             if (!this.dealInfo || !this.dealInfo.status) return {};
             var s = this.dealInfo.status;
-            if (s === 'wait_deposit' && !this.dealInfo.need_receiver_approve) return { color: '#1565c0', backgroundColor: '#e3f2fd', borderColor: '#1976d2', showProgress: true };
-            if (s === 'processing') return { color: '#1565c0', backgroundColor: '#e3f2fd', borderColor: '#1976d2', showProgress: true };
-            if (s === 'success') return { color: '#2e7d32', backgroundColor: '#e8f5e9', borderColor: '#43a047', showProgress: false };
-            if (s === 'appeal') return { color: '#b71c1c', backgroundColor: '#ffebee', borderColor: '#c62828', showProgress: false };
-            if (s === 'resolved_sender' || s === 'resolved_receiver') return { color: '#b45309', backgroundColor: '#fef3c7', borderColor: '#d97706', showProgress: false };
+            var progressTrue = { showProgress: true };
+            var progressFalse = { showProgress: false };
+            if (s === 'wait_deposit' && !this.dealInfo.need_receiver_approve) return Object.assign({ color: '#1565c0', backgroundColor: '#e3f2fd', borderColor: '#1976d2' }, progressTrue);
+            if (s === 'processing') return Object.assign({ color: '#1565c0', backgroundColor: '#e3f2fd', borderColor: '#1976d2' }, progressTrue);
+            if (s === 'success') return Object.assign({ color: '#2e7d32', backgroundColor: '#e8f5e9', borderColor: '#43a047' }, progressFalse);
+            if (s === 'appeal' || s === 'wait_arbiter' || s === 'recline_appeal') return Object.assign({ color: '#b71c1c', backgroundColor: '#ffebee', borderColor: '#c62828' }, progressTrue);
+            if (s === 'resolving_sender' || s === 'resolving_receiver') return Object.assign({ color: '#b45309', backgroundColor: '#fef3c7', borderColor: '#d97706' }, progressTrue);
+            if (s === 'resolved_sender' || s === 'resolved_receiver') return Object.assign({ color: '#b45309', backgroundColor: '#fef3c7', borderColor: '#d97706' }, progressFalse);
             return {};
         },
         dealIsSender() {
@@ -190,6 +197,17 @@ Vue.component('Chat', {
         senderWaitingForReceiver() {
             return this.dealIsSender && this.dealInfo && this.dealInfo.status === 'processing' &&
                 this.dealInfo.payout_txn && !this.receiverHasSigned;
+        },
+        /** В resolving_* подпись арбитра уже есть в payout_txn (арбитр подписывает первым) */
+        arbiterHasSignedInPayout() {
+            var pld = this.dealInfo && this.dealInfo.payout_txn;
+            if (!pld || !Array.isArray(pld.signatures)) return false;
+            var arbiterAddr = (pld.arbiter || '').trim().toLowerCase();
+            if (!arbiterAddr) return false;
+            return (pld.signatures || []).some(function(s) {
+                var addr = (s && (s.signer_address || s)).trim().toLowerCase();
+                return addr === arbiterAddr;
+            });
         },
         payoutSignersText() {
             var list = this.payoutSignersList;
@@ -925,11 +943,19 @@ Vue.component('Chat', {
                 this.showDealApiError('Ошибка', e.message || 'Ошибка сети');
             }
         },
-        onArbiterResolutionChange() {
+        async applyArbiterChoice() {
             var v = this.dealArbiterChoice;
-            if (v === 'resolved_sender' || v === 'resolved_receiver') {
-                this.setDealStatus(v);
+            if (!v || (v !== 'resolving_sender' && v !== 'resolving_receiver' && v !== 'processing')) return;
+            this.arbiterApplying = true;
+            try {
+                await this.setDealStatus(v);
                 this.dealArbiterChoice = '';
+                if (v === 'resolving_sender' || v === 'resolving_receiver') {
+                    await this.loadDealInfo();
+                    if (this.dealIsArbiter && !this.arbiterHasSignedInPayout) this.openSenderConfirmModal();
+                }
+            } finally {
+                this.arbiterApplying = false;
             }
         },
         openSignPayoutModal() {
@@ -1151,6 +1177,9 @@ Vue.component('Chat', {
                 this.showDealApiError('Ошибка', 'Нет данных транзакции. Перезагрузите сделку.');
                 return;
             }
+            var st = this.dealInfo.status;
+            var allowed = (st === 'processing' && this.dealIsSender) || (st === 'resolving_sender' && this.dealIsSender) || (st === 'resolving_receiver' && this.dealIsReceiver) || ((st === 'resolving_sender' || st === 'resolving_receiver') && this.dealIsArbiter);
+            if (!allowed) return;
             var signRef = this.$refs.chatTronSign;
             if (!signRef) {
                 this.showDealApiError('Ошибка', 'Компонент подписи недоступен');
@@ -1160,8 +1189,30 @@ Vue.component('Chat', {
             this.senderConfirmSigning = true;
             try {
                 if (!signRef.isConnected) await signRef.connectWallet();
+                var isArbiterSign = (st === 'resolving_sender' || st === 'resolving_receiver') && this.dealIsArbiter;
+                var expectedAddr = isArbiterSign && this.dealInfo.payout_txn && this.dealInfo.payout_txn.arbiter
+                    ? (this.dealInfo.payout_txn.arbiter || '').trim()
+                    : (st === 'resolving_receiver' && this.dealInfo.receiver_address) ? this.dealInfo.receiver_address : (this.dealInfo.sender_address || '').trim() || (this.dealInfo.payout_txn && this.dealInfo.payout_txn.participants && this.dealInfo.payout_txn.participants[0]) || '';
+                var walletAddr = (signRef.walletAddress || '').trim();
+                if (expectedAddr && walletAddr && expectedAddr.toLowerCase() !== walletAddr.toLowerCase()) {
+                    var shortAddr = expectedAddr.length > 12 ? expectedAddr.slice(0, 8) + '\u2026' + expectedAddr.slice(-4) : expectedAddr;
+                    var who = isArbiterSign ? 'арбитра' : (st === 'resolving_receiver' ? 'получателя' : 'отправителя');
+                    this.showDealApiError('Кошелёк', 'Выберите в TronLink кошелёк ' + who + ' (адрес ' + shortAddr + ').');
+                    return;
+                }
                 var unsignedTx = this.dealInfo.payout_txn.unsigned_tx;
                 if (!unsignedTx.visible) unsignedTx = Object.assign({}, unsignedTx, { visible: true });
+                var signaturesSoFar = this.dealInfo.payout_txn.signatures || [];
+                var noSignaturesYet = signaturesSoFar.length === 0;
+                var extendedTx = null;
+                if (noSignaturesYet && isArbiterSign && typeof window.tronWeb !== 'undefined' && window.tronWeb.transactionBuilder && typeof window.tronWeb.transactionBuilder.extendExpiration === 'function') {
+                    try {
+                        extendedTx = await window.tronWeb.transactionBuilder.extendExpiration(unsignedTx, 24 * 3600);
+                        if (extendedTx && extendedTx.txID) unsignedTx = extendedTx;
+                    } catch (extErr) {
+                        console.warn('[confirmSenderConfirm] extendExpiration failed, using original tx:', extErr);
+                    }
+                }
                 var signedTx = await signRef.signTransaction(unsignedTx);
                 var sig = signedTx && signedTx.signature;
                 var cleanSignature = (Array.isArray(sig) && sig.length > 0) ? sig[0] : (typeof sig === 'string' ? sig : '');
@@ -1171,10 +1222,12 @@ Vue.component('Chat', {
                     this.showDealApiError('Ошибка', 'Не удалось получить адрес или подпись');
                     return;
                 }
+                var bodyPayload = { signer_address: signerAddress, signature: cleanSignature };
+                if (noSignaturesYet && extendedTx && extendedTx.txID) bodyPayload.unsigned_tx = extendedTx;
                 var r = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/payout-signature', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                    body: JSON.stringify({ signer_address: signerAddress, signature: cleanSignature })
+                    body: JSON.stringify(bodyPayload)
                 });
                 var data = await r.json().catch(function() { return {}; });
                 if (!r.ok) {
@@ -1182,6 +1235,10 @@ Vue.component('Chat', {
                     return;
                 }
                 if (data.payout_txn && this.dealInfo) this.dealInfo.payout_txn = data.payout_txn;
+                if (isArbiterSign) {
+                    await this.loadDealInfo();
+                    return;
+                }
                 var getSigned = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/payout-signed-tx', {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
@@ -1189,8 +1246,20 @@ Vue.component('Chat', {
                     var signedPayload = await getSigned.json().catch(function() { return {}; });
                     var combined = signedPayload.signed_tx;
                     if (combined && window.tronWeb && window.tronWeb.trx && typeof window.tronWeb.trx.sendRawTransaction === 'function') {
-                        await window.tronWeb.trx.sendRawTransaction(combined);
-                        var payoutTxId = combined.txID || combined.txId || null;
+                        var broadcastResult = null;
+                        try {
+                            broadcastResult = await window.tronWeb.trx.sendRawTransaction(combined);
+                        } catch (broadcastErr) {
+                            this.showDealApiError('Отправка в сеть', (broadcastErr && broadcastErr.message) ? broadcastErr.message : 'Ошибка сети');
+                            return;
+                        }
+                        var isBroadcastFail = broadcastResult && (broadcastResult.result === false || broadcastResult.success === false);
+                        if (isBroadcastFail) {
+                            var errMsg = (broadcastResult && (broadcastResult.message || broadcastResult.msg)) ? String(broadcastResult.message || broadcastResult.msg) : 'Нода отклонила транзакцию';
+                            this.showDealApiError('Отправка в сеть', errMsg);
+                            return;
+                        }
+                        var payoutTxId = (broadcastResult && (broadcastResult.txid || broadcastResult.transaction && broadcastResult.transaction.txID)) || combined.txID || combined.txId || null;
                         var completeRes = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/sender-confirm-complete', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
@@ -1206,7 +1275,17 @@ Vue.component('Chat', {
                         this.showDealApiError('Ошибка', 'Транзакция не отправлена в сеть');
                     }
                 } else {
-                    this.showDealApiError('Подтверждение', 'Получатель ещё не подписал. Дождитесь подписи получателя, затем нажмите «Подтверждаю» снова.');
+                    await this.loadDealInfo();
+                    var errBody = await getSigned.json().catch(function() { return {}; });
+                    var msg = errBody.detail && String(errBody.detail).trim()
+                        ? String(errBody.detail).trim()
+                        : (function() {
+                            var senderAddrForMsg = (this.dealInfo && this.dealInfo.sender_address) ? this.dealInfo.sender_address : (this.dealInfo && this.dealInfo.payout_txn && this.dealInfo.payout_txn.participants && this.dealInfo.payout_txn.participants[0]) ? this.dealInfo.payout_txn.participants[0] : '';
+                            return senderAddrForMsg
+                                ? 'Не удалось собрать транзакцию. Убедитесь, что в TronLink выбран кошелёк отправителя (адрес ' + (senderAddrForMsg.length > 12 ? senderAddrForMsg.slice(0, 8) + '\u2026' + senderAddrForMsg.slice(-4) : senderAddrForMsg) + ') и нажмите «Подтверждаю» снова.'
+                                : 'Получатель ещё не подписал. Дождитесь подписи получателя, затем нажмите «Подтверждаю» снова.';
+                        }.call(this));
+                    this.showDealApiError('Подтверждение', msg);
                 }
             } catch (e) {
                 this.showDealApiError('Ошибка', e.message || 'Ошибка сети');
@@ -2443,14 +2522,24 @@ Vue.component('Chat', {
                                             <button v-if="dealIsReceiver" @click="confirmReceiptAndSign" :disabled="confirmReceiptSigning || receiverAlreadySigned" style="padding: 8px 16px; border: 1px solid #e5e5e5; border-radius: 20px; background: white; color: #4082bc; cursor: pointer; font-size: 13px; font-weight: 500;">[[ receiverAlreadySigned ? 'Вы поставили подпись, ожидаем контрагента' : (confirmReceiptSigning ? 'Ожидание подписи…' : 'Условия сделки выполнил') ]]</button>
                                             <button v-if="dealIsSender || dealIsReceiver" @click="openAppealConfirmModal" style="padding: 8px 16px; border: 1px solid #e57373; border-radius: 20px; background: #ffebee; color: #c62828; cursor: pointer; font-size: 13px; font-weight: 500;">Подать на апелляцию</button>
                                         </template>
-                                        <template v-if="dealInfo.status === 'appeal' && dealIsArbiter">
-                                            <select v-model="dealArbiterChoice" @change="onArbiterResolutionChange" style="padding: 8px 12px; border: 1px solid #e5e5e5; border-radius: 8px; font-size: 13px;">
+                                        <template v-if="(dealInfo.status === 'wait_arbiter' || dealInfo.status === 'recline_appeal' || dealInfo.status === 'appeal') && dealIsArbiter">
+                                            <select v-model="dealArbiterChoice" :disabled="arbiterApplying" style="padding: 8px 12px; border: 1px solid #e5e5e5; border-radius: 8px; font-size: 13px;">
                                                 <option value="">В чью пользу принять апелляцию</option>
-                                                <option value="resolved_sender">В пользу отправителя</option>
-                                                <option value="resolved_receiver">В пользу получателя</option>
+                                                <option value="resolving_sender">В пользу отправителя</option>
+                                                <option value="resolving_receiver">В пользу получателя</option>
+                                                <option value="processing">Вернуть в работу</option>
                                             </select>
+                                            <button v-if="!arbiterApplying" @click="applyArbiterChoice" :disabled="!dealArbiterChoice" style="padding: 8px 16px; border: 1px solid #1976d2; border-radius: 20px; background: #e3f2fd; color: #1565c0; cursor: pointer; font-size: 13px; font-weight: 500;">Применить</button>
+                                            <span v-else class="inline-flex items-center gap-2" style="padding: 8px 12px;">
+                                                <span class="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent inline-block"></span>
+                                                <span style="font-size: 13px; color: #666;">Применяем…</span>
+                                            </span>
                                         </template>
-                                        <button v-if="(dealInfo.status === 'resolved_receiver' && dealIsReceiver) || (dealInfo.status === 'resolved_sender' && dealIsSender)" @click="openSignPayoutModal" style="padding: 8px 16px; border: 1px solid #2e7d32; border-radius: 20px; background: #e8f5e9; color: #1b5e20; cursor: pointer; font-size: 13px; font-weight: 500;">Подписать перевод</button>
+                                        <template v-if="(dealInfo.status === 'resolving_sender' || dealInfo.status === 'resolving_receiver') && dealIsArbiter">
+                                            <button v-if="!arbiterHasSignedInPayout" @click="openSenderConfirmModal" style="padding: 8px 16px; border: 1px solid #2e7d32; border-radius: 20px; background: #e8f5e9; color: #1b5e20; cursor: pointer; font-size: 13px; font-weight: 500;">Подписать решение</button>
+                                            <button @click="setDealStatus('recline_appeal')" style="padding: 8px 16px; border: 1px solid #e57373; border-radius: 20px; background: #ffebee; color: #c62828; cursor: pointer; font-size: 13px; font-weight: 500;">Отправить на пересмотр</button>
+                                        </template>
+                                        <button v-if="(dealInfo.status === 'resolving_receiver' && dealIsReceiver) || (dealInfo.status === 'resolving_sender' && dealIsSender)" @click="openSenderConfirmModal" style="padding: 8px 16px; border: 1px solid #2e7d32; border-radius: 20px; background: #e8f5e9; color: #1b5e20; cursor: pointer; font-size: 13px; font-weight: 500;">Подписать и отправить</button>
                                     </div>
                                 </div>
                             </div>
@@ -2671,16 +2760,19 @@ Vue.component('Chat', {
         </div>
         <div v-if="showSenderConfirmModal" style="position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10002;">
             <modal-window :width="'440px'" :height="'auto'" @close="closeSenderConfirmModal">
-                <template #header>Подтверждаю</template>
+                <template #header>[[ (dealInfo && (dealInfo.status === 'resolving_sender' || dealInfo.status === 'resolving_receiver') && dealIsArbiter) ? 'Подписать решение по апелляции' : 'Подтверждаю' ]]</template>
                 <template #body>
                 <div style="padding: 12px 16px;">
-                    <div style="padding: 12px 14px; margin-bottom: 12px; background: #e3f2fd; border: 1px solid #1976d2; border-radius: 8px; color: #0d47a1;">
+                    <div v-if="dealInfo && (dealInfo.status === 'resolving_sender' || dealInfo.status === 'resolving_receiver') && dealIsArbiter" style="padding: 12px 14px; margin-bottom: 12px; background: #fef3c7; border: 1px solid #d97706; border-radius: 8px; color: #92400e;">
+                        <p style="margin: 0; font-size: 14px; line-height: 1.45;">Ваша подпись подтверждает решение по апелляции. После этого отправитель и получатель подпишут выплату.</p>
+                    </div>
+                    <div v-else style="padding: 12px 14px; margin-bottom: 12px; background: #e3f2fd; border: 1px solid #1976d2; border-radius: 8px; color: #0d47a1;">
                         <p style="margin: 0; font-size: 14px; line-height: 1.45;">Если вы подпишете транзакцию, средства с эскроу-счёта будут переведены получателю. Претензий не имею.</p>
                     </div>
-                    <p style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #212121;">Подписать и отправить транзакцию в сеть?</p>
+                    <p style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #212121;">[[ (dealInfo && (dealInfo.status === 'resolving_sender' || dealInfo.status === 'resolving_receiver') && dealIsArbiter) ? 'Подписать решение?' : 'Подписать и отправить транзакцию в сеть?' ]]</p>
                     <div style="display: flex; gap: 8px; justify-content: flex-end;">
                         <button @click="closeSenderConfirmModal" :disabled="senderConfirmSigning" style="padding: 8px 16px; cursor: pointer; border: 1px solid #e5e5e5; border-radius: 8px; background: #f5f5f5;">Отмена</button>
-                        <button @click="confirmSenderConfirm" :disabled="senderConfirmSigning" style="padding: 8px 16px; cursor: pointer; border: 1px solid #1976d2; border-radius: 8px; background: #e3f2fd; color: #1565c0; font-weight: 500;">[[ senderConfirmSigning ? 'Подпись…' : 'Подписать и отправить' ]]</button>
+                        <button @click="confirmSenderConfirm" :disabled="senderConfirmSigning" style="padding: 8px 16px; cursor: pointer; border: 1px solid #1976d2; border-radius: 8px; background: #e3f2fd; color: #1565c0; font-weight: 500;">[[ senderConfirmSigning ? 'Подпись…' : ((dealInfo && (dealInfo.status === 'resolving_sender' || dealInfo.status === 'resolving_receiver') && dealIsArbiter) ? 'Подписать решение' : 'Подписать и отправить') ]]</button>
                     </div>
                 </div>
             </template>

@@ -11060,21 +11060,31 @@ Vue.component('Deals', {
                 return request.need_receiver_approve ? 'Ожидает подтверждения' : 'В работе';
             }
             if (status === 'success') return 'Завершена';
-            if (status === 'appeal') return 'Апелляция';
+            if (status === 'appeal') return 'На апелляции';
+            if (status === 'wait_arbiter') return 'Ожидание решения арбитра';
+            if (status === 'recline_appeal') return 'Арбитр отправил заявку на пересмотр';
+            if (status === 'resolving_sender') return 'Апелляция: в пользу отправителя';
+            if (status === 'resolving_receiver') return 'Апелляция: в пользу получателя';
             if (status === 'resolved_sender') return 'Аппеляция закончена: В пользу отправителя';
             if (status === 'resolved_receiver') return 'Аппеляция закончена: В пользу получателя';
             if (request.need_receiver_approve) return 'Ожидает подтверждения';
-            return 'Подтверждено';
+            return status || 'Подтверждено';
         },
         getStatusClass(request) {
             const status = request.status;
             if (status === 'wait_deposit' && !request.need_receiver_approve) return 'bg-blue-100 text-blue-700';
             if (status === 'processing') return request.need_receiver_approve ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-700';
             if (status === 'success') return 'bg-green-100 text-green-800';
-            if (status === 'appeal') return 'bg-red-100 text-red-700';
-            if (status === 'resolved_sender' || status === 'resolved_receiver') return 'bg-yellow-100 text-yellow-800';
+            if (status === 'appeal' || status === 'wait_arbiter' || status === 'recline_appeal') return 'bg-red-100 text-red-700';
+            if (status === 'resolving_sender' || status === 'resolving_receiver') return 'bg-amber-100 text-amber-800';
+            if (status === 'resolved_sender' || status === 'resolved_receiver') return 'bg-amber-100 text-amber-800';
             if (request.need_receiver_approve) return 'bg-yellow-100 text-yellow-800';
             return 'bg-green-100 text-green-700';
+        },
+        /** Финальные статусы — без progress-circle в таблице */
+        isDealStatusFinal(request) {
+            const s = request && request.status;
+            return s === 'success' || s === 'resolved_sender' || s === 'resolved_receiver';
         },
         /** Обратный отсчёт до истечения payout_txn в формате чч:мм:сс; null если таймер не нужен */
         getPayoutCountdown(request) {
@@ -11122,6 +11132,12 @@ Vue.component('Deals', {
             // Генерирует URL для TronScan по адресу
             if (!address) return '#';
             return `https://tronscan.org/#/address/${address}`;
+        },
+        /** txID выплаты из payout_txn для ссылки в TronScan */
+        getPayoutTxId(request) {
+            var p = request && request.payout_txn;
+            if (!p || !p.unsigned_tx) return null;
+            return p.unsigned_tx.txID || p.unsigned_tx.tx_id || null;
         },
         getTronScanPermissionsUrl(address) {
             // Генерирует URL для TronScan permissions по адресу
@@ -11387,7 +11403,7 @@ Vue.component('Deals', {
                             <td class="px-4 py-4">
                                 <div class="flex flex-col gap-2">
                                     <span :class="['px-3 py-1 rounded-full text-xs font-bold uppercase whitespace-nowrap inline-flex items-center gap-2', getStatusClass(request)]">
-                                        <span v-if="request.status === 'processing' || (request.status === 'wait_deposit' && !request.need_receiver_approve) || request.need_receiver_approve" class="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent flex-shrink-0"></span>
+                                        <span v-if="!isDealStatusFinal(request)" class="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent flex-shrink-0"></span>
                                         [[ getStatusText(request) ]]
                                     </span>
                                     <!-- Escrow Status with Progress Circle if pending -->
@@ -11415,6 +11431,22 @@ Vue.component('Deals', {
                                             :title="request.escrow_address"
                                         >
                                             [[ request.escrow_address.substring(0, 8) + '...' + request.escrow_address.substring(request.escrow_address.length - 6) ]]
+                                            <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                            </svg>
+                                        </a>
+                                    </div>
+                                    <!-- Payout transaction (TronScan) -->
+                                    <div v-if="getPayoutTxId(request)" class="px-3 py-1 bg-gray-50 rounded-lg">
+                                        <span class="text-xs text-gray-600 font-semibold mr-1">Выплата:</span>
+                                        <a 
+                                            :href="'https://tronscan.org/#/transaction/' + getPayoutTxId(request)"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="text-xs font-mono text-blue-600 hover:text-blue-800 underline flex items-center gap-1 inline-flex"
+                                            :title="getPayoutTxId(request)"
+                                        >
+                                            [[ getPayoutTxId(request).substring(0, 8) + '...' + getPayoutTxId(request).substring(getPayoutTxId(request).length - 6) ]]
                                             <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
                                             </svg>

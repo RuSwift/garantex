@@ -429,8 +429,8 @@
                                 <span v-if="userProfile && userProfile.nickname" class="text-sm font-semibold text-gray-900">[[ userProfile.nickname ]]</span>
                                 <span v-if="userProfile && userProfile.did" class="text-xs text-muted">[[ userProfile.did ]]</span>
                             </div>
-                            <!-- Balance -->
-                            <div class="flex flex-col items-end">
+                            <!-- Balance (показываем только после загрузки профиля) -->
+                            <div v-if="userProfile" class="flex flex-col items-end">
                                 <span class="text-xs text-gray-400 font-bold uppercase tracking-tighter">Ваш баланс</span>
                                 <span class="font-bold text-gray-900">[[ balance ]] <span class="text-blue-500">USDT</span></span>
                             </div>
@@ -2162,6 +2162,8 @@
                     this.walletAddress = '';
                     
                     console.log('Logout complete');
+                    // Перезагрузка страницы, чтобы при следующем входе не было устаревшего состояния (токен, чат)
+                    window.location.reload();
                 },
                 shortenAddress(address) {
                     if (!address) return '';

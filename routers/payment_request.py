@@ -66,7 +66,7 @@ class PayoutSignatureRequest(BaseModel):
 
 class DealStatusUpdateRequest(BaseModel):
     """Request для смены статуса сделки"""
-    status: str = Field(..., description="Статус: success, appeal, resolved_sender, resolved_receiver")
+    status: str = Field(..., description="Статус: success, appeal, resolving_sender, resolving_receiver, recline_appeal, processing")
 
 
 class DepositTxnRequest(BaseModel):
@@ -637,10 +637,11 @@ async def update_deal_status(
     db: DbDepends = None,
 ):
     """
-    Сменить статус сделки. Правила: success — только receiver; appeal — sender или receiver;
-    resolved_sender / resolved_receiver — только arbiter.
+    Сменить статус сделки. appeal — sender/receiver из processing или арбитр из финальных;
+    resolving_sender/resolving_receiver, recline_appeal, processing — только арбитр.
+    resolved_sender/resolved_receiver выставляются только через confirm-complete.
     """
-    ALLOWED = {"success", "appeal", "resolved_sender", "resolved_receiver"}
+    ALLOWED = {"success", "appeal", "resolving_sender", "resolving_receiver", "recline_appeal", "processing"}
     if body.status not in ALLOWED:
         raise HTTPException(status_code=400, detail=f"Invalid status. Allowed: {ALLOWED}")
     deal = await deals_service.get_deal(deal_uid)
@@ -649,15 +650,41 @@ async def update_deal_status(
     if deal.need_receiver_approve:
         raise HTTPException(status_code=403, detail="Deal not started: receiver approval required")
     owner_did = deals_service.owner_did
+    # Из аппеляционных статусов только арбитр может менять
+    if deal.status in ("wait_arbiter", "appeal", "recline_appeal", "resolving_sender", "resolving_receiver"):
+        if owner_did != deal.arbiter_did:
+            raise HTTPException(status_code=403, detail="В состоянии апелляции статус может менять только арбитр")
+    # Из финальных статусов только арбитр может менять (в appeal или processing)
+    if deal.status in ("success", "resolved_sender", "resolved_receiver"):
+        if owner_did != deal.arbiter_did:
+            raise HTTPException(status_code=403, detail="Из финального статуса только арбитр может вернуть сделку")
+        if body.status not in ("appeal", "processing"):
+            raise HTTPException(status_code=403, detail="Из финального статуса разрешены только appeal или processing")
     if body.status == "success":
         if owner_did != deal.receiver_did:
             raise HTTPException(status_code=403, detail="Only receiver can set status to success")
     elif body.status == "appeal":
-        if owner_did not in (deal.sender_did, deal.receiver_did):
-            raise HTTPException(status_code=403, detail="Only sender or receiver can file appeal")
-    elif body.status in ("resolved_sender", "resolved_receiver"):
+        if deal.status == "processing":
+            if owner_did not in (deal.sender_did, deal.receiver_did):
+                raise HTTPException(status_code=403, detail="Only sender or receiver can file appeal")
+        elif deal.status in ("success", "resolved_sender", "resolved_receiver"):
+            if owner_did != deal.arbiter_did:
+                raise HTTPException(status_code=403, detail="Only arbiter can return deal to appeal from final status")
+        else:
+            raise HTTPException(status_code=403, detail="Appeal only from processing or final status (arbiter)")
+    elif body.status in ("resolving_sender", "resolving_receiver"):
         if owner_did != deal.arbiter_did:
             raise HTTPException(status_code=403, detail="Only arbiter can resolve appeal")
+        if deal.status not in ("wait_arbiter", "appeal", "recline_appeal"):
+            raise HTTPException(status_code=403, detail="Resolving only from wait_arbiter, appeal or recline_appeal")
+    elif body.status == "recline_appeal":
+        if owner_did != deal.arbiter_did:
+            raise HTTPException(status_code=403, detail="Only arbiter can recline appeal")
+        if deal.status not in ("resolving_sender", "resolving_receiver"):
+            raise HTTPException(status_code=403, detail="Recline only from resolving_sender or resolving_receiver")
+    elif body.status == "processing":
+        if owner_did != deal.arbiter_did:
+            raise HTTPException(status_code=403, detail="Only arbiter can return deal to processing")
     try:
         updated = await deals_service.set_deal_status(deal_uid, body.status)
     except ValueError as e:
@@ -715,10 +742,28 @@ async def get_payout_signed_tx(
         raise HTTPException(status_code=403, detail="Not a participant")
     signed_tx = deals_service.get_payout_signed_tx(deal)
     if not signed_tx:
-        raise HTTPException(
-            status_code=400,
-            detail="Not enough signatures or no payout transaction",
-        )
+        detail = "Not enough signatures or no payout transaction"
+        payout = deal.payout_txn if deal else None
+        if payout and isinstance(payout, dict):
+            sigs = payout.get("signatures") or []
+            by_addr = {str(s.get("signer_address") or "").strip().lower() for s in sigs}
+            # Список подписантов: owner_addresses или participants + arbiter (конфиг мультиподписи)
+            owners = payout.get("owner_addresses")
+            if not owners:
+                participants = payout.get("participants") or []
+                arbiter = payout.get("arbiter")
+                owners = list(participants) + ([arbiter] if arbiter else [])
+            required = payout.get("required_signatures") or 2
+            missing = [a for a in owners if str(a or "").strip().lower() not in by_addr]
+            signed_count = len(owners) - len(missing)
+            # Ошибку только если кворум не набран
+            if signed_count < required:
+                if missing:
+                    short = [a[:8] + "…" + a[-4:] if len(a) > 12 else a for a in missing]
+                    detail = f"Need {required} of {len(owners)} signatures. Missing: " + ", ".join(short)
+                else:
+                    detail = f"Need {required} of {len(owners)} signatures."
+        raise HTTPException(status_code=400, detail=detail)
     return {"signed_tx": signed_tx}
 
 
@@ -752,8 +797,8 @@ async def sender_confirm_complete(
     deals_service: DealsService = Depends(get_deals_service),
 ):
     """
-    Подтверждение отправителя после broadcast выплаты: статус сделки — success,
-    в чат отправляется сервисное сообщение (с хешем транзакции при передаче tx_hash). Только отправитель.
+    Подтверждение после broadcast выплаты: processing+sender -> success; resolving_sender+sender -> resolved_sender;
+    resolving_receiver+receiver -> resolved_receiver. tx_hash обязателен для resolving_*; проверяется финализация в сети.
     """
     tx_hash = (body and body.tx_hash and body.tx_hash.strip()) or None
     try:

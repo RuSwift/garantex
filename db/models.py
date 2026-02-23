@@ -355,14 +355,14 @@ class Deal(Base):
     # Need receiver approval flag
     need_receiver_approve = Column(Boolean, nullable=False, server_default='false', default=False, comment="Требуется ли одобрение получателя")
     
-    # Deal status: wait_deposit, processing, success, appeal, resolved_sender, resolved_receiver
+    # Deal status: wait_deposit, processing, success, appeal, wait_arbiter, recline_appeal, resolving_sender, resolving_receiver, resolved_sender, resolved_receiver
     status = Column(
         String(50),
         nullable=False,
         server_default='wait_deposit',
         default='wait_deposit',
         index=True,
-        comment="Статус сделки: wait_deposit, processing, success, appeal, resolved_sender, resolved_receiver"
+        comment="Статус сделки: wait_deposit, processing, success, appeal, wait_arbiter, recline_appeal, resolving_sender, resolving_receiver, resolved_sender, resolved_receiver"
     )
     
     # Offline payout transaction (JSONB): unsigned_tx, contract_data, signatures, etc.; null when appeal or no escrow
