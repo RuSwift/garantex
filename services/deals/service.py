@@ -365,6 +365,61 @@ class DealsService:
 
         token_contract = requisites.get("token_contract") or USDT_CONTRACT_MAINNET
 
+        # Если сделка в processing/resolving_* и payout_txn старше 24h — очистить и отправить сервисное сообщение
+        if deal.status in ("processing", "resolving_sender", "resolving_receiver"):
+            existing_payout = deal.payout_txn
+            if existing_payout and isinstance(existing_payout, dict):
+                raw = (existing_payout.get("unsigned_tx") or {}).get("raw_data") or {}
+                ref_ts = raw.get("ref_block_timestamp") or raw.get("refBlockTimestamp")
+                expiration = raw.get("expiration")
+                now_ms = int(time.time() * 1000)
+                if ref_ts is not None and ref_ts < 1e12:
+                    ref_ts = int(ref_ts) * 1000
+                if expiration is not None and expiration < 1e12:
+                    expiration = int(expiration) * 1000
+                expired = False
+                if ref_ts is not None and (now_ms - ref_ts) > 24 * 3600 * 1000:
+                    expired = True
+                if expiration is not None and expiration < now_ms:
+                    expired = True
+                if expired:
+                    deal.payout_txn = None
+                    deal.updated_at = datetime.now(timezone.utc)
+                    await self.session.commit()
+                    await self.session.refresh(deal)
+                    PAYOUT_EXPIRED_24H_TEXT = "Прошло 24 часа. Необходимо переподписать транзакцию."
+                    try:
+                        existing_msg = await self.session.execute(
+                            select(1)
+                            .select_from(Storage)
+                            .where(
+                                Storage.space == "chat",
+                                Storage.deal_uid == deal_uid,
+                                Storage.payload["message_type"].astext == "service",
+                                Storage.payload["text"].astext == PAYOUT_EXPIRED_24H_TEXT,
+                            )
+                            .limit(1)
+                        )
+                        if existing_msg.scalar() is None:
+                            chat_svc = ChatService(self.session, deal.sender_did)
+                            service_message = ChatMessageCreate(
+                                uuid=str(uuid.uuid4()),
+                                message_type=MessageType.SERVICE,
+                                sender_id=deal.sender_did,
+                                receiver_id=deal.receiver_did,
+                                deal_uid=deal.uid,
+                                deal_label=deal.label,
+                                text=PAYOUT_EXPIRED_24H_TEXT,
+                            )
+                            await chat_svc.add_message(service_message, deal_uid=deal.uid)
+                            await self.session.commit()
+                    except Exception as e:
+                        logger.warning(
+                            "get_or_build_deal_payout_txn: failed to add 24h expiry service message for deal %s: %s",
+                            deal_uid,
+                            e,
+                        )
+
         # Reuse existing payload if it matches current status (to_address, amount, token) — no TronAPI call
         existing = deal.payout_txn
         if existing and isinstance(existing, dict):
