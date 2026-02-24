@@ -1,46 +1,57 @@
-pragma solidity 0.5.10;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
 
 /*
-    Минимальный интерфейс TRC20 токена.
+    Minimal TRC20 / ERC20 interface
 */
-interface ITRC20 {
-    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+interface IToken {
+    function transferFrom(address from, address to, uint256 value) external returns (bool);
 }
 
 /*
-    SafeMath для защиты от переполнения (Solidity 0.5).
+    ReentrancyGuard (lightweight)
 */
-library SafeMath {
-    function add(uint256 a, uint256 b) internal pure returns (uint256) {
-        uint256 c = a + b;
-        require(c >= a, "Overflow");
-        return c;
+abstract contract ReentrancyGuard {
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+
+    uint256 private _status = _NOT_ENTERED;
+
+    modifier nonReentrant() {
+        require(_status != _ENTERED, "Reentrancy");
+        _status = _ENTERED;
+        _;
+        _status = _NOT_ENTERED;
     }
 }
 
 /*
-    PayoutAndFeesExecutor
-
-    Атомарная выплата: основная сумма + комиссии в одной транзакции.
-    Транзакция отправляется от имени эскроу (msg.sender); 2/3 подписей
-    собираются offchain (TRON multisig), затем одна подписанная транзакция
-    broadcast. Контракт выполняет:
-      1) transferFrom(msg.sender, mainRecipient, mainAmount)
-      2) цикл transferFrom(msg.sender, feeRecipients[i], feeAmounts[i])
-
-    Свойства:
-    - Атомарность: при ошибке любого transferFrom всё откатывается
-    - Replay защита через nonce
-    - Ограничение размера батча комиссий (maxBatchSize)
-    - Эскроу должен заранее approve(this, mainAmount + sum(feeAmounts))
+    Production-grade PayoutAndFeesExecutor
 */
-contract PayoutAndFeesExecutor {
+contract PayoutAndFeesExecutor is ReentrancyGuard {
 
-    using SafeMath for uint256;
+    // ================================
+    // Errors (gas efficient)
+    // ================================
+
+    error ZeroAddress();
+    error ZeroAmount();
+    error BadNonce();
+    error FeeLengthMismatch();
+    error TooManyFees();
+    error TransferFailed();
+    error NotContract();
+
+    // ================================
+    // Storage
+    // ================================
 
     mapping(address => uint256) public nonces;
-
     uint256 public maxBatchSize = 10;
+
+    // ================================
+    // Events
+    // ================================
 
     event PayoutAndFeesExecuted(
         address indexed fromAddress,
@@ -51,19 +62,23 @@ contract PayoutAndFeesExecutor {
         uint256 totalFeesAmount
     );
 
-    /*
-        executePayoutAndFees
+    event MaxBatchSizeUpdated(uint256 newSize);
 
-        Вызывается транзакцией от эскроу (owner_address = escrow).
-        msg.sender = эскроу, с него списываются токены.
+    // ================================
+    // Admin (optional)
+    // ================================
 
-        token          — адрес TRC20 (например USDT)
-        nonce          — текущий nonce эскроу (читается с контракта перед сборкой tx)
-        mainRecipient  — получатель основной суммы
-        mainAmount     — основная сумма (наименьшие единицы)
-        feeRecipients  — массив получателей комиссий
-        feeAmounts     — массив сумм комиссий
-    */
+    function setMaxBatchSize(uint256 newSize) external {
+        // optionally restrict via Ownable if required
+        require(newSize > 0 && newSize <= 50, "Invalid size");
+        maxBatchSize = newSize;
+        emit MaxBatchSizeUpdated(newSize);
+    }
+
+    // ================================
+    // Main Function
+    // ================================
+
     function executePayoutAndFees(
         address token,
         uint256 nonce,
@@ -71,38 +86,36 @@ contract PayoutAndFeesExecutor {
         uint256 mainAmount,
         address[] calldata feeRecipients,
         uint256[] calldata feeAmounts
-    ) external {
-        require(token != address(0), "Zero token");
-        require(mainRecipient != address(0), "Zero main recipient");
-        require(mainAmount > 0, "Zero main amount");
-        require(nonces[msg.sender] == nonce, "Bad nonce");
+    ) external nonReentrant {
 
-        require(
-            feeRecipients.length == feeAmounts.length,
-            "Fee length mismatch"
-        );
-        require(
-            feeRecipients.length <= maxBatchSize,
-            "Too many fees"
-        );
+        if (token == address(0) || mainRecipient == address(0)) revert ZeroAddress();
+        if (mainAmount == 0) revert ZeroAmount();
+        if (nonces[msg.sender] != nonce) revert BadNonce();
+        if (feeRecipients.length != feeAmounts.length) revert FeeLengthMismatch();
+        if (feeRecipients.length > maxBatchSize) revert TooManyFees();
+        if (!_isContract(token)) revert NotContract();
 
-        nonces[msg.sender] = nonce + 1;
+        nonces[msg.sender]++;
 
-        ITRC20 t = ITRC20(token);
+        uint256 totalFees;
 
-        require(
-            t.transferFrom(msg.sender, mainRecipient, mainAmount),
-            "Main transfer failed"
-        );
+        // Main transfer
+        _safeTransferFrom(token, msg.sender, mainRecipient, mainAmount);
 
-        uint256 totalFees = 0;
-        for (uint256 i = 0; i < feeRecipients.length; i++) {
-            require(feeRecipients[i] != address(0), "Zero fee recipient");
-            totalFees = totalFees.add(feeAmounts[i]);
-            require(
-                t.transferFrom(msg.sender, feeRecipients[i], feeAmounts[i]),
-                "Fee transfer failed"
-            );
+        // Fee transfers
+        for (uint256 i = 0; i < feeRecipients.length; ) {
+
+            address recipient = feeRecipients[i];
+            uint256 amount = feeAmounts[i];
+
+            if (recipient == address(0)) revert ZeroAddress();
+            if (amount == 0) revert ZeroAmount();
+
+            totalFees += amount;
+
+            _safeTransferFrom(token, msg.sender, recipient, amount);
+
+            unchecked { ++i; }
         }
 
         emit PayoutAndFeesExecuted(
@@ -113,5 +126,36 @@ contract PayoutAndFeesExecutor {
             feeRecipients.length,
             totalFees
         );
+    }
+
+    // ================================
+    // Internal Safe Transfer
+    // ================================
+
+    function _safeTransferFrom(
+        address token,
+        address from,
+        address to,
+        uint256 value
+    ) internal {
+
+        (bool success, bytes memory data) = token.call(
+            abi.encodeWithSelector(
+                IToken.transferFrom.selector,
+                from,
+                to,
+                value
+            )
+        );
+
+        if (!success) revert TransferFailed();
+
+        if (data.length > 0) {
+            if (!abi.decode(data, (bool))) revert TransferFailed();
+        }
+    }
+
+    function _isContract(address account) internal view returns (bool) {
+        return account.code.length > 0;
     }
 }
