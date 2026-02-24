@@ -10796,10 +10796,13 @@ Vue.component('Deals', {
             paymentRequests: [],
             isLoading: false,
             searchQuery: '',
+            arbiterList: [],
+            arbiterSource: 'list',  // 'list' | 'manual'
             createForm: {
                 amount: '',
                 currency: 'USDT',
                 payerAddress: '',
+                arbiter_address: '',
                 label: '',
                 description: '',
                 blockchain: 'tron'
@@ -10904,13 +10907,16 @@ Vue.component('Deals', {
             this.showCreateModal = true;
             this.createFormError = '';
             this.createFormSuccess = '';
+            this.loadArbiters();
         },
         closeCreateModal() {
             this.showCreateModal = false;
+            this.arbiterSource = 'list';
             this.createForm = {
                 amount: '',
                 currency: 'USDT',
                 payerAddress: '',
+                arbiter_address: '',
                 label: '',
                 description: '',
                 blockchain: 'tron'
@@ -10918,6 +10924,25 @@ Vue.component('Deals', {
             this.createFormError = '';
             this.createFormSuccess = '';
             this.escrowInfo = null;
+        },
+        async loadArbiters() {
+            if (!this.isAuthenticated) return;
+            const token = localStorage.getItem('access_token');
+            if (!token) return;
+            try {
+                const response = await fetch('/api/payment-request/arbiters', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    this.arbiterList = Array.isArray(data) ? data : (data.arbiters || []);
+                } else {
+                    this.arbiterList = [];
+                }
+            } catch (e) {
+                console.error('Error loading arbiters:', e);
+                this.arbiterList = [];
+            }
         },
         async createPaymentRequest() {
             // Валидация
@@ -10935,6 +10960,10 @@ Vue.component('Deals', {
                 this.createFormError = 'Введите название заявки';
                 return;
             }
+            if (!this.createForm.arbiter_address || !this.createForm.arbiter_address.trim()) {
+                this.createFormError = 'Укажите арбитра';
+                return;
+            }
             
             this.isLoading = true;
             this.createFormError = '';
@@ -10949,7 +10978,6 @@ Vue.component('Deals', {
                 // Формируем label с суммой и валютой (без description, description отправляется отдельно)
                 const label = `${this.createForm.label} - ${this.createForm.amount} ${this.createForm.currency}`;
                 
-                // Арбитр выбирается автоматически на бэкенде
                 const response = await fetch('/api/payment-request/create', {
                     method: 'POST',
                     headers: {
@@ -10958,6 +10986,7 @@ Vue.component('Deals', {
                     },
                     body: JSON.stringify({
                         payer_address: this.createForm.payerAddress.trim(),
+                        arbiter_address: this.createForm.arbiter_address.trim(),
                         label: label,
                         amount: parseFloat(this.createForm.amount),
                         description: this.createForm.description && this.createForm.description.trim() ? this.createForm.description.trim() : null,
@@ -11403,6 +11432,8 @@ Vue.component('Deals', {
                                         <span class="text-xs text-gray-500 font-semibold">Арбитр:</span>
                                         <span class="text-xs font-mono text-gray-900 break-all">[[ request.arbiter_did ]]</span>
                                         <span v-if="isCurrentUser(request.arbiter_did)" class="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full whitespace-nowrap">Вы</span>
+                                        <span v-if="request.arbiter_is_system === true" class="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs font-semibold rounded-full whitespace-nowrap">системный</span>
+                                        <span v-else-if="request.arbiter_is_system === false" class="px-2 py-0.5 bg-amber-100 text-amber-800 text-xs font-semibold rounded-full whitespace-nowrap">задан заявителем</span>
                                     </div>
                                 </div>
                             </td>
@@ -11525,6 +11556,43 @@ Vue.component('Deals', {
                                     class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                                     placeholder="TQn9Y2khEsLMWD..."
                                 />
+                            </div>
+                            
+                            <!-- Arbiter * -->
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Арбитр *</label>
+                                <div class="space-y-3">
+                                    <div class="flex gap-4">
+                                        <label class="inline-flex items-center gap-2 cursor-pointer">
+                                            <input type="radio" v-model="arbiterSource" value="list" class="rounded border-gray-300">
+                                            <span class="text-sm">Из списка</span>
+                                        </label>
+                                        <label class="inline-flex items-center gap-2 cursor-pointer">
+                                            <input type="radio" v-model="arbiterSource" value="manual" class="rounded border-gray-300">
+                                            <span class="text-sm">Указать адрес вручную</span>
+                                        </label>
+                                    </div>
+                                    <div v-if="arbiterSource === 'list'">
+                                        <select 
+                                            v-model="createForm.arbiter_address"
+                                            class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option value="">Выберите арбитра</option>
+                                            <option v-for="item in arbiterList" :key="item.id" :value="item.tron_address">
+                                                [[ item.name ]] ([[ item.tron_address ]]) — системный
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <div v-else>
+                                        <input 
+                                            type="text" 
+                                            v-model="createForm.arbiter_address"
+                                            class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                            placeholder="TRON-адрес арбитра"
+                                        />
+                                        <p class="text-xs text-gray-500 mt-1">Задан заявителем</p>
+                                    </div>
+                                </div>
                             </div>
                             
                             <!-- Label -->

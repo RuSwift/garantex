@@ -146,6 +146,8 @@
                                 <span v-if="isCurrentUser(dealInfo.arbiter_did)" class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">Вы</span>
                             </div>
                             <p class="text-sm font-mono text-gray-900 break-all">[[ dealInfo.arbiter_did ]]</p>
+                            <p v-if="dealInfo.arbiter_is_system === true" class="text-xs text-gray-600 mt-1">системный</p>
+                            <p v-else-if="dealInfo.arbiter_is_system === false" class="text-xs text-amber-700 mt-1">задан заявителем</p>
                         </div>
                     </div>
 

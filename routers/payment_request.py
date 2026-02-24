@@ -2,7 +2,7 @@
 Router for Payment Request API
 """
 import uuid
-from typing import Optional
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Body
 from pydantic import BaseModel, Field
 
@@ -33,6 +33,7 @@ security_optional = HTTPBearer(auto_error=False)
 class CreatePaymentRequestRequest(BaseModel):
     """Request для создания заявки на оплату"""
     payer_address: str = Field(..., description="Tron адрес плательщика (того, кто должен оплатить)")
+    arbiter_address: str = Field(..., description="TRON-адрес арбитра")
     label: str = Field(..., description="Заголовок заявки на оплату")
     amount: float = Field(..., gt=0, description="Сумма сделки")
     description: Optional[str] = Field(None, description="Описание заявки на оплату (опционально)")
@@ -97,6 +98,13 @@ class ReceiverApproveResponse(BaseModel):
     message: str = Field(..., description="Сообщение о результате")
 
 
+class ArbiterChoiceResponse(BaseModel):
+    """Элемент списка арбитров для выбора в форме создания заявки"""
+    id: int = Field(..., description="ID кошелька арбитра")
+    name: str = Field(..., description="Имя")
+    tron_address: str = Field(..., description="TRON-адрес")
+
+
 async def get_deals_service(
     current_user: UserInfo = Depends(get_current_tron_user),
     db: DbDepends = None
@@ -156,28 +164,30 @@ async def create_payment_request(
         Созданная заявка на оплату
     """
     try:
-        # Получаем активного арбитра
-        active_arbiter = await ArbiterService.get_active_arbiter_wallet(db)
-        if not active_arbiter:
+        arbiter_address = request.arbiter_address.strip()
+        payer_did = get_user_did(request.payer_address, 'tron')
+
+        # Проверка ролей: арбитр не должен совпадать с плательщиком и получателем
+        receiver_address = await get_wallet_address_by_did(deals_service.owner_did, db)
+        arbiter_lower = arbiter_address.lower()
+        if arbiter_lower == (request.payer_address or "").strip().lower():
             raise HTTPException(
                 status_code=400,
-                detail="Active arbiter not found. Please configure an arbiter first."
+                detail="Арбитр не может совпадать с плательщиком (отправителем)."
             )
-        
-        # Получаем DID арбитра по его адресу
-        arbiter_did = get_user_did(active_arbiter.tron_address, 'tron')
-        
-        # Получаем DID плательщика по адресу
-        payer_did = get_user_did(request.payer_address, 'tron')
-        
+        if arbiter_lower == (receiver_address or "").lower():
+            raise HTTPException(
+                status_code=400,
+                detail="Арбитр не может совпадать с получателем."
+            )
+
+        arbiter_did = get_user_did(arbiter_address, 'tron')
+
         # Создаем Escrow через EscrowService перед созданием сделки
         escrow_address = None
         escrow_status = None
         escrow_id = None
         try:
-            # Получаем адреса кошельков по DID из БД
-            # Для арбитра используем адрес напрямую из active_arbiter
-            arbiter_address = active_arbiter.tron_address
             sender_address = await get_wallet_address_by_did(payer_did, db)
             receiver_address = await get_wallet_address_by_did(deals_service.owner_did, db)
             
@@ -375,8 +385,10 @@ async def list_payment_requests(
             page_size=page_size,
             order_by="created_at"
         )
-        
-        # Преобразуем все сделки в формат для отображения
+        system_arbiter_addresses = {
+            w.tron_address.lower()
+            for w in await ArbiterService.get_arbiter_wallets(db)
+        }
         payment_requests = []
         for deal in result.get('deals', []):
             # Определяем роль пользователя в сделке
@@ -401,11 +413,14 @@ async def list_payment_requests(
                     escrow_address = escrow.escrow_address
             # Если escrow_id нет, возвращаем пустые значения (escrow_status и escrow_address уже None)
             
+            arbiter_addr = _arbiter_address_from_did(deal.arbiter_did)
+            arbiter_is_system = arbiter_addr in system_arbiter_addresses
             payment_requests.append({
                 'deal_uid': deal.uid,
                 'sender_did': deal.sender_did,
                 'receiver_did': deal.receiver_did,
                 'arbiter_did': deal.arbiter_did,
+                'arbiter_is_system': arbiter_is_system,
                 'label': deal.label,
                 'need_receiver_approve': deal.need_receiver_approve,
                 'status': deal.status,
@@ -431,6 +446,35 @@ async def list_payment_requests(
             status_code=500,
             detail=f"Error listing payment requests: {str(e)}"
         )
+
+
+def _arbiter_address_from_did(arbiter_did: str) -> str:
+    """Извлечь TRON-адрес из DID (did:tron:address)."""
+    if not arbiter_did or ":" not in arbiter_did:
+        return ""
+    parts = arbiter_did.split(":", 2)
+    return (parts[2] if len(parts) >= 3 else parts[-1]).lower()
+
+
+@router.get("/arbiters", response_model=List[ArbiterChoiceResponse])
+async def list_arbiters_for_form(
+    deals_service: DealsService = Depends(get_deals_service),
+    db: DbDepends = None
+):
+    """
+    Список арбитров для формы создания заявки (только активный арбитр).
+    В текущей реализации возвращается один элемент или пустой список.
+    """
+    active = await ArbiterService.get_active_arbiter_wallet(db)
+    if not active:
+        return []
+    return [
+        ArbiterChoiceResponse(
+            id=active.id,
+            name=active.name,
+            tron_address=active.tron_address,
+        )
+    ]
 
 
 class GetDidByAddressRequest(BaseModel):
@@ -500,6 +544,7 @@ class DealInfoResponse(BaseModel):
     sender_did: str = Field(..., description="DID отправителя")
     receiver_did: str = Field(..., description="DID получателя")
     arbiter_did: str = Field(..., description="DID арбитра")
+    arbiter_is_system: bool = Field(..., description="Арбитр из системного списка (системный) или задан заявителем")
     sender_address: Optional[str] = Field(None, description="Tron-адрес отправителя")
     receiver_address: Optional[str] = Field(None, description="Tron-адрес получателя")
     label: str = Field(..., description="Заголовок")
@@ -600,11 +645,19 @@ async def get_deal_info(
         except Exception:
             pass
 
+        system_arbiter_addresses = {
+            w.tron_address.lower()
+            for w in await ArbiterService.get_arbiter_wallets(db)
+        }
+        arbiter_addr = _arbiter_address_from_did(deal.arbiter_did)
+        arbiter_is_system = arbiter_addr in system_arbiter_addresses
+
         return DealInfoResponse(
             deal_uid=deal.uid,
             sender_did=deal.sender_did,
             receiver_did=deal.receiver_did,
             arbiter_did=deal.arbiter_did,
+            arbiter_is_system=arbiter_is_system,
             sender_address=sender_address,
             receiver_address=receiver_address,
             label=deal.label,
