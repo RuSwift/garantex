@@ -11498,9 +11498,9 @@ Vue.component('Deals', {
             
             <!-- Create Payment Request Modal -->
             <div v-if="showCreateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeCreateModal">
-                <div class="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                    <div class="p-6 border-b flex items-center justify-between sticky top-0 bg-white">
-                        <h3 class="text-2xl font-bold text-gray-900">Выставить счет</h3>
+                <div class="bg-white rounded-xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
+                    <div class="p-4 border-b flex items-center justify-between sticky top-0 bg-white">
+                        <h3 class="text-lg font-bold text-gray-900">Выставить счет</h3>
                         <button 
                             @click="closeCreateModal"
                             class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -11511,71 +11511,60 @@ Vue.component('Deals', {
                         </button>
                     </div>
                     
-                    <form @submit.prevent="createPaymentRequest" class="p-6 space-y-6">
+                    <form @submit.prevent="createPaymentRequest" class="p-4 space-y-3">
                         <!-- Form Fields - скрываются когда escrowInfo существует -->
-                        <div v-if="!escrowInfo">
-                            <!-- Amount -->
-                            <div>
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                    Сумма *
-                                </label>
-                                <input 
-                                    type="number" 
-                                    v-model.number="createForm.amount"
-                                    step="0.01"
-                                    min="0.01"
-                                    required
-                                    class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="100.00"
-                                />
+                        <div v-if="!escrowInfo" class="space-y-3">
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Сумма *</label>
+                                    <input 
+                                        type="number" 
+                                        v-model.number="createForm.amount"
+                                        step="0.01"
+                                        min="0.01"
+                                        required
+                                        class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="100.00"
+                                    />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Валюта *</label>
+                                    <select 
+                                        v-model="createForm.currency"
+                                        required
+                                        class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        <option value="USDT">USDT</option>
+                                    </select>
+                                </div>
                             </div>
-                            
-                            <!-- Currency -->
                             <div>
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                    Валюта *
-                                </label>
-                                <select 
-                                    v-model="createForm.currency"
-                                    required
-                                    class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                >
-                                    <option value="USDT">USDT</option>
-                                </select>
-                            </div>
-                            
-                            <!-- Payer Address -->
-                            <div>
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                    Tron адрес плательщика *
-                                </label>
+                                <label class="block text-xs font-semibold text-gray-700 mb-1">Tron адрес плательщика *</label>
                                 <input 
                                     type="text" 
                                     v-model="createForm.payerAddress"
                                     required
-                                    class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                    class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                                     placeholder="TQn9Y2khEsLMWD..."
                                 />
                             </div>
-                            
-                            <!-- Arbiter * -->
                             <div>
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">Арбитр *</label>
-                                <div class="space-y-3">
-                                    <div class="flex gap-4">
-                                        <label class="inline-flex items-center gap-2 cursor-pointer">
-                                            <input type="radio" v-model="arbiterSource" value="list" class="rounded border-gray-300">
-                                            <span class="text-sm">Из списка</span>
+                                <label class="block text-xs font-semibold text-gray-700 mb-1">Арбитр *</label>
+                                <div class="space-y-2">
+                                    <div class="flex gap-3">
+                                        <label class="inline-flex items-center gap-1.5 cursor-pointer text-sm">
+                                            <input type="radio" v-model="arbiterSource" value="list" class="rounded border-gray-300 text-sm">
+                                            <span>Из списка</span>
                                         </label>
-                                        <label class="inline-flex items-center gap-2 cursor-pointer">
-                                            <input type="radio" v-model="arbiterSource" value="manual" class="rounded border-gray-300">
-                                            <span class="text-sm">Указать адрес вручную</span>
+                                        <label class="inline-flex items-center gap-1.5 cursor-pointer text-sm">
+                                            <input type="radio" v-model="arbiterSource" value="manual" class="rounded border-gray-300 text-sm">
+                                            <span>Вручную</span>
                                         </label>
                                     </div>
                                     <div v-if="arbiterSource === 'list'">
                                         <select 
                                             v-model="createForm.arbiter_address"
-                                            class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         >
                                             <option value="">Выберите арбитра</option>
                                             <option v-for="item in arbiterList" :key="item.id" :value="item.tron_address">
@@ -11587,68 +11576,58 @@ Vue.component('Deals', {
                                         <input 
                                             type="text" 
                                             v-model="createForm.arbiter_address"
-                                            class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                            class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                                             placeholder="TRON-адрес арбитра"
                                         />
-                                        <p class="text-xs text-gray-500 mt-1">Задан заявителем</p>
+                                        <p class="text-xs text-gray-500 mt-0.5">Задан заявителем</p>
                                     </div>
                                 </div>
                             </div>
-                            
-                            <!-- Label -->
-                            <div>
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                    Название заявки *
-                                </label>
-                                <input 
-                                    type="text" 
-                                    v-model="createForm.label"
-                                    required
-                                    maxlength="255"
-                                    class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="Например: Оплата за услуги"
-                                />
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Название заявки *</label>
+                                    <input 
+                                        type="text" 
+                                        v-model="createForm.label"
+                                        required
+                                        maxlength="255"
+                                        class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="Оплата за услуги"
+                                    />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Блокчейн *</label>
+                                    <select 
+                                        v-model="createForm.blockchain"
+                                        required
+                                        class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        <option value="tron">TRON</option>
+                                        <option value="ethereum">Ethereum</option>
+                                    </select>
+                                </div>
                             </div>
-                            
-                            <!-- Description -->
                             <div>
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                    Описание (необязательно)
-                                </label>
+                                <label class="block text-xs font-semibold text-gray-700 mb-1">Описание (необязательно)</label>
                                 <textarea 
                                     v-model="createForm.description"
-                                    rows="3"
-                                    class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="Дополнительная информация о заявке..."
+                                    rows="2"
+                                    class="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                                    placeholder="Дополнительная информация..."
                                 ></textarea>
-                            </div>
-                            
-                            <!-- Blockchain Selection -->
-                            <div>
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">
-                                    Блокчейн *
-                                </label>
-                                <select 
-                                    v-model="createForm.blockchain"
-                                    required
-                                    class="w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                >
-                                    <option value="tron">TRON</option>
-                                    <option value="ethereum">Ethereum</option>
-                                </select>
                             </div>
                         </div>
                         
                         <!-- Error/Success messages -->
-                        <div v-if="createFormError" class="p-4 rounded-xl bg-red-50 text-red-700">
+                        <div v-if="createFormError" class="p-3 rounded-lg text-sm bg-red-50 text-red-700">
                             [[ createFormError ]]
                         </div>
-                        <div v-if="createFormSuccess" class="p-4 rounded-xl bg-green-50 text-green-700">
+                        <div v-if="createFormSuccess" class="p-3 rounded-lg text-sm bg-green-50 text-green-700">
                             [[ createFormSuccess ]]
                         </div>
                         
                         <!-- Escrow Info with Progress Circle if pending -->
-                        <div v-if="escrowInfo" class="p-4 rounded-xl border-2 border-blue-200 bg-blue-50">
+                        <div v-if="escrowInfo" class="p-3 rounded-lg border-2 border-blue-200 bg-blue-50 text-sm">
                             <div class="flex items-center gap-3 mb-2">
                                 <h4 class="text-sm font-semibold text-gray-900">Информация об эскроу</h4>
                                 <div v-if="escrowInfo.status === 'pending'" class="flex items-center gap-2">
@@ -11668,11 +11647,11 @@ Vue.component('Deals', {
                         </div>
                         
                         <!-- Buttons -->
-                        <div class="flex gap-3 pt-4 border-t">
+                        <div class="flex gap-2 pt-3 border-t">
                             <button 
                                 type="submit"
                                 :disabled="isLoading || escrowInfo"
-                                class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                class="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >
                                 <span v-if="!isLoading">Создать заявку</span>
                                 <span v-else>Создание...</span>
@@ -11681,7 +11660,7 @@ Vue.component('Deals', {
                                 type="button"
                                 @click="closeCreateModal"
                                 :disabled="isLoading"
-                                class="px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-semibold transition-colors disabled:opacity-50"
+                                class="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold transition-colors disabled:opacity-50"
                             >
                                 Отмена
                             </button>

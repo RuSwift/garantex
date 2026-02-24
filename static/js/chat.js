@@ -1138,7 +1138,19 @@ Vue.component('Chat', {
                     return;
                 }
                 if (tw.trx && typeof tw.trx.sendRawTransaction === 'function') {
-                    await tw.trx.sendRawTransaction(signedTx);
+                    var depositBroadcast = null;
+                    try {
+                        depositBroadcast = await tw.trx.sendRawTransaction(signedTx);
+                    } catch (sendErr) {
+                        this.showDealApiError('Депозит', (sendErr && (sendErr.message || sendErr.msg)) ? String(sendErr.message || sendErr.msg) : 'Ошибка отправки в сеть');
+                        return;
+                    }
+                    var depositFail = depositBroadcast && (depositBroadcast.result === false || depositBroadcast.success === false);
+                    if (depositFail) {
+                        var depositErrMsg = (depositBroadcast && (depositBroadcast.message || depositBroadcast.msg || depositBroadcast.Error)) ? String(depositBroadcast.message || depositBroadcast.msg || depositBroadcast.Error) : 'Нода отклонила транзакцию';
+                        this.showDealApiError('Депозит', depositErrMsg);
+                        return;
+                    }
                 }
                 var txId = signedTx.txID;
                 var r = await fetch('/api/payment-request/' + encodeURIComponent(contact.deal_uid) + '/deposit-txn', {
@@ -1157,7 +1169,8 @@ Vue.component('Chat', {
                 }
                 await this.loadDealInfo();
             } catch (e) {
-                this.showDealApiError('Депозит', e.message || 'Ошибка');
+                var depositCatchMsg = (e && (e.message || e.msg || e.detail)) ? String(e.message || e.msg || e.detail) : (e ? String(e) : 'Ошибка');
+                this.showDealApiError('Депозит', depositCatchMsg);
             } finally {
                 this.fundDepositLoading = false;
             }
@@ -1279,12 +1292,13 @@ Vue.component('Chat', {
                         try {
                             broadcastResult = await window.tronWeb.trx.sendRawTransaction(combined);
                         } catch (broadcastErr) {
-                            this.showDealApiError('Отправка в сеть', (broadcastErr && broadcastErr.message) ? broadcastErr.message : 'Ошибка сети');
+                            var catchMsg = (broadcastErr && (broadcastErr.message || broadcastErr.msg || broadcastErr.code)) ? String(broadcastErr.message || broadcastErr.msg || broadcastErr.code) : (broadcastErr ? String(broadcastErr) : 'Ошибка сети');
+                            this.showDealApiError('Отправка в сеть', catchMsg);
                             return;
                         }
                         var isBroadcastFail = broadcastResult && (broadcastResult.result === false || broadcastResult.success === false);
                         if (isBroadcastFail) {
-                            var errMsg = (broadcastResult && (broadcastResult.message || broadcastResult.msg)) ? String(broadcastResult.message || broadcastResult.msg) : 'Нода отклонила транзакцию';
+                            var errMsg = (broadcastResult && (broadcastResult.message || broadcastResult.msg || broadcastResult.Error || broadcastResult.error)) ? String(broadcastResult.message || broadcastResult.msg || broadcastResult.Error || broadcastResult.error) : 'Нода отклонила транзакцию';
                             this.showDealApiError('Отправка в сеть', errMsg);
                             return;
                         }
@@ -1317,7 +1331,8 @@ Vue.component('Chat', {
                     this.showDealApiError('Подтверждение', msg);
                 }
             } catch (e) {
-                this.showDealApiError('Ошибка', e.message || 'Ошибка сети');
+                var errText = (e && (e.message || e.msg || e.detail)) ? String(e.message || e.msg || e.detail) : (e ? String(e) : 'Ошибка сети');
+                this.showDealApiError('Ошибка', errText);
             } finally {
                 this.senderConfirmSigning = false;
             }

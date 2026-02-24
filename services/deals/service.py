@@ -275,8 +275,13 @@ class DealsService:
                 deal.updated_at = datetime.now(timezone.utc)
                 await self.session.commit()
                 return None
-            confirmed = await self._is_deposit_tx_confirmed(deal_uid, deal.deposit_txn_hash, escrow.network)
-            if not confirmed:
+            status = await self._check_deposit_tx_status(deal_uid, deal.deposit_txn_hash, escrow.network)
+            if status == "failed":
+                deal.deposit_txn_hash = None
+                deal.updated_at = datetime.now(timezone.utc)
+                await self.session.commit()
+                return None
+            if status != "confirmed":
                 return None
             deal.status = "processing"
             deal.updated_at = datetime.now(timezone.utc)
@@ -732,13 +737,16 @@ class DealsService:
         await self.session.refresh(deal)
         return deal
 
-    async def _is_deposit_tx_confirmed(self, deal_uid: str, tx_hash: str, network: str) -> bool:
-        """Проверить подтверждение транзакции депозита в сети. Кеш 10 сек."""
+    async def _check_deposit_tx_status(self, deal_uid: str, tx_hash: str, network: str) -> str:
+        """
+        Проверить статус транзакции депозита в сети. Кеш 10 сек.
+        Returns: "confirmed" | "pending" | "failed"
+        """
         now = time.time()
         if deal_uid in _deposit_check_cache:
-            ts, confirmed = _deposit_check_cache[deal_uid]
+            ts, cached = _deposit_check_cache[deal_uid]
             if now - ts < DEPOSIT_CHECK_TTL_SEC:
-                return confirmed
+                return "confirmed" if cached else "pending"
         from services.tron.api_client import TronAPIClient
         try:
             async with TronAPIClient(network=network) as client:
@@ -746,14 +754,24 @@ class DealsService:
         except Exception as e:
             logger.warning("deposit tx check failed for deal %s: %s", deal_uid, e)
             _deposit_check_cache[deal_uid] = (now, False)
-            return False
+            return "pending"
         receipt = info.get("receipt") or {}
-        # Успех только при явном result == SUCCESS и транзакции в блоке
         result = receipt.get("result")
         block_ok = (info.get("blockNumber") or info.get("block_timestamp") or info.get("blockTimeStamp") or 0) != 0
-        confirmed = result == "SUCCESS" and block_ok
-        _deposit_check_cache[deal_uid] = (now, confirmed)
-        return confirmed
+        if block_ok and result == "SUCCESS":
+            _deposit_check_cache[deal_uid] = (now, True)
+            return "confirmed"
+        if block_ok and result != "SUCCESS":
+            logger.info("deal %s deposit tx %s failed in chain (result=%s), clearing hash", deal_uid, tx_hash, result)
+            if deal_uid in _deposit_check_cache:
+                del _deposit_check_cache[deal_uid]
+            return "failed"
+        _deposit_check_cache[deal_uid] = (now, False)
+        return "pending"
+
+    async def _is_deposit_tx_confirmed(self, deal_uid: str, tx_hash: str, network: str) -> bool:
+        """Проверить подтверждение транзакции депозита в сети. Кеш 10 сек."""
+        return (await self._check_deposit_tx_status(deal_uid, tx_hash, network)) == "confirmed"
 
     async def add_payout_signature(
         self,

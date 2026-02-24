@@ -11,7 +11,7 @@ from services.deals.service import DealsService
 from services.tron.escrow import EscrowService, EscrowError
 from services.tron.api_client import TronAPIClient
 from services.tron.multisig import TronMultisig, MultisigConfig
-from services.tron.utils import private_key_from_mnemonic
+from services.tron.utils import private_key_from_mnemonic, address_from_private_key
 from services.arbiter.service import ArbiterService
 from services.wallet import WalletService
 from settings import Settings
@@ -61,13 +61,14 @@ async def process_processing_deals_batch(
     page_size: int = 20
 ) -> List[Deal]:
     """
-    Получить батч сделок в статусе processing, resolving_sender или resolving_receiver с escrow_id (SELECT FOR UPDATE SKIP LOCKED).
-    Для последующего вызова get_or_build_deal_payout_txn — проверка успеха выплаты в сети и переход в success.
+    Получить батч сделок в статусе wait_deposit, processing, resolving_sender или resolving_receiver с escrow_id (SELECT FOR UPDATE SKIP LOCKED).
+    wait_deposit: в фоне проверяется подтверждение депозита (или сброс deposit_txn_hash при неуспехе).
+    processing/resolving_*: проверка успеха выплаты в сети и переход в success.
     """
     stmt = (
         select(Deal)
         .where(
-            Deal.status.in_(["processing", "resolving_sender", "resolving_receiver"]),
+            Deal.status.in_(["wait_deposit", "processing", "resolving_sender", "resolving_receiver"]),
             Deal.escrow_id.isnot(None)
         )
         .order_by(Deal.updated_at)
@@ -181,12 +182,13 @@ def _is_same_error(
     )
 
 
-async def _get_arbiter_private_key(
+async def _get_root_arbiter_private_key(
     session: AsyncSession,
     secret: str
 ) -> Optional[str]:
     """
-    Получить приватный ключ арбитра из активного кошелька арбитра
+    Получить приватный ключ активного (системного) кошелька арбитра.
+    Используется для внутренних операций (например, пополнение эскроу TRX).
     
     Args:
         session: Database session
@@ -580,9 +582,9 @@ async def process_escrow(escrow: EscrowModel, session: AsyncSession) -> None:
             amount_needed = min_balance - balance
             logger.info(f"Escrow {escrow.id} needs {amount_needed:.6f} TRX")
             
-            # Получаем приватный ключ арбитра
-            arbiter_private_key = await _get_arbiter_private_key(session, secret)
-            if not arbiter_private_key:
+            # Получаем приватный ключ системного (root) арбитра и адрес из ключа
+            root_arbiter_private_key = await _get_root_arbiter_private_key(session, secret)
+            if not root_arbiter_private_key:
                 error_msg = "Active arbiter wallet not found or mnemonic not configured"
                 logger.error(f"Escrow {escrow.id}: {error_msg}")
                 
@@ -597,24 +599,11 @@ async def process_escrow(escrow: EscrowModel, session: AsyncSession) -> None:
                 )
                 return
             
-            # Получаем адрес арбитра
-            arbiter_address = escrow.arbiter_address
-            if not arbiter_address:
-                error_msg = "Arbiter address not set in escrow"
-                logger.error(f"Escrow {escrow.id}: {error_msg}")
-                is_duplicate = _is_same_error(escrow_txn, "ARBITER_ADDRESS_NOT_SET", error_msg)
-                await _update_escrow_txn(
-                    session, escrow_txn, 'event',
-                    f"Error: {error_msg}",
-                    error_code="ARBITER_ADDRESS_NOT_SET",
-                    error_message=error_msg,
-                    is_duplicate=is_duplicate
-                )
-                return
+            root_arbiter_address = address_from_private_key(root_arbiter_private_key)
             
-            # Переводим TRX
+            # Переводим TRX с адреса системного арбитра (не escrow.arbiter_address)
             transfer_result = await _transfer_trx_to_escrow(
-                session, escrow, arbiter_address, arbiter_private_key,
+                session, escrow, root_arbiter_address, root_arbiter_private_key,
                 amount_needed, network, api_key
             )
             
