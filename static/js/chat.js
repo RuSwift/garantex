@@ -225,6 +225,24 @@ Vue.component('Chat', {
                 var shortAddr = addr.length > 12 ? addr.slice(0, 8) + '\u2026' + addr.slice(-4) : addr;
                 return { address: addr, label: label, shortAddr: shortAddr };
             });
+        },
+        /** Разбивка выплаты для атомарного контракта (основная сумма + комиссии) */
+        payoutBreakdown() {
+            var pld = this.dealInfo && this.dealInfo.payout_txn;
+            if (!pld || pld.main_recipient == null || pld.main_amount == null) return null;
+            var mainUsdt = (pld.main_amount / 1e6).toFixed(2);
+            var recipientShort = (pld.main_recipient || '').length > 12 ? (pld.main_recipient || '').slice(0, 8) + '\u2026' + (pld.main_recipient || '').slice(-4) : (pld.main_recipient || '');
+            var fees = (pld.fee_recipients && pld.fee_amounts && pld.fee_amounts.length) ? pld.fee_amounts.reduce(function(a, b) { return a + b; }, 0) : 0;
+            var feesUsdt = (fees / 1e6).toFixed(2);
+            var feeCount = (pld.fee_recipients && pld.fee_recipients.length) ? pld.fee_recipients.length : 0;
+            return {
+                mainText: mainUsdt + ' USDT \u2192 ' + recipientShort,
+                feesText: feeCount > 0 ? 'Комиссии: ' + feeCount + ' получателей, всего ' + feesUsdt + ' USDT' : null
+            };
+        },
+        isPayoutExecutorFlow() {
+            var pld = this.dealInfo && this.dealInfo.payout_txn;
+            return !!(pld && pld.main_recipient != null);
         }
     },
     watch: {
@@ -2556,6 +2574,12 @@ Vue.component('Chat', {
                                         <span>[[ dealStatusLabel ]]</span>
                                         <a href="javascript:void(0)" @click.prevent="openPayloadModal" style="font-size: 12px; font-weight: 500; color: #4082bc; margin-left: 4px;">Payload транзакции</a>
                                     </div>
+                                    <div v-if="payoutBreakdown" style="font-size: 13px; margin-bottom: 10px; padding: 10px 12px; background: #e8f5e9; border: 1px solid #81c784; border-radius: 8px; text-align: left;">
+                                        <div style="font-weight: 600; color: #1b5e20; margin-bottom: 4px;">Выплата (одна транзакция)</div>
+                                        <div style="color: #2e7d32;">Основная сумма: [[ payoutBreakdown.mainText ]]</div>
+                                        <div v-if="payoutBreakdown.feesText" style="color: #2e7d32; margin-top: 2px;">[[ payoutBreakdown.feesText ]]</div>
+                                        <div style="font-size: 11px; color: #5f6368; margin-top: 6px;">В TronLink отобразится вызов смарт-контракта.</div>
+                                    </div>
                                     <div v-if="dealInfo.payout_txn && (payoutExpirationText || payoutSignersList.length)" style="font-size: 12px; color: #5f6368; margin-bottom: 10px; text-align: center;">
                                         <span v-if="payoutSignersList.length && payoutExpirationText" style="display: block; margin-bottom: 4px;">Срок действия транзакции до: [[ payoutExpirationText ]]</span>
                                         <div v-if="payoutSignersList.length" style="margin-top: 4px;">
@@ -2827,6 +2851,12 @@ Vue.component('Chat', {
                     </div>
                     <div v-else style="padding: 12px 14px; margin-bottom: 12px; background: #e3f2fd; border: 1px solid #1976d2; border-radius: 8px; color: #0d47a1;">
                         <p style="margin: 0; font-size: 14px; line-height: 1.45;">Если вы подпишете транзакцию, средства с эскроу-счёта будут переведены получателю. Претензий не имею.</p>
+                    </div>
+                    <div v-if="isPayoutExecutorFlow && payoutBreakdown" style="padding: 10px 12px; margin-bottom: 12px; background: #e8f5e9; border: 1px solid #81c784; border-radius: 8px;">
+                        <p style="margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #1b5e20;">Разбивка выплаты</p>
+                        <p style="margin: 0; font-size: 13px; color: #2e7d32;">Основная сумма: [[ payoutBreakdown.mainText ]]</p>
+                        <p v-if="payoutBreakdown.feesText" style="margin: 4px 0 0; font-size: 13px; color: #2e7d32;">[[ payoutBreakdown.feesText ]]</p>
+                        <p style="margin: 8px 0 0; font-size: 12px; color: #5f6368;">Вы подписываете одну транзакцию: основная выплата по сделке и выплата комиссий. В TronLink отобразится вызов смарт-контракта.</p>
                     </div>
                     <p style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #212121;">[[ (dealInfo && (dealInfo.status === 'resolving_sender' || dealInfo.status === 'resolving_receiver') && dealIsArbiter) ? 'Подписать решение?' : 'Подписать и отправить транзакцию в сеть?' ]]</p>
                     <div style="display: flex; gap: 8px; justify-content: flex-end;">

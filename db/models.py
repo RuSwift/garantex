@@ -250,6 +250,9 @@ class EscrowModel(Base):
         index=True,
         comment="Escrow status (pending, active, inactive)"
     )
+
+    # Адрес контракта PayoutAndFeesExecutor для атомарной выплаты (основа + комиссии); при наличии комиссионеров в сделке
+    payout_executor_address = Column(String(255), nullable=True, comment="Адрес контракта PayoutAndFeesExecutor (TRON)")
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Creation timestamp (UTC)")
@@ -345,6 +348,9 @@ class Deal(Base):
     
     # Amount - сумма сделки (для построения payout_txn)
     amount = Column(Numeric(20, 8), nullable=True, comment="Сумма сделки")
+
+    # Комиссионеры для выплаты через PayoutAndFeesExecutor: [{"address": "T...", "amount": 123}, ...], amount в наименьших единицах
+    commissioners = Column(JSONB, nullable=True, comment="Комиссионеры: массив {address, amount} для атомарной выплаты (основа + комиссии)")
     
     # Current requisites (JSONB for flexibility) - текущие реквизиты сделки
     requisites = Column(JSONB, nullable=True, comment="Текущие реквизиты сделки (ФИО, назначение, валюта и др.)")

@@ -67,6 +67,33 @@ class DealsService:
         """
         return deal.sender_did == self.owner_did
     
+    def _get_payout_fee_config(self, deal: Deal) -> Tuple[List[str], List[int]]:
+        """
+        Return (fee_recipients, fee_amounts) для PayoutAndFeesExecutor из deal.commissioners.
+        Формат commissioners: [{"address": "T...", "amount": 123}, ...], amount в наименьших единицах.
+        Если в сделке нет комиссионеров — возвращает ([], []).
+        """
+        commissioners = getattr(deal, "commissioners", None) or []
+        if not isinstance(commissioners, list) or not commissioners:
+            return [], []
+        recipients = []
+        amounts = []
+        for item in commissioners:
+            if not isinstance(item, dict):
+                continue
+            addr = (item.get("address") or "").strip()
+            amt = item.get("amount")
+            if not addr:
+                continue
+            try:
+                amounts.append(int(amt))
+                recipients.append(addr)
+            except (TypeError, ValueError):
+                continue
+        if len(recipients) != len(amounts):
+            return [], []
+        return recipients, amounts
+
     def _check_deal_ownership(self, deal: Deal, deal_uid: str) -> None:
         """
         Check if current owner_did is the deal owner, raise exception if not
@@ -474,10 +501,16 @@ class DealsService:
                                 pass  # tx в сети ещё pending или failed
                 return existing
 
+        fee_recipients, fee_amounts = self._get_payout_fee_config(deal)
         escrow_svc = EscrowService(self.session, deal.sender_did)
         try:
             create_result = await escrow_svc.create_payment_transaction(
-                deal.escrow_id, to_address, amount, token_contract
+                deal.escrow_id,
+                to_address,
+                amount,
+                token_contract,
+                fee_recipients=fee_recipients,
+                fee_amounts=fee_amounts,
             )
         except Exception as e:
             logger.warning("get_or_build_deal_payout_txn: create_payment_transaction failed for deal %s: %s", deal_uid, e)
@@ -509,6 +542,14 @@ class DealsService:
         }
         if create_result.get("owner_addresses"):
             payload["owner_addresses"] = create_result["owner_addresses"]
+        if create_result.get("main_recipient") is not None:
+            payload["main_recipient"] = create_result["main_recipient"]
+        if create_result.get("main_amount") is not None:
+            payload["main_amount"] = create_result["main_amount"]
+        if create_result.get("fee_recipients") is not None:
+            payload["fee_recipients"] = create_result["fee_recipients"]
+        if create_result.get("fee_amounts") is not None:
+            payload["fee_amounts"] = create_result["fee_amounts"]
 
         deal.payout_txn = payload
         deal.updated_at = datetime.now(timezone.utc)
