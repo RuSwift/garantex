@@ -18,6 +18,9 @@ from db.models import Deal, EscrowModel, Storage, WalletUser
 # Кеш проверки депозита: deal_uid -> (timestamp, confirmed). TTL 10 сек.
 _deposit_check_cache: Dict[str, Tuple[float, bool]] = {}
 DEPOSIT_CHECK_TTL_SEC = 10
+
+# Подстрока сервисного сообщения о подтверждении отправителя — для идемпотентности (проверка в БД)
+SENDER_CONFIRM_TEXT_SUBSTR = "подтвердил и претензий не имеет"
 from core.utils import generate_base58_uuid
 from core.exceptions import DealAccessDeniedError
 from services.chat.service import ChatService
@@ -84,7 +87,51 @@ class DealsService:
                 owner_did=deal.sender_did,
                 attempted_by=self.owner_did
             )
-    
+
+    async def _add_sender_confirm_message_if_missing(
+        self,
+        deal_uid: str,
+        sender_did: str,
+        receiver_did: str,
+        deal_label: str,
+        tx_hash: Optional[str] = None,
+    ) -> bool:
+        """
+        Добавляет сервисное сообщение «подтвердил и претензий не имеет» в чат сделки,
+        только если такого ещё нет. Возвращает True, если сообщение добавлено, False если уже было.
+        """
+        existing = await self.session.execute(
+            select(1)
+            .select_from(Storage)
+            .where(
+                Storage.space == "chat",
+                Storage.deal_uid == deal_uid,
+                Storage.payload["message_type"].astext == "service",
+                Storage.payload["text"].astext.like(f"%{SENDER_CONFIRM_TEXT_SUBSTR}%"),
+            )
+            .limit(1)
+        )
+        if existing.scalar() is not None:
+            return False
+        sender_user = (
+            await self.session.execute(select(WalletUser).where(WalletUser.did == sender_did))
+        ).scalar_one_or_none()
+        nickname = sender_user.nickname if sender_user else sender_did
+        service_text = f"{nickname} {sender_did} {SENDER_CONFIRM_TEXT_SUBSTR}"
+        chat_svc = ChatService(self.session, sender_did)
+        service_message = ChatMessageCreate(
+            uuid=str(uuid.uuid4()),
+            message_type=MessageType.SERVICE,
+            sender_id=sender_did,
+            receiver_id=receiver_did,
+            deal_uid=deal_uid,
+            deal_label=deal_label,
+            text=service_text,
+            txn_hash=tx_hash,
+        )
+        await chat_svc.add_message(service_message, deal_uid=deal_uid)
+        return True
+
     async def create_deal(
         self,
         sender_did: str,
@@ -454,25 +501,9 @@ class DealsService:
                             try:
                                 if await self._is_payout_tx_success(tx_hash, escrow.network):
                                     try:
-                                        sender_user = (
-                                            await self.session.execute(
-                                                select(WalletUser).where(WalletUser.did == deal.sender_did)
-                                            )
-                                        ).scalar_one_or_none()
-                                        nickname = sender_user.nickname if sender_user else deal.sender_did
-                                        service_text = f"{nickname} {deal.sender_did} подтвердил и претензий не имеет"
-                                        chat_svc = ChatService(self.session, deal.sender_did)
-                                        service_message = ChatMessageCreate(
-                                            uuid=str(uuid.uuid4()),
-                                            message_type=MessageType.SERVICE,
-                                            sender_id=deal.sender_did,
-                                            receiver_id=deal.receiver_did,
-                                            deal_uid=deal.uid,
-                                            deal_label=deal.label,
-                                            text=service_text,
-                                            txn_hash=tx_hash,
+                                        await self._add_sender_confirm_message_if_missing(
+                                            deal_uid, deal.sender_did, deal.receiver_did, deal.label, tx_hash
                                         )
-                                        await chat_svc.add_message(service_message, deal_uid=deal.uid)
                                     except Exception as e:
                                         logger.warning(
                                             "get_or_build_deal_payout_txn: failed to add completion service message for deal %s: %s",
@@ -1010,23 +1041,9 @@ class DealsService:
                         logger.warning("sender_confirm_complete: payout tx %s not confirmed for deal %s", tx_hash, deal_uid)
                         return None
             try:
-                sender_user = (
-                    await self.session.execute(select(WalletUser).where(WalletUser.did == deal.sender_did))
-                ).scalar_one_or_none()
-                nickname = sender_user.nickname if sender_user else deal.sender_did
-                service_text = f"{nickname} {deal.sender_did} подтвердил и претензий не имеет"
-                chat_svc = ChatService(self.session, deal.sender_did)
-                service_message = ChatMessageCreate(
-                    uuid=str(uuid.uuid4()),
-                    message_type=MessageType.SERVICE,
-                    sender_id=deal.sender_did,
-                    receiver_id=deal.receiver_did,
-                    deal_uid=deal.uid,
-                    deal_label=deal.label,
-                    text=service_text,
-                    txn_hash=tx_hash,
+                await self._add_sender_confirm_message_if_missing(
+                    deal_uid, deal.sender_did, deal.receiver_did, deal.label, tx_hash
                 )
-                await chat_svc.add_message(service_message, deal_uid=deal.uid)
             except Exception as e:
                 logger.warning("sender_confirm_complete: failed to add service message for deal %s: %s", deal_uid, e)
             deal.status = "success"
@@ -1051,23 +1068,9 @@ class DealsService:
                 logger.warning("sender_confirm_complete: payout tx %s not confirmed for deal %s", tx_hash, deal_uid)
                 return None
             try:
-                sender_user = (
-                    await self.session.execute(select(WalletUser).where(WalletUser.did == deal.sender_did))
-                ).scalar_one_or_none()
-                nickname = sender_user.nickname if sender_user else deal.sender_did
-                service_text = f"{nickname} {deal.sender_did} подтвердил и претензий не имеет"
-                chat_svc = ChatService(self.session, deal.sender_did)
-                service_message = ChatMessageCreate(
-                    uuid=str(uuid.uuid4()),
-                    message_type=MessageType.SERVICE,
-                    sender_id=deal.sender_did,
-                    receiver_id=deal.receiver_did,
-                    deal_uid=deal.uid,
-                    deal_label=deal.label,
-                    text=service_text,
-                    txn_hash=tx_hash,
+                await self._add_sender_confirm_message_if_missing(
+                    deal_uid, deal.sender_did, deal.receiver_did, deal.label, tx_hash
                 )
-                await chat_svc.add_message(service_message, deal_uid=deal.uid)
             except Exception as e:
                 logger.warning("sender_confirm_complete: failed to add service message for deal %s: %s", deal_uid, e)
             deal.status = "resolved_sender"

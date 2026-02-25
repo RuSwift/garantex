@@ -11117,7 +11117,7 @@ Vue.component('Deals', {
         },
         /** Обратный отсчёт до истечения payout_txn в формате чч:мм:сс; null если таймер не нужен */
         getPayoutCountdown(request) {
-            if (request && request.status === 'success') return null;
+            if (request && this.isDealStatusFinal(request)) return null;
             var pld = request && request.payout_txn;
             if (!pld || !Array.isArray(pld.signatures) || pld.signatures.length < 1) return null;
             var raw = pld.unsigned_tx && pld.unsigned_tx.raw_data;
