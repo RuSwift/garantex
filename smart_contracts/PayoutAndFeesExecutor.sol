@@ -31,23 +31,16 @@ abstract contract ReentrancyGuard {
 contract PayoutAndFeesExecutor is ReentrancyGuard {
 
     // ================================
-    // Errors (gas efficient)
-    // ================================
-
-    error ZeroAddress();
-    error ZeroAmount();
-    error BadNonce();
-    error FeeLengthMismatch();
-    error TooManyFees();
-    error TransferFailed();
-    error NotContract();
-
-    // ================================
     // Storage
     // ================================
 
+    address public owner;
     mapping(address => uint256) public nonces;
     uint256 public maxBatchSize = 10;
+
+    constructor() {
+        owner = msg.sender;
+    }
 
     // ================================
     // Events
@@ -69,7 +62,7 @@ contract PayoutAndFeesExecutor is ReentrancyGuard {
     // ================================
 
     function setMaxBatchSize(uint256 newSize) external {
-        // optionally restrict via Ownable if required
+        require(msg.sender == owner, "OnlyOwner");
         require(newSize > 0 && newSize <= 50, "Invalid size");
         maxBatchSize = newSize;
         emit MaxBatchSizeUpdated(newSize);
@@ -88,12 +81,12 @@ contract PayoutAndFeesExecutor is ReentrancyGuard {
         uint256[] calldata feeAmounts
     ) external nonReentrant {
 
-        if (token == address(0) || mainRecipient == address(0)) revert ZeroAddress();
-        if (mainAmount == 0) revert ZeroAmount();
-        if (nonces[msg.sender] != nonce) revert BadNonce();
-        if (feeRecipients.length != feeAmounts.length) revert FeeLengthMismatch();
-        if (feeRecipients.length > maxBatchSize) revert TooManyFees();
-        if (!_isContract(token)) revert NotContract();
+        require(token != address(0) && mainRecipient != address(0), "ZeroAddress");
+        require(mainAmount > 0, "ZeroAmount");
+        require(nonces[msg.sender] == nonce, "BadNonce");
+        require(feeRecipients.length == feeAmounts.length, "FeeLengthMismatch");
+        require(feeRecipients.length <= maxBatchSize, "TooManyFees");
+        require(_isContract(token), "NotContract");
 
         nonces[msg.sender]++;
 
@@ -108,8 +101,8 @@ contract PayoutAndFeesExecutor is ReentrancyGuard {
             address recipient = feeRecipients[i];
             uint256 amount = feeAmounts[i];
 
-            if (recipient == address(0)) revert ZeroAddress();
-            if (amount == 0) revert ZeroAmount();
+            require(recipient != address(0), "ZeroAddress");
+            require(amount > 0, "ZeroAmount");
 
             totalFees += amount;
 
@@ -148,10 +141,10 @@ contract PayoutAndFeesExecutor is ReentrancyGuard {
             )
         );
 
-        if (!success) revert TransferFailed();
+        require(success, "Insufficient balance or allowance");
 
         if (data.length > 0) {
-            if (!abi.decode(data, (bool))) revert TransferFailed();
+            require(abi.decode(data, (bool)), "Insufficient balance or allowance");
         }
     }
 
