@@ -1,6 +1,6 @@
 """Add commissioners to deal and payout_executor_address to escrow
 
-Revision ID: 063_commissioners_payout_executor
+Revision ID: 063_commissioners_payout_exec
 Revises: 062_add_payout_txn_hash_to_deal
 Create Date: 2026-02-24 00:00:00.000000
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
 
-revision: str = '063_commissioners_payout_executor'
+revision: str = '063_commissioners_payout_exec'
 down_revision: Union[str, None] = '062_add_payout_txn_hash_to_deal'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

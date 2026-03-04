@@ -534,6 +534,7 @@ async def example_multisig_contract_workflow():
         print("PAYOUT_EXECUTOR_ADDRESS не задан — только сборка и подписи (без broadcast)")
         print()
 
+    escrow_address = os.getenv("MULTISIG_ADDRESS")
     owner1_address, owner1_key = keypair_from_mnemonic(mnemonic1)
     owner2_address, owner2_key = keypair_from_mnemonic(mnemonic2)
     owner3_address, owner3_key = keypair_from_mnemonic(mnemonic3)
@@ -562,7 +563,7 @@ async def example_multisig_contract_workflow():
 
     network = os.getenv("TRON_NETWORK", "mainnet")
     print(f"Сеть: {network}")
-    print(f"Эскроу (owner1): {owner1_address[:16]}...")
+    print(f"Эскроу (owner1): {escrow_address[:16]}...")
     print(f"Контракт: {executor_address or '(не задан)'}")
     print(f"Основная сумма: {main_amount} (1e6 = 1 USDT) -> {main_recipient[:16]}...")
     print(f"Комиссии: {len(fee_amounts)} получателей")
@@ -577,7 +578,7 @@ async def example_multisig_contract_workflow():
 
         try:
             unsigned_tx = await api.trigger_smart_contract(
-                owner_address=owner1_address,
+                owner_address=escrow_address,
                 contract_address=executor_address,
                 function_selector="executePayoutAndFees(address,uint256,address,uint256,address[],uint256[])",
                 parameter=parameter_hex,
