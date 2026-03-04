@@ -11,6 +11,10 @@ from sqlalchemy.dialects.postgresql import JSONB
 from db.models import EscrowModel
 from services.tron.api_client import TronAPIClient
 from services.tron.multisig import TronMultisig, MultisigConfig
+from services.tron.payout_executor import (
+    get_executor_nonce,
+    abi_encode_execute_payout_and_fees,
+)
 
 
 class EscrowError(Exception):
@@ -414,47 +418,45 @@ class EscrowService:
         amount: float,
         token_contract: Optional[str] = None,
         expiration_seconds: int = 24 * 3600,
+        fee_recipients: Optional[List[str]] = None,
+        fee_amounts: Optional[List[int]] = None,
     ) -> Dict[str, Any]:
         """
-        Create unsigned payment transaction
-        
-        Args:
-            escrow_id: Escrow ID
-            to_address: Recipient address
-            amount: Amount to send
-            token_contract: TRC20 token contract address (None for TRX)
-            expiration_seconds: Transaction validity in seconds (default 24 hours)
-            
-        Returns:
-            Dict with unsigned transaction data
-            
-        Raises:
-            EscrowError: If validation fails
+        Create unsigned payment transaction.
+        When PAYOUT_EXECUTOR_ADDRESS is set and token_contract is set, builds
+        one atomic transaction (main + fees) via PayoutAndFeesExecutor contract.
         """
         escrow = await self.get_escrow_by_id(escrow_id)
+        executor_address = getattr(escrow, "payout_executor_address", None) and (escrow.payout_executor_address or "").strip() or None
+        if token_contract and fee_recipients and executor_address:
+            return await self._create_payout_and_fees_transaction(
+                escrow_id=escrow_id,
+                escrow=escrow,
+                to_address=to_address,
+                amount=amount,
+                token_contract=token_contract,
+                fee_recipients=fee_recipients or [],
+                fee_amounts=fee_amounts or [],
+                expiration_seconds=expiration_seconds,
+            )
+
         expiration_ms = (int(time.time()) + expiration_seconds) * 1000
 
-        # Get multisig permission ID from blockchain using escrow's network
         async with self._get_api_client(escrow.network) as api_client:
             account_info = await api_client.get_account(escrow.escrow_address)
-            
             if not account_info:
                 raise EscrowError(
                     self.ESCROW_NOT_ACTIVATED,
                     f"Escrow account {escrow.escrow_address} not activated",
                     {"escrow_address": escrow.escrow_address}
                 )
-            
-            # Find last multisig permission (most recent)
             multisig_permission_id = None
             if "active_permission" in account_info:
                 for perm in account_info["active_permission"]:
                     if perm.get("threshold") == 2:
                         multisig_permission_id = perm.get("id")
-                        # Don't break - continue to get the last one
-            
+
             if token_contract:
-                # TRC20 transaction
                 unsigned_tx = await self._create_trc20_transaction(
                     escrow.escrow_address,
                     to_address,
@@ -465,7 +467,6 @@ class EscrowService:
                     expiration_ms=expiration_ms,
                 )
             else:
-                # TRX transaction
                 unsigned_tx = await self._create_trx_transaction(
                     escrow.escrow_address,
                     to_address,
@@ -474,20 +475,16 @@ class EscrowService:
                     escrow.network,
                     expiration_ms=expiration_ms,
                 )
-        
-        # Prepare for multisig signing
+
         config = MultisigConfig(**escrow.multisig_config)
-        
         transaction = self.multisig.prepare_transaction_for_signing(
             raw_data_hex=unsigned_tx["raw_data_hex"],
             tx_id=unsigned_tx["txID"],
             config=config,
             contract_type="TransferContract" if not token_contract else "TriggerSmartContract"
         )
-        
-        # Add contract data for broadcast
         transaction.contract_data = unsigned_tx.get("raw_data", {})
-        
+
         return {
             "escrow_id": escrow_id,
             "transaction": transaction,
@@ -499,6 +496,106 @@ class EscrowService:
                 if role == "participant"
             ],
             "arbiter": escrow.arbiter_address
+        }
+
+    async def _create_payout_and_fees_transaction(
+        self,
+        escrow_id: int,
+        escrow: EscrowModel,
+        to_address: str,
+        amount: float,
+        token_contract: str,
+        fee_recipients: List[str],
+        fee_amounts: List[int],
+        expiration_seconds: int = 24 * 3600,
+    ) -> Dict[str, Any]:
+        """Build unsigned tx for PayoutAndFeesExecutor.executePayoutAndFees (atomic main + fees)."""
+        executor_address = (getattr(escrow, "payout_executor_address", None) or "").strip()
+        if not executor_address:
+            raise EscrowError(
+                "CONFIG_ERROR",
+                "escrow.payout_executor_address not set",
+                {}
+            )
+        if fee_recipients and len(fee_recipients) != len(fee_amounts):
+            raise EscrowError(
+                "INVALID_FEES",
+                "fee_recipients and fee_amounts length mismatch",
+                {}
+            )
+
+        expiration_ms = (int(time.time()) + expiration_seconds) * 1000
+        main_amount_smallest = int(amount * 1e6)
+
+        async with self._get_api_client(escrow.network) as api_client:
+            account_info = await api_client.get_account(escrow.escrow_address)
+            if not account_info:
+                raise EscrowError(
+                    self.ESCROW_NOT_ACTIVATED,
+                    f"Escrow account {escrow.escrow_address} not activated",
+                    {"escrow_address": escrow.escrow_address}
+                )
+            multisig_permission_id = None
+            if "active_permission" in account_info:
+                for perm in account_info["active_permission"]:
+                    if perm.get("threshold") == 2:
+                        multisig_permission_id = perm.get("id")
+
+            nonce = await get_executor_nonce(api_client, executor_address, escrow.escrow_address)
+            token_hex = self.multisig.address_to_hex(token_contract)
+            main_recipient_hex = self.multisig.address_to_hex(to_address)
+            fee_recipients_hex = [self.multisig.address_to_hex(a) for a in fee_recipients]
+
+            parameter_hex = abi_encode_execute_payout_and_fees(
+                token_hex=token_hex,
+                nonce=nonce,
+                main_recipient_hex=main_recipient_hex,
+                main_amount=main_amount_smallest,
+                fee_recipients_hex=fee_recipients_hex,
+                fee_amounts=fee_amounts,
+            )
+
+            response = await api_client.trigger_smart_contract(
+                owner_address=escrow.escrow_address,
+                contract_address=executor_address,
+                function_selector="executePayoutAndFees(address,uint256,address,uint256,address[],uint256[])",
+                parameter=parameter_hex,
+                permission_id=multisig_permission_id,
+                expiration_ms=expiration_ms,
+                fee_limit=30_000_000,
+            )
+            unsigned_tx = response.get("transaction") if isinstance(response.get("transaction"), dict) else response
+            if not unsigned_tx or "txID" not in unsigned_tx:
+                raise EscrowError(
+                    "TRANSACTION_CREATION_FAILED",
+                    "Failed to create PayoutAndFeesExecutor transaction",
+                    {"response": response}
+                )
+
+        config = MultisigConfig(**escrow.multisig_config)
+        transaction = self.multisig.prepare_transaction_for_signing(
+            raw_data_hex=unsigned_tx["raw_data_hex"],
+            tx_id=unsigned_tx["txID"],
+            config=config,
+            contract_type="TriggerSmartContract"
+        )
+        transaction.contract_data = unsigned_tx.get("raw_data", {})
+
+        return {
+            "escrow_id": escrow_id,
+            "transaction": transaction,
+            "unsigned_tx": unsigned_tx,
+            "required_signatures": config.required_signatures,
+            "owner_addresses": list(config.owner_addresses),
+            "participants": [
+                addr for addr, role in escrow.address_roles.items()
+                if role == "participant"
+            ],
+            "arbiter": escrow.arbiter_address,
+            "main_recipient": to_address,
+            "main_amount": main_amount_smallest,
+            "fee_recipients": list(fee_recipients),
+            "fee_amounts": list(fee_amounts),
         }
     
     async def _create_trx_transaction(

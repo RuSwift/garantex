@@ -1,6 +1,8 @@
 import os
 import sys
 import asyncio
+import subprocess
+import tempfile
 
 # Add project root to path for imports
 project_root = os.path.join(os.path.dirname(__file__), '..', '..')
@@ -477,6 +479,519 @@ async def example_full_multisig_workflow():
     print("=" * 60)
 
 
+def _abi_encode_payout_and_fees(token_hex, nonce, main_recipient_hex, main_amount, fee_recipients_hex, fee_amounts):
+    """
+    ABI-encode parameters for executePayoutAndFees(
+        address token, uint256 nonce, address mainRecipient, uint256 mainAmount,
+        address[] feeRecipients, uint256[] feeAmounts
+    ).
+    All address args: 20-byte hex (no 0x41 prefix), will be right-padded to 32 bytes.
+    """
+    def addr_to_32(hex_20: str) -> str:
+        # 20 bytes = 40 hex chars, right-pad to 32 bytes = 64 hex
+        h = hex_20.replace("0x", "").lower()
+        if len(h) == 42 and h.startswith("41"):
+            h = h[2:]
+        return h.zfill(64)
+
+    def u256_to_32(n: int) -> str:
+        return ("%064x" % (n % (1 << 256)))
+
+    n = len(fee_recipients_hex)
+    head_size = 6 * 32  # 6 slots
+    offset_fee_rec = head_size
+    offset_fee_amt = head_size + 32 + n * 32
+
+    head = (
+        addr_to_32(token_hex)
+        + u256_to_32(nonce)
+        + addr_to_32(main_recipient_hex)
+        + u256_to_32(main_amount)
+        + f"{offset_fee_rec:064x}"
+        + f"{offset_fee_amt:064x}"
+    )
+    fee_rec_part = u256_to_32(n) + "".join(addr_to_32(a) for a in fee_recipients_hex)
+    fee_amt_part = u256_to_32(n) + "".join(u256_to_32(a) for a in fee_amounts)
+    return head + fee_rec_part + fee_amt_part
+
+
+def _abi_encode_approve(spender_hex: str, amount: int) -> str:
+    """ABI-encode parameters for approve(address spender, uint256 value)."""
+    h = (spender_hex or "").replace("0x", "").lower()
+    if len(h) == 42 and h.startswith("41"):
+        h = h[2:]
+    addr_32 = h.zfill(64)
+    value_32 = "%064x" % (amount % (1 << 256))
+    return addr_32 + value_32
+
+
+def _abi_encode_nonces_param(owner_hex: str) -> str:
+    """ABI-encode single address for nonces(address). Returns 64 hex chars."""
+    h = (owner_hex or "").replace("0x", "").lower()
+    if len(h) == 42 and h.startswith("41"):
+        h = h[2:]
+    return h.zfill(64)
+
+
+async def example_multisig_contract_workflow():
+    """
+    Сценарий проверки: мультиподпись вызова контракта PayoutAndFeesExecutor.
+    Строим транзакцию executePayoutAndFees(...), собираем 2/3 подписей, объединяем.
+    """
+    print("=" * 60)
+    print("Multisig + контракт PayoutAndFeesExecutor")
+    print("(одна транзакция: основная выплата + комиссии)")
+    print("=" * 60)
+
+    if not all([mnemonic1, mnemonic2, mnemonic3]):
+        print("Ошибка: нужны MNEMONIC1, MNEMONIC2, MNEMONIC3")
+        return
+
+    executor_address = os.getenv("PAYOUT_EXECUTOR_ADDRESS", "").strip()
+    if not executor_address:
+        print("PAYOUT_EXECUTOR_ADDRESS не задан — только сборка и подписи (без broadcast)")
+        print()
+
+    escrow_address = os.getenv("MULTISIG_ADDRESS")
+    owner1_address, owner1_key = keypair_from_mnemonic(mnemonic1)
+    owner2_address, owner2_key = keypair_from_mnemonic(mnemonic2)
+    owner3_address, owner3_key = keypair_from_mnemonic(mnemonic3)
+
+    multisig = TronMultisig()
+    config = multisig.create_multisig_config(
+        required_signatures=2,
+        owner_addresses=[owner1_address, owner2_address, owner3_address],
+    )
+
+    # Параметры вызова (пример)
+    token_contract = os.getenv("TRC20_TOKEN", "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t")
+    main_recipient = owner3_address
+    main_amount = 1_000_000  # 1 USDT (6 decimals)
+    fee_recipients = [owner2_address]
+    fee_amounts = [100_000]  # 0.1 USDT
+    nonce = int(os.getenv("PAYOUT_NONCE", "0"))  # fallback, если не удастся прочитать из контракта
+
+    token_hex = multisig.address_to_hex(token_contract)
+    main_recipient_hex = multisig.address_to_hex(main_recipient)
+    fee_recipients_hex = [multisig.address_to_hex(a) for a in fee_recipients]
+
+    # Владелец токенов (эскроу): с этого адреса будет вызван approve и executePayoutAndFees
+    owner_address = escrow_address or owner1_address
+    network = os.getenv("TRON_NETWORK", "mainnet")
+    print(f"Сеть: {network}")
+    print(f"Эскроу: {owner_address[:16]}...")
+    print(f"Контракт: {executor_address or '(не задан)'}")
+    print(f"Основная сумма: {main_amount} (1e6 = 1 USDT) -> {main_recipient[:16]}...")
+    print(f"Комиссии: {len(fee_amounts)} получателей")
+    print()
+
+    async with TronAPIClient(network=network) as api:
+        if not executor_address:
+            print("Шаг 1: Пропуск создания транзакции (нет PAYOUT_EXECUTOR_ADDRESS)")
+            print("  Задайте адрес контракта и при необходимости PAYOUT_NONCE для реального вызова.")
+            print()
+            return
+
+        # Чтение nonce для эскроу из контракта (для executePayoutAndFees нужен актуальный nonce)
+        try:
+            nonce_param = _abi_encode_nonces_param(multisig.address_to_hex(owner_address))
+            nonce_result = await api._post(
+                "/wallet/triggersmartcontract",
+                {
+                    "owner_address": owner_address,
+                    "contract_address": executor_address,
+                    "function_selector": "nonces(address)",
+                    "parameter": nonce_param,
+                    "visible": True,
+                },
+            )
+            if nonce_result.get("constant_result") and len(nonce_result["constant_result"]) > 0:
+                nonce = int(nonce_result["constant_result"][0], 16)
+                print(f"Nonce для эскроу (из контракта): {nonce}")
+            else:
+                print(f"Не удалось прочитать nonce, используем PAYOUT_NONCE={nonce}")
+        except Exception as e:
+            print(f"Ошибка чтения nonce: {e}, используем PAYOUT_NONCE={nonce}")
+        parameter_hex = _abi_encode_payout_and_fees(
+            token_hex, nonce, main_recipient_hex, main_amount, fee_recipients_hex, fee_amounts
+        )
+        print()
+
+        # Approve: разрешаем контракту PayoutAndFeesExecutor списать токены с эскроу.
+        # В проде можно один раз сделать approve на большую сумму (или max uint256), тогда
+        # повторный approve перед каждой сделкой не нужен. Здесь в скрипте для наглядности
+        # делаем approve ровно на сумму текущей сделки (main_amount + комиссии).
+        approve_amount = main_amount + sum(fee_amounts)
+        skip_approve = os.getenv("SKIP_APPROVE", "").strip().lower() in ("1", "true", "yes")
+        if not skip_approve:
+            print("Шаг 0: Approve токена (на сумму сделки)")
+            executor_hex = multisig.address_to_hex(executor_address)
+            approve_param = _abi_encode_approve(executor_hex, approve_amount)
+            try:
+                approve_tx = await api.trigger_smart_contract(
+                    owner_address=owner_address,
+                    contract_address=token_contract,
+                    function_selector="approve(address,uint256)",
+                    parameter=approve_param,
+                    fee_limit=15_000_000,  # 15 TRX (sun)
+                )
+            except Exception as e:
+                print(f"  Ошибка создания approve-транзакции: {e}")
+                return
+            if "transaction" in approve_tx:
+                approve_tx = approve_tx.get("transaction") or approve_tx
+            arx_id = approve_tx.get("txID") or approve_tx.get("txid") or ""
+            arx_hex = approve_tx.get("raw_data_hex") or ""
+            if not arx_hex:
+                print("  Ошибка: нет raw_data_hex в ответе approve")
+                return
+            atx = multisig.prepare_transaction_for_signing(
+                raw_data_hex=arx_hex,
+                tx_id=arx_id,
+                config=config,
+                contract_type="TriggerSmartContract",
+            )
+            atx.contract_data = approve_tx.get("raw_data", {})
+            atx = multisig.sign_transaction(transaction=atx, private_key_hex=owner2_key, signer_address=owner2_address)
+            atx = multisig.sign_transaction(transaction=atx, private_key_hex=owner3_key, signer_address=owner3_address)
+            if atx.is_ready_to_broadcast:
+                signed_approve = multisig.combine_signatures(atx)
+                if "visible" not in signed_approve and approve_tx.get("visible"):
+                    signed_approve["visible"] = approve_tx.get("visible", True)
+                if os.getenv("BROADCAST_PAYOUT") == "1":
+                    apr_result = await api.broadcast_transaction(signed_approve)
+                    if apr_result.get("result"):
+                        sent_approve_txid = apr_result.get("txid") or arx_id
+                        print(f"  Approve отправлен. txid: {sent_approve_txid}")
+                        print("  Ожидание подтверждения (6 сек)...")
+                        await asyncio.sleep(6)
+                        apr_info = await api.get_transaction_info(sent_approve_txid)
+                        if apr_info:
+                            apr_receipt = apr_info.get("receipt", {})
+                            apr_status = apr_receipt.get("result", "UNKNOWN")
+                            print(f"  Статус approve: {apr_status}")
+                            if apr_status != "SUCCESS":
+                                apr_msg = apr_receipt.get("result_message") or apr_receipt.get("resMessage") or apr_info.get("resMessage")
+                                apr_cr = apr_receipt.get("contractResult") or apr_info.get("contractResult") or []
+                                if not apr_msg and apr_cr and len(apr_cr) > 0:
+                                    raw = apr_cr[0]
+                                    hex_s = raw if isinstance(raw, str) else (raw.hex() if isinstance(raw, bytes) else "")
+                                    if hex_s:
+                                        hex_s = hex_s.replace("0x", "").strip()
+                                        try:
+                                            b = bytes.fromhex(hex_s)
+                                            if len(b) >= 68 and b[:4].hex() == "08c379a0":
+                                                ln = int.from_bytes(b[36:68], "big")
+                                                apr_msg = b[68 : 68 + ln].decode("utf-8", errors="replace")
+                                            elif b.isascii() or (b and max(b) < 128):
+                                                apr_msg = b.decode("utf-8", errors="replace")
+                                            else:
+                                                apr_msg = hex_s[:80]
+                                        except Exception:
+                                            apr_msg = hex_s[:80] if len(hex_s) > 80 else hex_s
+                                if apr_msg and isinstance(apr_msg, str) and len(apr_msg) >= 2 and len(apr_msg) % 2 == 0:
+                                    try:
+                                        h = apr_msg.strip().replace("0x", "")
+                                        if all(c in "0123456789abcdefABCDEF" for c in h):
+                                            decoded = bytes.fromhex(h).decode("utf-8", errors="replace")
+                                            if decoded.isprintable() or all(ord(c) < 128 for c in decoded):
+                                                apr_msg = decoded
+                                    except Exception:
+                                        pass
+                                print(f"  Причина: {apr_msg or '—'}")
+                                return
+                        else:
+                            print("  Approve ещё не в блоке, продолжаем (проверьте tx в TronScan)")
+                    else:
+                        print("  Ошибка broadcast approve:", apr_result)
+                        return
+                else:
+                    print("  Approve собран (BROADCAST_PAYOUT=1 для отправки)")
+            else:
+                print("  Недостаточно подписей для approve")
+                return
+            print()
+        else:
+            print("Шаг 0: Approve пропущен (SKIP_APPROVE=1)")
+            print()
+
+        try:
+            unsigned_tx = await api.trigger_smart_contract(
+                owner_address=owner_address,
+                contract_address=executor_address,
+                function_selector="executePayoutAndFees(address,uint256,address,uint256,address[],uint256[])",
+                parameter=parameter_hex,
+                fee_limit=30_000_000,
+            )
+        except Exception as e:
+            print(f"Ошибка создания транзакции: {e}")
+            return
+
+        if "txID" not in unsigned_tx and "transaction" in unsigned_tx:
+            unsigned_tx = unsigned_tx["transaction"] or unsigned_tx
+        if "txID" not in unsigned_tx:
+            print("Ошибка: нет txID в ответе API", unsigned_tx)
+            return
+
+        tx_id = unsigned_tx.get("txID") or unsigned_tx.get("txid") or ""
+        raw_data_hex = unsigned_tx.get("raw_data_hex") or ""
+        if not raw_data_hex:
+            print("Ошибка: в ответе API нет raw_data_hex")
+            return
+
+        contract_data = unsigned_tx.get("raw_data", {})
+
+        print("Шаг 1: Транзакция создана")
+        print(f"  txID: {tx_id[:20]}...")
+        print()
+
+        transaction = multisig.prepare_transaction_for_signing(
+            raw_data_hex=raw_data_hex,
+            tx_id=tx_id,
+            config=config,
+            contract_type="TriggerSmartContract",
+        )
+        transaction.contract_data = contract_data
+
+        print("Шаг 2: Сбор 2/3 подписей (owner2, owner3)")
+        transaction = multisig.sign_transaction(
+            transaction=transaction,
+            private_key_hex=owner2_key,
+            signer_address=owner2_address,
+        )
+        print(f"  Подписей: {transaction.signatures_count}/{config.required_signatures}")
+        transaction = multisig.sign_transaction(
+            transaction=transaction,
+            private_key_hex=owner3_key,
+            signer_address=owner3_address,
+        )
+        print(f"  Подписей: {transaction.signatures_count}/{config.required_signatures}")
+        print(f"  Готова к broadcast: {transaction.is_ready_to_broadcast}")
+        print()
+
+        if not transaction.is_ready_to_broadcast:
+            print("Недостаточно подписей для broadcast")
+            return
+
+        signed_tx = multisig.combine_signatures(transaction)
+        if "visible" not in signed_tx and "visible" in unsigned_tx:
+            signed_tx["visible"] = unsigned_tx.get("visible", True)
+
+        print("Шаг 3: Подписанная транзакция собрана")
+        if os.getenv("BROADCAST_PAYOUT") == "1":
+            result = await api.broadcast_transaction(signed_tx)
+            if result.get("result"):
+                sent_txid = result.get("txid") or tx_id
+                print(f"  Отправлено. txid: {sent_txid}")
+                print("  Ожидание подтверждения (3 сек)...")
+                await asyncio.sleep(6)
+                tx_info = await api.get_transaction_info(sent_txid)
+                if tx_info:
+                    receipt = tx_info.get("receipt", {})
+                    status = receipt.get("result", "UNKNOWN")
+                    print(f"  Статус выполнения: {status}")
+                    print(f"  Блок: {tx_info.get('blockNumber', 'N/A')}")
+                    print(f"  Energy: {receipt.get('energy_usage', 0)}, Net: {receipt.get('net_usage', 0)}")
+                    if status != "SUCCESS":
+                        msg = (
+                            receipt.get("result_message")
+                            or receipt.get("resMessage")
+                            or tx_info.get("resMessage")
+                        )
+                        contract_result = (
+                            receipt.get("contractResult")
+                            or tx_info.get("contractResult")
+                            or tx_info.get("contract_result")
+                            or []
+                        )
+                        if not msg and contract_result and len(contract_result) > 0:
+                            raw = contract_result[0]
+                            hex_str = raw if isinstance(raw, str) else (raw.hex() if isinstance(raw, bytes) else None)
+                            if hex_str:
+                                hex_str = hex_str.replace("0x", "").strip()
+                                try:
+                                    b = bytes.fromhex(hex_str)
+                                    if len(b) >= 68 and b[:4].hex() == "08c379a0":
+                                        length = int.from_bytes(b[36:68], "big")
+                                        msg = b[68 : 68 + length].decode("utf-8", errors="replace")
+                                    else:
+                                        msg = b.decode("utf-8", errors="replace") if b.isascii() or max(b) < 128 else hex_str[:128]
+                                except Exception:
+                                    msg = hex_str[:128] if len(hex_str) > 128 else hex_str
+                        if msg and isinstance(msg, str) and len(msg) >= 2 and len(msg) % 2 == 0:
+                            try:
+                                h = msg.strip().replace("0x", "")
+                                if all(c in "0123456789abcdefABCDEF" for c in h):
+                                    decoded = bytes.fromhex(h).decode("utf-8", errors="replace")
+                                    if decoded.isprintable() or all(ord(c) < 128 for c in decoded):
+                                        msg = decoded
+                            except Exception:
+                                pass
+                        print(f"  Причина: {msg or '—'}")
+                        if contract_result and len(contract_result) > 0 and not (msg and msg != "—"):
+                            raw = contract_result[0]
+                            if isinstance(raw, str):
+                                print(f"  contractResult (hex): {raw[:200]}{'...' if len(raw) > 200 else ''}")
+                            elif isinstance(raw, bytes):
+                                print(f"  contractResult (hex): {raw.hex()[:200]}{'...' if len(raw) > 100 else ''}")
+                else:
+                    print("  Транзакция ещё не в блоке, проверьте позже в TronScan")
+            else:
+                print("  Ошибка broadcast:", result)
+        else:
+            print("  Broadcast отключен (BROADCAST_PAYOUT=1 для отправки)")
+
+    print()
+    print("=" * 60)
+
+
+def _compile_payout_executor_bytecode():
+    """
+    Компилирует smart_contracts/PayoutAndFeesExecutor.sol через solc, возвращает bytecode (hex без 0x).
+    Возвращает None, если solc не найден или компиляция не удалась.
+    """
+    contract_path = os.path.join(project_root, "smart_contracts", "PayoutAndFeesExecutor.sol")
+    if not os.path.isfile(contract_path):
+        print(f"Файл контракта не найден: {contract_path}")
+        return None
+    out_dir = tempfile.mkdtemp()
+    try:
+        result = subprocess.run(
+            ["solc", "--bin", "--optimize", "-o", out_dir, contract_path],
+            capture_output=True,
+            text=True,
+            cwd=project_root,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            print("solc ошибка:", result.stderr or result.stdout)
+            return None
+        bin_path = os.path.join(out_dir, "PayoutAndFeesExecutor.bin")
+        if not os.path.isfile(bin_path):
+            print("solc не создал PayoutAndFeesExecutor.bin")
+            return None
+        with open(bin_path, "r", encoding="utf-8") as f:
+            bytecode = f.read().strip().replace("0x", "")
+        return bytecode
+    except FileNotFoundError:
+        print("solc не найден. Установите Solidity 0.5.x и добавьте в PATH (например: solc-select install 0.5.10).")
+        return None
+    except subprocess.TimeoutExpired:
+        print("Таймаут компиляции solc")
+        return None
+    finally:
+        try:
+            import shutil
+            shutil.rmtree(out_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+async def example_multisig_contract_deploy():
+    """
+    Деплой контракта PayoutAndFeesExecutor в сеть.
+    Компилирует .sol через solc, создаёт транзакцию деплоя, подписывает ключом MNEMONIC1, отправляет в сеть.
+    """
+    print("=" * 60)
+    print("Деплой контракта PayoutAndFeesExecutor")
+    print("=" * 60)
+
+    if not mnemonic1:
+        print("Ошибка: задайте MNEMONIC1 (от имени этого адреса будет задеплоен контракт)")
+        return
+
+    bytecode = _compile_payout_executor_bytecode()
+    if not bytecode:
+        return
+
+    owner1_address, owner1_key = keypair_from_mnemonic(mnemonic1)
+    network = os.getenv("TRON_NETWORK", "shasta")
+
+    print(f"Сеть: {network}")
+    print(f"Деплой от: {owner1_address[:20]}...")
+    print()
+
+    async with TronAPIClient(network=network) as api:
+        try:
+            resp = await api._post(
+                "/wallet/deploycontract",
+                {
+                    "owner_address": owner1_address,
+                    "bytecode": bytecode,
+                    "name": "PayoutAndFeesExecutor",
+                    "fee_limit": 100_000_000,
+                    "visible": True,
+                },
+            )
+        except Exception as e:
+            print(f"Ошибка API deploycontract: {e}")
+            return
+
+        tx = resp.get("transaction") if isinstance(resp.get("transaction"), dict) else resp
+        if not tx or "txID" not in tx:
+            print("Ответ API без транзакции:", resp)
+            return
+
+        tx_id = tx.get("txID") or tx.get("txid") or ""
+        raw_data_hex = tx.get("raw_data_hex") or ""
+        if not raw_data_hex:
+            print("В ответе нет raw_data_hex")
+            return
+
+        try:
+            from tronpy.keys import PrivateKey as TronPrivateKey
+            tx_id_bytes = bytes.fromhex(tx_id)
+            private_key_bytes = bytes.fromhex(owner1_key)
+            tron_key = TronPrivateKey(private_key_bytes)
+            signature_bytes = tron_key.sign_msg_hash(tx_id_bytes)
+            signature_hex = signature_bytes.hex()
+        except Exception as e:
+            print(f"Ошибка подписи: {e}")
+            return
+
+        signed_tx = {
+            "txID": tx_id,
+            "raw_data_hex": raw_data_hex,
+            "signature": [signature_hex],
+        }
+        if tx.get("raw_data"):
+            signed_tx["raw_data"] = tx["raw_data"]
+
+        print("Транзакция подписана, отправка в сеть...")
+        result = await api.broadcast_transaction(signed_tx)
+        if not result.get("result"):
+            print("Ошибка broadcast:", result)
+            return
+
+        txid = result.get("txid") or tx_id
+        print(f"Транзакция отправлена: {txid[:24]}...")
+        print("Ожидание подтверждения (5 сек)...")
+        await asyncio.sleep(5)
+
+        info = await api.get_transaction_info(txid)
+        if not info:
+            print("Не удалось получить transaction info")
+            print("Сохраните txid и проверьте контракт в эксплорере.")
+            print()
+            return
+
+        contract_addr = info.get("contract_address")
+        if contract_addr:
+            from services.tron.multisig import TronMultisig
+            base58_addr = TronMultisig.hex_to_address(contract_addr) if contract_addr.startswith("41") else contract_addr
+            print()
+            print("Адрес задеплоенного контракта (Base58):", base58_addr)
+            print("Адрес (hex):", contract_addr)
+            print()
+            print("Для эскроу задайте: payout_executor_address =", base58_addr)
+        else:
+            receipt = info.get("receipt", {})
+            print("Transaction info:", info.get("receipt"))
+            if receipt.get("result") == "SUCCESS":
+                print("Деплой успешен, но contract_address не в ответе. Проверьте tx в эксплорере.")
+        print("=" * 60)
+
+
 async def check_balances():
     """Check balances for address from MNEMONIC1"""
     if not mnemonic1:
@@ -522,6 +1037,10 @@ async def main():
     
     if mode == "multisig":
         await example_full_multisig_workflow()
+    elif mode == "multisig-contract":
+        await example_multisig_contract_workflow()
+    elif mode == "multisig-contract-deploy":
+        await example_multisig_contract_deploy()
     else:
         await check_balances()
     
